@@ -16,24 +16,21 @@ MISSAV_URL = os.environ.get("MISSAV_URL", "https://missav.live/ja/search/fc2-ppv
 SUPJAV_URL = os.environ.get("SUPJAV_URL", "https://supjav.com/ja/category/maker/fc2ppv")
 CODE_RE = re.compile(r"FC2[-_ ]?PPV[-_ ]?(\d{6,8})", re.I)
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "ja,en;q=0.8",
 }
 DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
 CRAWL_FILE = Path(os.environ.get("CRAWL_FILE", "docs/crawl_state.json"))
-MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
 PAGES = int(os.environ.get("PAGES", "8"))
 BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "6"))
+VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "20"))
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 JST = timezone(timedelta(hours=9))
+DURATION_RE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?$")
 
 
 def now_jst() -> str:
@@ -74,14 +71,10 @@ def fetch_soup(url: str) -> BeautifulSoup:
     return BeautifulSoup(res.text, "html.parser")
 
 
-DURATION_RE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?$")
-
-
 def clean_title(text: str, code_num: str) -> str:
     title = re.sub(r"\s+", " ", (text or "")).strip()
     title = re.sub(r"^\d{1,2}:\d{2}(?::\d{2})?\s*", "", title)
-    title = title.replace(f"FC2-PPV-{code_num}", "").replace(f"FC2PPV {code_num}", "")
-    title = title.replace(f"FC2PPV-{code_num}", "").strip(" -|/")
+    title = title.replace(f"FC2-PPV-{code_num}", "").replace(f"FC2PPV {code_num}", "").replace(f"FC2PPV-{code_num}", "").strip(" -|/")
     return title[:180]
 
 
@@ -104,28 +97,40 @@ def parse_duration(text: str) -> str:
 
 
 def parse_views(text: str) -> int | None:
-    match = re.search(r"([\d,]+)\s*(?:views|view|回再生|視聴|Views)", text or "", flags=re.I)
-    if not match:
-        return None
-    try:
-        return int(match.group(1).replace(",", ""))
-    except ValueError:
-        return None
+    for pat in [r"([\d,]+)\s*(?:views|view|Views)", r"(?:視聴回数|再生回数|回再生|視聴)\s*[:：]?\s*([\d,]+)", r"([\d,]+)\s*(?:回再生|回視聴)"]:
+        match = re.search(pat, text or "", flags=re.I)
+        if match:
+            try:
+                value = int(match.group(1).replace(",", ""))
+                if 0 < value < 100000000:
+                    return value
+            except ValueError:
+                pass
+    return None
 
 
-def enrich(code_num: str, title: str, source: str, url: str, duration: str = "", views: int | None = None) -> dict:
+def fill_missing_views(items: list[dict]) -> None:
+    fetched = 0
+    for item in items:
+        if item.get("views") or fetched >= VIEW_FETCH_LIMIT:
+            continue
+        sources = item.get("sources") or {}
+        url = sources.get("MissAV") or (item.get("url") if "missav" in str(item.get("url", "")) else "")
+        if not url:
+            continue
+        try:
+            views = parse_views(fetch_soup(url).get_text(" ", strip=True))
+            if views:
+                item["views"] = views
+                fetched += 1
+                print(f"再生数: {item['code']} = {views}")
+        except Exception as e:
+            print(f"再生数取得失敗 {item.get('code')}: {e}")
+
+
+def enrich(code_num, title, source, url, duration="", views=None):
     slug = f"fc2-ppv-{code_num}"
-    return {
-        "code": f"FC2-PPV-{code_num}",
-        "code_num": code_num,
-        "title": title or f"FC2-PPV-{code_num}",
-        "source": source,
-        "url": url,
-        "duration": duration,
-        "views": views,
-        "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg",
-        "preview": f"https://fourhoi.com/{slug}/preview.mp4",
-    }
+    return {"code": f"FC2-PPV-{code_num}", "code_num": code_num, "title": title or f"FC2-PPV-{code_num}", "source": source, "url": url, "duration": duration, "views": views, "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg", "preview": f"https://fourhoi.com/{slug}/preview.mp4"}
 
 
 def extra_sources(code_num: str) -> dict:
@@ -138,7 +143,7 @@ def extra_sources(code_num: str) -> dict:
     }
 
 
-def scrape_missav(pages: list[int] | None = None) -> list[dict]:
+def scrape_missav(pages=None):
     collected = {}
     for page in (pages or list(range(1, PAGES + 1))):
         url = MISSAV_URL if page == 1 else f"{MISSAV_URL}?page={page}"
@@ -149,34 +154,30 @@ def scrape_missav(pages: list[int] | None = None) -> list[dict]:
             break
         before = len(collected)
         for a in soup.find_all("a", href=True):
-            href = a["href"]
-            match = re.search(r"/fc2-ppv-(\d+)", href, flags=re.I)
+            match = re.search(r"/fc2-ppv-(\d+)", a["href"], flags=re.I)
             if not match:
                 continue
             code_num = match.group(1)
-            full_url = href if href.startswith("http") else urljoin("https://missav.live", href)
+            full_url = a["href"] if a["href"].startswith("http") else urljoin("https://missav.live", a["href"])
             img = a.find("img")
             raw = " ".join([a.get("title") or "", (img.get("alt") if img else "") or "", a.get_text(" ", strip=True)])
             title = clean_title(raw, code_num)
             around = " ".join([raw, a.parent.get_text(" ", strip=True) if a.parent else ""])
-            duration, views = parse_duration(around), parse_views(around)
-            current = collected.get(code_num)
-            if not current:
-                collected[code_num] = enrich(code_num, title or f"FC2-PPV-{code_num}", "MissAV", full_url, duration, views)
+            cur = collected.get(code_num)
+            if not cur:
+                collected[code_num] = enrich(code_num, title, "MissAV", full_url, parse_duration(around), parse_views(around))
             else:
-                if is_better_title(title, current["title"]):
-                    current["title"], current["url"] = title, full_url
-                if duration and not current.get("duration"):
-                    current["duration"] = duration
-                if views and not current.get("views"):
-                    current["views"] = views
-        print(f"MissAV {page}ページ: {len(collected) - before}件追加 / 合計{len(collected)}")
+                if is_better_title(title, cur["title"]):
+                    cur["title"], cur["url"] = title, full_url
+                if parse_duration(around) and not cur.get("duration"):
+                    cur["duration"] = parse_duration(around)
+        print(f"MissAV {page}ページ: {len(collected)-before}件追加 / 合計{len(collected)}")
         if len(collected) == before:
             break
     return list(collected.values())
 
 
-def scrape_supjav(pages: list[int] | None = None) -> list[dict]:
+def scrape_supjav(pages=None):
     items, seen = [], set()
     for page in (pages or list(range(1, PAGES + 1))):
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
@@ -192,23 +193,20 @@ def scrape_supjav(pages: list[int] | None = None) -> list[dict]:
             if not match:
                 continue
             code_num = match.group(1)
-            if code_num in seen:
-                continue
             href = a["href"]
-            if href.startswith("#") or "/category/" in href or "/maker/" in href:
+            if code_num in seen or href.startswith("#") or "/category/" in href or "/maker/" in href:
                 continue
             seen.add(code_num)
-            title = clean_title(a.get("title") or a.get_text(" ", strip=True), code_num)
             full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
             around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
-            items.append(enrich(code_num, title or f"FC2-PPV-{code_num}", "Supjav", full_url, parse_duration(around), parse_views(around)))
-        print(f"Supjav {page}ページ: {len(seen) - before}件追加 / 合計{len(seen)}")
+            items.append(enrich(code_num, clean_title(a.get("title") or a.get_text(" ", strip=True), code_num), "Supjav", full_url, parse_duration(around), parse_views(around)))
+        print(f"Supjav {page}ページ: {len(seen)-before}件追加 / 合計{len(seen)}")
         if len(seen) == before:
             break
     return items
 
 
-def merge_videos(groups: list[list[dict]]) -> list[dict]:
+def merge_videos(groups):
     merged, order = {}, []
     for group in groups:
         for item in group:
@@ -226,38 +224,31 @@ def merge_videos(groups: list[list[dict]]) -> list[dict]:
                     merged[code]["duration"] = item["duration"]
                 if item.get("views") and not merged[code].get("views"):
                     merged[code]["views"] = item["views"]
-    result = []
+    out = []
     for code in order:
-        item = merged[code]
-        item["source_label"] = " / ".join(item["sources"].keys())
-        result.append(item)
-    return result
+        merged[code]["source_label"] = " / ".join(merged[code]["sources"].keys())
+        out.append(merged[code])
+    return out
 
 
-def next_pages(start: int, count: int) -> list[int]:
-    return list(range(start, start + count))
-
-
-def get_latest_videos() -> list[dict]:
+def get_latest_videos():
     state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3})
-    missav_pages = [1, 2] + next_pages(int(state.get("missav_page", 3)), BACKFILL_PAGES)
-    supjav_pages = [1, 2] + next_pages(int(state.get("supjav_page", 3)), BACKFILL_PAGES)
+    missav_pages = [1, 2] + list(range(int(state.get("missav_page", 3)), int(state.get("missav_page", 3)) + BACKFILL_PAGES))
+    supjav_pages = [1, 2] + list(range(int(state.get("supjav_page", 3)), int(state.get("supjav_page", 3)) + BACKFILL_PAGES))
     found, errors = [], []
     try:
         items = scrape_missav(missav_pages)
-        print(f"MissAV: {len(items)}件 pages={missav_pages}")
+        print(f"MissAV: {len(items)}件")
         found.append(items)
         state["missav_page"] = missav_pages[-1] + 1
     except Exception as e:
-        print(f"MissAV 取得失敗: {e}", file=sys.stderr)
         errors.append(f"MissAV: {e}")
     try:
         items = scrape_supjav(supjav_pages)
-        print(f"Supjav: {len(items)}件 pages={supjav_pages}")
+        print(f"Supjav: {len(items)}件")
         found.append(items)
         state["supjav_page"] = supjav_pages[-1] + 1
     except Exception as e:
-        print(f"Supjav 取得失敗: {e}", file=sys.stderr)
         errors.append(f"Supjav: {e}")
     save_json(CRAWL_FILE, state)
     videos = merge_videos(found)
@@ -266,75 +257,44 @@ def get_latest_videos() -> list[dict]:
     return videos
 
 
-def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
+def render_html(items, updated_at, new_count):
     cards = []
     for item in items:
         badge = '<span class="badge new">NEW</span>' if item.get("is_new") else ""
-        thumb, preview = item.get("thumb") or "", item.get("preview") or ""
         sources = item.get("sources") or {item.get("source", "Link"): item.get("url", "#")}
         code_num = item.get("code_num") or item["code"].split("-")[-1]
         for name, url in extra_sources(code_num).items():
             sources.setdefault(name, url)
         duration = item.get("duration") or "-"
-        views = item.get("views")
-        views_label = f"{views:,}回" if isinstance(views, int) else "-"
-        source_links = " ".join(f'<a href="{url}" target="_blank" rel="noopener">{name}</a>' for name, url in sources.items())
-        seen = item.get("first_seen", "")
-        cards.append(f"""
-            <article class="card" data-code="{item['code']}" data-seen="{seen}" data-new="{1 if item.get('is_new') else 0}" data-views="{item.get('views') or 0}">
-              <button class="thumb-wrap" type="button" data-preview="{preview}" aria-label="プレビュー再生">
-                <img src="{thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
-                <video muted loop playsinline preload="none" poster="{thumb}"></video>
-                {badge}
-              </button>
-              <div class="body">
-                <div class="row">
-                  <span class="code">{item['code']}</span>
-                  <button class="fav" type="button" data-code="{item['code']}">☆</button>
-                </div>
-                <p class="title">{item['title']}</p>
-                <p class="meta">時間: {duration} ／ 再生: {views_label}</p>
-                <p class="meta">初回確認: {item.get('first_seen', '-')} ／ {item.get('source_label', item.get('source', ''))}</p>
-                <p class="links">{source_links}</p>
-              </div>
-            </article>""")
+        views_label = f"{item['views']:,}回" if isinstance(item.get("views"), int) else "-"
+        links = " ".join(f'<a href="{url}" target="_blank" rel="noopener">{name}</a>' for name, url in sources.items())
+        cards.append(f'''<article class="card" data-code="{item['code']}" data-seen="{item.get('first_seen','')}" data-new="{1 if item.get('is_new') else 0}" data-views="{item.get('views') or 0}">
+<button class="thumb-wrap" type="button" data-preview="{item.get('preview','')}"><img src="{item.get('thumb','')}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'"><video muted loop playsinline preload="none" poster="{item.get('thumb','')}"></video>{badge}</button>
+<div class="body"><div class="row"><span class="code">{item['code']}</span><button class="fav" type="button" data-code="{item['code']}">☆</button></div>
+<p class="title">{item['title']}</p><p class="meta">時間: {duration} ／ 再生: {views_label}</p>
+<p class="meta">初回確認: {item.get('first_seen','-')} ／ {item.get('source_label', item.get('source',''))}</p><p class="links">{links}</p></div></article>''')
     cards_html = "\n".join(cards) if cards else '<p class="empty">まだデータがありません。</p>'
-    return f"""<!doctype html>
-<html lang="ja"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FC2-PPV 新着モニター</title>
+    return f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FC2-PPV 新着モニター</title>
 <style>
 :root {{ color-scheme:dark; --bg:#0f1115; --card:#1a1f29; --text:#f3f5f7; --muted:#9aa3b2; --accent:#7dd3fc; --new:#34d399; }}
-* {{ box-sizing:border-box; }}
-body {{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }}
-header {{ position:sticky; top:0; padding:16px 16px 12px; background:rgba(15,17,21,.92); backdrop-filter:blur(10px); border-bottom:1px solid #2a3140; }}
-h1 {{ margin:0; font-size:18px; }}
-.sub {{ margin:6px 0 12px; color:var(--muted); font-size:13px; }}
-input {{ width:100%; border:0; border-radius:12px; padding:12px 14px; background:#11161f; color:var(--text); font-size:16px; }}
+* {{ box-sizing:border-box; }} body {{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }}
+header {{ position:sticky; top:0; padding:16px; background:rgba(15,17,21,.92); border-bottom:1px solid #2a3140; }}
+h1 {{ margin:0; font-size:18px; }} .sub {{ margin:6px 0 12px; color:var(--muted); font-size:13px; }}
+input {{ width:100%; border:0; border-radius:12px; padding:12px; background:#11161f; color:var(--text); font-size:16px; }}
 .toolbar {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }}
-.toolbar button {{ border:0; border-radius:999px; padding:8px 12px; background:#11161f; color:var(--text); font-size:13px; }}
+.toolbar button {{ border:0; border-radius:999px; padding:8px 12px; background:#11161f; color:var(--text); }}
 .toolbar button.on {{ background:#243044; color:var(--accent); }}
-.row {{ display:flex; justify-content:space-between; align-items:center; gap:8px; }}
-.fav {{ border:0; background:transparent; color:var(--muted); font-size:18px; }}
-.fav.on {{ color:#fbbf24; }}
+.row {{ display:flex; justify-content:space-between; align-items:center; }}
+.fav {{ border:0; background:transparent; color:var(--muted); font-size:18px; }} .fav.on {{ color:#fbbf24; }}
 main {{ padding:12px; display:grid; gap:10px; }}
-.card {{ display:grid; grid-template-columns:128px 1fr; gap:12px; background:var(--card); border-radius:16px; padding:10px; overflow:hidden; }}
+.card {{ display:grid; grid-template-columns:128px 1fr; gap:12px; background:var(--card); border-radius:16px; padding:10px; }}
 .thumb-wrap {{ border:0; padding:0; cursor:pointer; position:relative; width:112px; height:84px; border-radius:12px; overflow:hidden; background:#11161f; }}
-.thumb-wrap video {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; pointer-events:none; }}
-.thumb-wrap.playing video {{ opacity:1; }}
-.thumb-wrap img {{ width:100%; height:100%; object-fit:cover; display:block; }}
-.thumb-wrap .badge {{ position:absolute; top:6px; left:6px; }}
-.links a {{ display:inline-block; margin-right:8px; color:var(--accent); font-size:13px; }}
-.body {{ min-width:0; }}
-.code {{ color:var(--accent); font-weight:700; font-size:13px; }}
-.badge.new {{ background:rgba(52,211,153,.15); color:var(--new); font-size:11px; padding:3px 8px; border-radius:999px; }}
-.title {{ margin:8px 0 6px; font-size:15px; line-height:1.45; }}
-.meta {{ margin:0; color:var(--muted); font-size:12px; }}
-.empty {{ color:var(--muted); text-align:center; padding:40px 0; }}
-</style></head>
-<body>
-<header>
-<h1>FC2-PPV 新着モニター</h1>
+.thumb-wrap video {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }}
+.thumb-wrap.playing video {{ opacity:1; }} .thumb-wrap img {{ width:100%; height:100%; object-fit:cover; }}
+.links a {{ margin-right:8px; color:var(--accent); font-size:13px; }} .code {{ color:var(--accent); font-weight:700; }}
+.badge.new {{ position:absolute; top:6px; left:6px; background:rgba(52,211,153,.15); color:var(--new); font-size:11px; padding:3px 8px; border-radius:999px; }}
+.title {{ margin:8px 0 6px; font-size:15px; }} .meta {{ margin:0; color:var(--muted); font-size:12px; }}
+</style></head><body><header><h1>FC2-PPV 新着モニター</h1>
 <p class="sub">更新: {updated_at} / 今回の新着 {new_count}件</p>
 <input id="q" type="search" placeholder="番号やタイトルで検索">
 <div class="toolbar">
@@ -347,76 +307,44 @@ main {{ padding:12px; display:grid; gap:10px; }}
 <button type="button" data-filter="week">1週間</button>
 <button type="button" data-sort="new">新しい順</button>
 <button type="button" data-sort="views">再生数順</button>
-</div>
-</header>
-<main id="list">{cards_html}</main>
+</div></header><main id="list">{cards_html}</main>
 <script>
 const q=document.getElementById('q'), list=document.getElementById('list'), cards=[...document.querySelectorAll('.card')];
 const favs=new Set(JSON.parse(localStorage.getItem('fc2favs')||'[]'));
 const watched=new Set(JSON.parse(localStorage.getItem('fc2watched')||'[]'));
 let filter='all';
-const saveFavs=()=>localStorage.setItem('fc2favs', JSON.stringify([...favs]));
-const saveWatched=()=>localStorage.setItem('fc2watched', JSON.stringify([...watched]));
-const ymd=d=>d.toISOString().slice(0,10);
-const now=new Date();
+const ymd=d=>d.toISOString().slice(0,10), now=new Date();
 const today=ymd(new Date(now.getTime()+9*3600*1000));
-const yd=new Date(now.getTime()+9*3600*1000); yd.setUTCDate(yd.getUTCDate()-1); const yesterday=ymd(yd);
-const wd=new Date(now.getTime()+9*3600*1000); wd.setUTCDate(wd.getUTCDate()-7); const weekStart=ymd(wd);
+const yd=new Date(now.getTime()+9*3600*1000); yd.setUTCDate(yd.getUTCDate()-1);
+const wd=new Date(now.getTime()+9*3600*1000); wd.setUTCDate(wd.getUTCDate()-7);
+const yesterday=ymd(yd), weekStart=ymd(wd);
 const apply=()=>{{
-  const keyword=q.value.trim().toLowerCase();
-  cards.forEach(card=>{{
-    const text=card.textContent.toLowerCase();
-    const isFav=favs.has(card.dataset.code), isNew=card.dataset.new==='1', isWatched=watched.has(card.dataset.code);
-    const seenDay=(card.dataset.seen||'').slice(0,10);
-    let ok=text.includes(keyword);
-    if(filter==='new') ok=ok&&isNew;
-    if(filter==='fav') ok=ok&&isFav;
-    if(filter==='watched') ok=ok&&isWatched;
-    if(filter==='today') ok=ok&&seenDay===today;
-    if(filter==='yesterday') ok=ok&&seenDay===yesterday;
-    if(filter==='week') ok=ok&&seenDay>=weekStart;
-    card.style.display=ok?'':'none';
-    const btn=card.querySelector('.fav');
-    btn.classList.toggle('on', isFav);
-    btn.textContent=isFav?'★':'☆';
+  const k=q.value.trim().toLowerCase();
+  cards.forEach(c=>{{
+    const t=c.textContent.toLowerCase(), day=(c.dataset.seen||'').slice(0,10);
+    let ok=t.includes(k);
+    if(filter==='new') ok=ok&&c.dataset.new==='1';
+    if(filter==='fav') ok=ok&&favs.has(c.dataset.code);
+    if(filter==='watched') ok=ok&&watched.has(c.dataset.code);
+    if(filter==='today') ok=ok&&day===today;
+    if(filter==='yesterday') ok=ok&&day===yesterday;
+    if(filter==='week') ok=ok&&day>=weekStart;
+    c.style.display=ok?'':'none';
+    const b=c.querySelector('.fav'); b.classList.toggle('on', favs.has(c.dataset.code)); b.textContent=favs.has(c.dataset.code)?'★':'☆';
   }});
 }};
-q.addEventListener('input', apply);
-document.querySelectorAll('[data-filter]').forEach(btn=>btn.addEventListener('click',()=>{{
-  filter=btn.dataset.filter;
-  document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('on', b===btn));
-  apply();
-}}));
-document.querySelector('[data-sort="new"]').addEventListener('click',()=>{{
-  cards.sort((a,b)=>(b.dataset.seen||'').localeCompare(a.dataset.seen||''));
-  cards.forEach(card=>list.appendChild(card));
-}});
-document.querySelector('[data-sort="views"]').addEventListener('click',()=>{{
-  cards.sort((a,b)=>Number(b.dataset.views||0)-Number(a.dataset.views||0));
-  cards.forEach(card=>list.appendChild(card));
-}});
-document.querySelectorAll('.links a').forEach(a=>a.addEventListener('click',()=>{{
-  const card=a.closest('.card'); if(!card) return; watched.add(card.dataset.code); saveWatched();
-}}));
-document.querySelectorAll('.fav').forEach(btn=>btn.addEventListener('click',()=>{{
-  const code=btn.dataset.code; if(favs.has(code)) favs.delete(code); else favs.add(code); saveFavs(); apply();
-}}));
+q.oninput=apply;
+document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{{filter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on',x===b));apply();}});
+document.querySelector('[data-sort="new"]').onclick=()=>{{cards.sort((a,b)=>(b.dataset.seen||'').localeCompare(a.dataset.seen||''));cards.forEach(c=>list.appendChild(c));}};
+document.querySelector('[data-sort="views"]').onclick=()=>{{cards.sort((a,b)=>Number(b.dataset.views||0)-Number(a.dataset.views||0));cards.forEach(c=>list.appendChild(c));}};
+document.querySelectorAll('.links a').forEach(a=>a.onclick=()=>{{watched.add(a.closest('.card').dataset.code);localStorage.setItem('fc2watched',JSON.stringify([...watched]));}});
+document.querySelectorAll('.fav').forEach(b=>b.onclick=()=>{{favs.has(b.dataset.code)?favs.delete(b.dataset.code):favs.add(b.dataset.code);localStorage.setItem('fc2favs',JSON.stringify([...favs]));apply();}});
 apply();
-let current=null;
-const stopPreview=wrap=>{{ const v=wrap.querySelector('video'); v.pause(); v.removeAttribute('src'); v.load(); wrap.classList.remove('playing'); }};
-const playPreview=async wrap=>{{
-  const v=wrap.querySelector('video'), src=wrap.dataset.preview; if(!src) return;
-  if(current&&current!==wrap) stopPreview(current);
-  if(!v.src) v.src=src; wrap.classList.add('playing'); current=wrap; try{{ await v.play(); }}catch(e){{}}
-}};
-document.querySelectorAll('.thumb-wrap').forEach(wrap=>{{
-  wrap.addEventListener('pointerenter',()=>playPreview(wrap));
-  wrap.addEventListener('pointerleave',()=>stopPreview(wrap));
-  wrap.addEventListener('click',e=>{{ e.preventDefault(); wrap.classList.contains('playing')?stopPreview(wrap):playPreview(wrap); }});
-}});
-</script>
-</body></html>
-"""
+let cur=null;
+const stop=w=>{{const v=w.querySelector('video');v.pause();v.removeAttribute('src');v.load();w.classList.remove('playing');}};
+const play=async w=>{{const v=w.querySelector('video');if(!w.dataset.preview)return;if(cur&&cur!==w)stop(cur);if(!v.src)v.src=w.dataset.preview;w.classList.add('playing');cur=w;try{{await v.play();}}catch(e){{}}}};
+document.querySelectorAll('.thumb-wrap').forEach(w=>{{w.onpointerenter=()=>play(w);w.onpointerleave=()=>stop(w);w.onclick=e=>{{e.preventDefault();w.classList.contains('playing')?stop(w):play(w);}};}});
+</script></body></html>"""
 
 
 def main() -> int:
@@ -424,22 +352,22 @@ def main() -> int:
     try:
         latest = get_latest_videos()
     except Exception as e:
-        print(f"取得失敗: {e}", file=sys.stderr)
         send_telegram(f"監視エラー: ページ取得に失敗しました\n{e}")
         return 1
     if not latest:
         send_telegram("監視エラー: 動画リストを抽出できませんでした。")
         return 1
+    fill_missing_views(latest)
     history = load_json(HISTORY_FILE, {"ids": []})
     known = set(history.get("ids", []))
     existing = load_json(DATA_FILE, {"items": []})
-    existing_map = {item["code"]: item for item in existing.get("items", [])}
+    existing_map = {i["code"]: i for i in existing.get("items", [])}
     first_run = not known
     new_videos, merged, stamp = [], [], now_jst()
     for video in latest:
         old = existing_map.get(video["code"], {})
         is_new = video["code"] not in known and not first_run
-        item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new}
+        item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new, "views": video.get("views") or old.get("views"), "duration": video.get("duration") or old.get("duration", "")}
         if old.get("title") and not is_better_title(item.get("title", ""), old.get("title", "")):
             item["title"] = old["title"]
         merged.append(item)
@@ -458,11 +386,10 @@ def main() -> int:
     HTML_FILE.parent.mkdir(parents=True, exist_ok=True)
     HTML_FILE.write_text(render_html(merged, stamp, len(new_videos)), encoding="utf-8")
     if first_run:
-        send_telegram("監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]))
-        print("初回保存完了")
+        send_telegram("監視を開始しました。\n今後の新着だけ通知します。")
         return 0
-    def allowed(video: dict) -> bool:
-        text = f"{video.get('code','')} {video.get('title','')}"
+    def allowed(v):
+        text = f"{v.get('code','')} {v.get('title','')}"
         if EXCLUDE_KEYWORDS and any(k.lower() in text.lower() for k in EXCLUDE_KEYWORDS):
             return False
         if INCLUDE_KEYWORDS and not any(k.lower() in text.lower() for k in INCLUDE_KEYWORDS):
@@ -473,14 +400,13 @@ def main() -> int:
         print("新着なし")
         return 0
     for video in reversed(new_videos):
-        source_lines = [f"{n}: {u}" for n, u in (video.get("sources") or {video.get("source","Link"): video.get("url")}).items()]
+        lines = [f"{n}: {u}" for n, u in (video.get("sources") or {video.get("source","Link"): video.get("url")}).items()]
         extra = []
         if video.get("duration"):
             extra.append(f"時間: {video['duration']}")
         if video.get("views"):
             extra.append(f"再生: {video['views']:,}")
-        send_telegram("【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + ((" / ".join(extra)+"\n\n") if extra else "\n") + "\n".join(source_lines), photo=video.get("thumb"))
-        print(f"通知: {video['code']}")
+        send_telegram("【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + ((" / ".join(extra) + "\n\n") if extra else "\n") + "\n".join(lines), photo=video.get("thumb"))
     return 0
 
 
