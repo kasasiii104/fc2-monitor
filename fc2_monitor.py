@@ -12,12 +12,24 @@ from bs4 import BeautifulSoup
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-TARGET_URL = os.environ.get("TARGET_URL", "https://missav.live/ja/search/fc2-ppv")
+MISSAV_URL = os.environ.get("MISSAV_URL", "https://missav.live/ja/search/fc2-ppv")
+SUPJAV_URL = os.environ.get("SUPJAV_URL", "https://supjav.com/ja/category/maker/fc2ppv")
+CODE_RE = re.compile(r"FC2[-_ ]?PPV[-_ ]?(\d{6,8})", re.I)
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "ja,en;q=0.8",
+}
 DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
 MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "40"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "200"))
+INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
+EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 
 JST = timezone(timedelta(hours=9))
 
@@ -57,43 +69,130 @@ def send_telegram(text: str) -> None:
     res.raise_for_status()
 
 
-def get_latest_videos() -> list[dict]:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "ja,en;q=0.8",
-    }
-    res = requests.get(TARGET_URL, headers=headers, timeout=30)
+def fetch_soup(url: str) -> BeautifulSoup:
+    res = requests.get(url, headers=HEADERS, timeout=30)
     res.raise_for_status()
-    soup = BeautifulSoup(res.text, "html.parser")
+    return BeautifulSoup(res.text, "html.parser")
 
-    videos = []
-    seen = set()
+
+DURATION_RE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?$")
+
+
+def clean_title(text: str, code_num: str) -> str:
+    title = re.sub(r"\s+", " ", (text or "")).strip()
+    title = re.sub(r"^\d{1,2}:\d{2}(?::\d{2})?\s*", "", title)
+    title = title.replace(f"FC2-PPV-{code_num}", "").replace(f"FC2PPV {code_num}", "")
+    title = title.replace(f"FC2PPV-{code_num}", "").strip(" -|/")
+    return title[:180]
+
+
+def is_better_title(new: str, old: str) -> bool:
+    if not new:
+        return False
+    if DURATION_RE.match(new):
+        return False
+    if not old or DURATION_RE.match(old) or old.startswith("FC2-PPV-"):
+        return True
+    return len(new) > len(old)
+
+
+def enrich(code_num: str, title: str, source: str, url: str) -> dict:
+    slug = f"fc2-ppv-{code_num}"
+    return {
+        "code": f"FC2-PPV-{code_num}",
+        "code_num": code_num,
+        "title": title or f"FC2-PPV-{code_num}",
+        "source": source,
+        "url": url,
+        "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg",
+        "preview": f"https://fourhoi.com/{slug}/preview.mp4",
+    }
+
+
+def scrape_missav() -> list[dict]:
+    soup = fetch_soup(MISSAV_URL)
+    collected = {}
     for a in soup.find_all("a", href=True):
         href = a["href"]
         match = re.search(r"/fc2-ppv-(\d+)", href, flags=re.I)
         if not match:
             continue
-        code = f"FC2-PPV-{match.group(1)}"
-        if code in seen:
+        code_num = match.group(1)
+        full_url = href if href.startswith("http") else urljoin("https://missav.live", href)
+        raw = a.get("title") or a.get_text(" ", strip=True)
+        title = clean_title(raw, code_num)
+        current = collected.get(code_num)
+        if not current:
+            collected[code_num] = enrich(code_num, title or f"FC2-PPV-{code_num}", "MissAV", full_url)
+        elif is_better_title(title, current["title"]):
+            current["title"] = title
+            current["url"] = full_url
+    return list(collected.values())[:MAX_ITEMS]
+
+
+def scrape_supjav() -> list[dict]:
+    soup = fetch_soup(SUPJAV_URL)
+    items = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        text = " ".join([a.get("title") or "", a.get_text(" ", strip=True)])
+        match = CODE_RE.search(text) or CODE_RE.search(a.get("href", ""))
+        if not match:
             continue
-        seen.add(code)
-        title = a.get_text(" ", strip=True)
-        if not title or len(title) < 8:
-            parent = a.find_parent()
-            title = parent.get_text(" ", strip=True)[:180] if parent else code
-        slug = f"fc2-ppv-{match.group(1)}"
-        videos.append({
-            "code": code,
-            "title": title,
-            "url": href if href.startswith("http") else urljoin("https://missav.live", href),
-            "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg",
-        })
-        if len(videos) >= MAX_ITEMS:
+        code_num = match.group(1)
+        if code_num in seen:
+            continue
+        href = a["href"]
+        if href.startswith("#") or "category" in href:
+            continue
+        seen.add(code_num)
+        title = clean_title(a.get("title") or a.get_text(" ", strip=True), code_num)
+        full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
+        items.append(enrich(code_num, title or f"FC2-PPV-{code_num}", "Supjav", full_url))
+        if len(items) >= MAX_ITEMS:
             break
+    return items
+
+
+def merge_videos(groups: list[list[dict]]) -> list[dict]:
+    merged = {}
+    order = []
+    for group in groups:
+        for item in group:
+            code = item["code"]
+            if code not in merged:
+                merged[code] = {
+                    **item,
+                    "sources": {item["source"]: item["url"]},
+                }
+                order.append(code)
+            else:
+                merged[code]["sources"][item["source"]] = item["url"]
+                if item["source"] == "MissAV":
+                    merged[code]["url"] = item["url"]
+                    merged[code]["title"] = item["title"]
+    result = []
+    for code in order:
+        item = merged[code]
+        item["source_label"] = " / ".join(item["sources"].keys())
+        result.append(item)
+    return result
+
+
+def get_latest_videos() -> list[dict]:
+    found = []
+    errors = []
+    for name, func in (("MissAV", scrape_missav), ("Supjav", scrape_supjav)):
+        try:
+            items = func()
+            print(f"{name}: {len(items)}件")
+            found.append(items)
+        except Exception as e:
+            print(f"{name} 取得失敗: {e}", file=sys.stderr)
+            errors.append(f"{name}: {e}")
+    videos = merge_videos(found)
+    if not videos and errors:
+        raise RuntimeError(" / ".join(errors))
     return videos
 
 
@@ -102,19 +201,34 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
     for item in items:
         badge = '<span class="badge new">NEW</span>' if item.get("is_new") else ""
         thumb = item.get("thumb") or ""
+        preview = item.get("preview") or ""
+        sources = item.get("sources") or {item.get("source", "Link"): item.get("url", "#")}
+        code_num = item.get("code_num") or item["code"].split("-")[-1]
+        sources.setdefault("JavDB", f"https://javdb.com/search?q=FC2-PPV-{code_num}&f=all")
+        sources.setdefault("FC2検索", f"https://adult.contents.fc2.com/search/?q={code_num}")
+        source_links = " ".join(
+            f'<a href="{url}" target="_blank" rel="noopener">{name}</a>'
+            for name, url in sources.items()
+        )
+        seen = item.get("first_seen", "")
         cards.append(
             f"""
-            <a class="card" href="{item['url']}" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="{item['code']}" data-seen="{seen}" data-new="{1 if item.get('is_new') else 0}">
+              <button class="thumb-wrap" type="button" data-preview="{preview}" aria-label="プレビュー再生">
                 <img src="{thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="{thumb}"></video>
                 {badge}
-              </div>
+              </button>
               <div class="body">
-                <span class="code">{item['code']}</span>
+                <div class="row">
+                  <span class="code">{item['code']}</span>
+                  <button class="fav" type="button" data-code="{item['code']}">☆</button>
+                </div>
                 <p class="title">{item['title']}</p>
-                <p class="meta">初回確認: {item.get('first_seen', '-')}</p>
+                <p class="meta">初回確認: {item.get('first_seen', '-')} ／ {item.get('source_label', item.get('source', ''))}</p>
+                <p class="links">{source_links}</p>
               </div>
-            </a>
+            </article>
             """
         )
     cards_html = "\n".join(cards) if cards else '<p class="empty">まだデータがありません。</p>'
@@ -160,6 +274,39 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
       color: var(--text);
       font-size: 16px;
     }}
+    .toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }}
+    .toolbar button {{
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #11161f;
+      color: var(--text);
+      font-size: 13px;
+    }}
+    .toolbar button.on {{
+      background: #243044;
+      color: var(--accent);
+    }}
+    .row {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }}
+    .fav {{
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 18px;
+    }}
+    .fav.on {{
+      color: #fbbf24;
+    }}
     main {{
       padding: 12px;
       display: grid;
@@ -167,14 +314,36 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
     }}
     .card {{
       display: grid;
-      grid-template-columns: 112px 1fr;
+      grid-template-columns: 128px 1fr;
       gap: 12px;
-      text-decoration: none;
       color: inherit;
       background: var(--card);
       border-radius: 16px;
       padding: 10px;
       overflow: hidden;
+    }}
+    .thumb-wrap {{
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+    }}
+    .thumb-wrap video {{
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      pointer-events: none;
+    }}
+    .thumb-wrap.playing video {{
+      opacity: 1;
+    }}
+    .links a {{
+      display: inline-block;
+      margin-right: 8px;
+      color: var(--accent);
+      font-size: 13px;
     }}
     .thumb-wrap {{
       position: relative;
@@ -216,17 +385,86 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
     <h1>FC2-PPV 新着モニター</h1>
     <p class="sub">更新: {updated_at} / 今回の新着 {new_count}件</p>
     <input id="q" type="search" placeholder="番号やタイトルで検索">
+    <div class="toolbar">
+      <button type="button" data-filter="all" class="on">すべて</button>
+      <button type="button" data-filter="new">NEW</button>
+      <button type="button" data-filter="fav">お気に入り</button>
+      <button type="button" data-sort="new">新しい順</button>
+    </div>
   </header>
   <main id="list">
     {cards_html}
   </main>
   <script>
     const q = document.getElementById('q');
+    const list = document.getElementById('list');
     const cards = [...document.querySelectorAll('.card')];
-    q.addEventListener('input', () => {{
+    const favs = new Set(JSON.parse(localStorage.getItem('fc2favs') || '[]'));
+    let filter = 'all';
+    const saveFavs = () => localStorage.setItem('fc2favs', JSON.stringify([...favs]));
+    const apply = () => {{
       const keyword = q.value.trim().toLowerCase();
       cards.forEach(card => {{
-        card.style.display = card.textContent.toLowerCase().includes(keyword) ? '' : 'none';
+        const text = card.textContent.toLowerCase();
+        const isFav = favs.has(card.dataset.code);
+        const isNew = card.dataset.new === '1';
+        let ok = text.includes(keyword);
+        if (filter === 'new') ok = ok && isNew;
+        if (filter === 'fav') ok = ok && isFav;
+        card.style.display = ok ? '' : 'none';
+        const btn = card.querySelector('.fav');
+        btn.classList.toggle('on', isFav);
+        btn.textContent = isFav ? '★' : '☆';
+      }});
+    }};
+    q.addEventListener('input', apply);
+    document.querySelectorAll('[data-filter]').forEach(btn => {{
+      btn.addEventListener('click', () => {{
+        filter = btn.dataset.filter;
+        document.querySelectorAll('[data-filter]').forEach(b => b.classList.toggle('on', b === btn));
+        apply();
+      }});
+    }});
+    document.querySelector('[data-sort="new"]').addEventListener('click', () => {{
+      cards.sort((a, b) => (b.dataset.seen || '').localeCompare(a.dataset.seen || ''));
+      cards.forEach(card => list.appendChild(card));
+    }});
+    document.querySelectorAll('.fav').forEach(btn => {{
+      btn.addEventListener('click', () => {{
+        const code = btn.dataset.code;
+        if (favs.has(code)) favs.delete(code);
+        else favs.add(code);
+        saveFavs();
+        apply();
+      }});
+    }});
+    apply();
+
+    let current = null;
+    const stopPreview = (wrap) => {{
+      const video = wrap.querySelector('video');
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      wrap.classList.remove('playing');
+    }};
+    const playPreview = async (wrap) => {{
+      const video = wrap.querySelector('video');
+      const src = wrap.dataset.preview;
+      if (!src) return;
+      if (current && current !== wrap) stopPreview(current);
+      if (!video.src) video.src = src;
+      wrap.classList.add('playing');
+      current = wrap;
+      try {{ await video.play(); }} catch (e) {{}}
+    }};
+    document.querySelectorAll('.thumb-wrap').forEach(wrap => {{
+      wrap.addEventListener('pointerenter', () => playPreview(wrap));
+      wrap.addEventListener('pointerleave', () => stopPreview(wrap));
+      wrap.addEventListener('click', (e) => {{
+        e.preventDefault();
+        if (wrap.classList.contains('playing')) stopPreview(wrap);
+        else playPreview(wrap);
       }});
     }});
   </script>
@@ -241,7 +479,7 @@ def main() -> int:
         latest = get_latest_videos()
     except Exception as e:
         print(f"取得失敗: {e}", file=sys.stderr)
-        send_telegram(f"監視エラー: ページ取得に失敗しました\\n{e}")
+        send_telegram(f"監視エラー: ページ取得に失敗しました\n{e}")
         return 1
 
     if not latest:
@@ -285,25 +523,38 @@ def main() -> int:
     HTML_FILE.write_text(render_html(merged, stamp, len(new_videos)), encoding="utf-8")
 
     if first_run:
-        preview = "\\n".join(f"- {v['code']}" for v in latest[:8])
+        preview = "\n".join(f"- {v['code']}" for v in latest[:8])
         send_telegram(
-            "監視を開始しました。\\n"
-            "今後の新着だけ通知します。\\n\\n"
-            f"現在の最新:\\n{preview}"
+            "監視を開始しました。\n"
+            "今後の新着だけ通知します。\n\n"
+            f"現在の最新:\n{preview}"
         )
         print("初回保存完了")
         return 0
+
+    def allowed(video: dict) -> bool:
+        text = f"{video.get('code', '')} {video.get('title', '')}"
+        if EXCLUDE_KEYWORDS and any(k.lower() in text.lower() for k in EXCLUDE_KEYWORDS):
+            return False
+        if INCLUDE_KEYWORDS and not any(k.lower() in text.lower() for k in INCLUDE_KEYWORDS):
+            return False
+        return True
+
+    new_videos = [v for v in new_videos if allowed(v)]
 
     if not new_videos:
         print("新着なし")
         return 0
 
     for video in reversed(new_videos):
+        source_lines = []
+        for name, url in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items():
+            source_lines.append(f"{name}: {url}")
         send_telegram(
-            "【新着 FC2-PPV】\\n\\n"
-            f"{video['code']}\\n"
-            f"{video['title']}\\n\\n"
-            f"{video['url']}"
+            "【新着 FC2-PPV】\n\n"
+            f"{video['code']}\n"
+            f"{video['title']}\n\n"
+            + "\n".join(source_lines)
         )
         print(f"通知: {video['code']}")
     return 0
