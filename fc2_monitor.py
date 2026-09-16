@@ -26,8 +26,11 @@ HEADERS = {
 DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
-MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "60"))
+CRAWL_FILE = Path(os.environ.get("CRAWL_FILE", "docs/crawl_state.json"))
+MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
+PAGES = int(os.environ.get("PAGES", "8"))
+BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "6"))
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 
@@ -139,78 +142,96 @@ def enrich(code_num: str, title: str, source: str, url: str, duration: str = "",
     }
 
 
-def scrape_missav() -> list[dict]:
-    soup = fetch_soup(MISSAV_URL)
+def scrape_missav(pages: list[int] | None = None) -> list[dict]:
     collected = {}
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        match = re.search(r"/fc2-ppv-(\d+)", href, flags=re.I)
-        if not match:
-            continue
-        code_num = match.group(1)
-        full_url = href if href.startswith("http") else urljoin("https://missav.live", href)
-        img = a.find("img")
-        raw = " ".join([
-            a.get("title") or "",
-            (img.get("alt") if img else "") or "",
-            a.get_text(" ", strip=True),
-        ])
-        title = clean_title(raw, code_num)
-        around = " ".join([
-            raw,
-            a.parent.get_text(" ", strip=True) if a.parent else "",
-        ])
-        duration = parse_duration(around)
-        views = parse_views(around)
-        current = collected.get(code_num)
-        if not current:
-            collected[code_num] = enrich(
-                code_num,
-                title or f"FC2-PPV-{code_num}",
-                "MissAV",
-                full_url,
-                duration=duration,
-                views=views,
-            )
-        else:
-            if is_better_title(title, current["title"]):
-                current["title"] = title
-                current["url"] = full_url
-            if duration and not current.get("duration"):
-                current["duration"] = duration
-            if views and not current.get("views"):
-                current["views"] = views
-    return list(collected.values())[:MAX_ITEMS]
+    for page in (pages or list(range(1, PAGES + 1))):
+        url = MISSAV_URL if page == 1 else f"{MISSAV_URL}?page={page}"
+        try:
+            soup = fetch_soup(url)
+        except Exception as e:
+            print(f"MissAV {page}ページ失敗: {e}")
+            break
+        before = len(collected)
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            match = re.search(r"/fc2-ppv-(\d+)", href, flags=re.I)
+            if not match:
+                continue
+            code_num = match.group(1)
+            full_url = href if href.startswith("http") else urljoin("https://missav.live", href)
+            img = a.find("img")
+            raw = " ".join([
+                a.get("title") or "",
+                (img.get("alt") if img else "") or "",
+                a.get_text(" ", strip=True),
+            ])
+            title = clean_title(raw, code_num)
+            around = " ".join([
+                raw,
+                a.parent.get_text(" ", strip=True) if a.parent else "",
+            ])
+            duration = parse_duration(around)
+            views = parse_views(around)
+            current = collected.get(code_num)
+            if not current:
+                collected[code_num] = enrich(
+                    code_num,
+                    title or f"FC2-PPV-{code_num}",
+                    "MissAV",
+                    full_url,
+                    duration=duration,
+                    views=views,
+                )
+            else:
+                if is_better_title(title, current["title"]):
+                    current["title"] = title
+                    current["url"] = full_url
+                if duration and not current.get("duration"):
+                    current["duration"] = duration
+                if views and not current.get("views"):
+                    current["views"] = views
+        print(f"MissAV {page}ページ: {len(collected) - before}件追加 / 合計{len(collected)}")
+        if len(collected) == before:
+            break
+    return list(collected.values())
 
 
-def scrape_supjav() -> list[dict]:
-    soup = fetch_soup(SUPJAV_URL)
+def scrape_supjav(pages: list[int] | None = None) -> list[dict]:
     items = []
     seen = set()
-    for a in soup.find_all("a", href=True):
-        text = " ".join([a.get("title") or "", a.get_text(" ", strip=True)])
-        match = CODE_RE.search(text) or CODE_RE.search(a.get("href", ""))
-        if not match:
-            continue
-        code_num = match.group(1)
-        if code_num in seen:
-            continue
-        href = a["href"]
-        if href.startswith("#") or "category" in href:
-            continue
-        seen.add(code_num)
-        title = clean_title(a.get("title") or a.get_text(" ", strip=True), code_num)
-        full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
-        around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
-        items.append(enrich(
-            code_num,
-            title or f"FC2-PPV-{code_num}",
-            "Supjav",
-            full_url,
-            duration=parse_duration(around),
-            views=parse_views(around),
-        ))
-        if len(items) >= MAX_ITEMS:
+    for page in (pages or list(range(1, PAGES + 1))):
+        url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
+        try:
+            soup = fetch_soup(url)
+        except Exception as e:
+            print(f"Supjav {page}ページ失敗: {e}")
+            break
+        before = len(seen)
+        for a in soup.find_all("a", href=True):
+            text = " ".join([a.get("title") or "", a.get_text(" ", strip=True)])
+            match = CODE_RE.search(text) or CODE_RE.search(a.get("href", ""))
+            if not match:
+                continue
+            code_num = match.group(1)
+            if code_num in seen:
+                continue
+            href = a["href"]
+            if href.startswith("#") or "category" in href:
+                continue
+            seen.add(code_num)
+            title = clean_title(a.get("title") or a.get_text(" ", strip=True), code_num)
+            full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
+            around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
+            items.append(enrich(
+                code_num,
+                title or f"FC2-PPV-{code_num}",
+                "Supjav",
+                full_url,
+                duration=parse_duration(around),
+                views=parse_views(around),
+            ))
+        print(f"Supjav {page}ページ: {len(seen) - before}件追加 / 合計{len(seen)}")
+        if len(seen) == before:
             break
     return items
 
@@ -245,17 +266,33 @@ def merge_videos(groups: list[list[dict]]) -> list[dict]:
     return result
 
 
+def next_pages(start: int, count: int) -> list[int]:
+    return list(range(start, start + count))
+
+
 def get_latest_videos() -> list[dict]:
+    state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3})
+    missav_pages = [1, 2] + next_pages(int(state.get("missav_page", 3)), BACKFILL_PAGES)
+    supjav_pages = [1, 2] + next_pages(int(state.get("supjav_page", 3)), BACKFILL_PAGES)
     found = []
     errors = []
-    for name, func in (("MissAV", scrape_missav), ("Supjav", scrape_supjav)):
-        try:
-            items = func()
-            print(f"{name}: {len(items)}件")
-            found.append(items)
-        except Exception as e:
-            print(f"{name} 取得失敗: {e}", file=sys.stderr)
-            errors.append(f"{name}: {e}")
+    try:
+        items = scrape_missav(missav_pages)
+        print(f"MissAV: {len(items)}件 pages={missav_pages}")
+        found.append(items)
+        state["missav_page"] = missav_pages[-1] + 1
+    except Exception as e:
+        print(f"MissAV 取得失敗: {e}", file=sys.stderr)
+        errors.append(f"MissAV: {e}")
+    try:
+        items = scrape_supjav(supjav_pages)
+        print(f"Supjav: {len(items)}件 pages={supjav_pages}")
+        found.append(items)
+        state["supjav_page"] = supjav_pages[-1] + 1
+    except Exception as e:
+        print(f"Supjav 取得失敗: {e}", file=sys.stderr)
+        errors.append(f"Supjav: {e}")
+    save_json(CRAWL_FILE, state)
     videos = merge_videos(found)
     if not videos and errors:
         raise RuntimeError(" / ".join(errors))
