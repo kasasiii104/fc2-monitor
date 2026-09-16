@@ -521,7 +521,8 @@ const saveSet=(k,s)=>localStorage.setItem(k,JSON.stringify([...s]));
 const favs=loadSet('fc2favs'),watched=loadSet('fc2watched'),later=loadSet('fc2watchlater');
 const progress=JSON.parse(localStorage.getItem('fc2progress')||'{}');
 let searches=JSON.parse(localStorage.getItem('fc2searchhist')||'[]');
-let page='home',chip='all',sort='new',riseWin='24h',filters={vmin:0,dur:'',seen:'',src:0},hoverTimer=null,playing=null;
+let page='home',chip='all',sort='new',riseWin='24h',filters={vmin:0,dur:'',seen:'',src:0},hoverTimer=null;
+const playingSet=new Set();
 const byCode=Object.fromEntries(ITEMS.map(x=>[x.code,x]));
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const digits=s=>String(s||'').replace(/\D/g,'');
@@ -573,26 +574,36 @@ function cardHTML(it,rank){
   const extra=(page==='rising'||chip==='rising')&&tr?`<p class="meta trend">${riseWin} +${tr.toLocaleString()}</p>`:'';
   return `<article class="card" data-code="${it.code}"><button class="thumb-wrap" type="button" data-code="${it.code}"><img src="${it.thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0"><video muted loop playsinline preload="none" poster="${it.thumb}"></video>${rank?`<span class="rank${rank<=3?' top':''}">#${rank}</span>`:(it.is_new?'<span class="badge new">NEW</span>':'')}<span class="time">${it.duration||''}</span><span class="prog"><i style="width:${Math.min(100,prog*100)}%"></i></span></button><div class="body"><a class="title open" href="${esc(it.sources.MissAV||it.url||'#')}" target="_blank" rel="noopener">${esc(it.title)}</a><p class="subline">${esc(it.code)}</p><p class="meta">${[viewsLabel(it.views),relTime(it.first_seen)].filter(Boolean).join(' ・ ')}</p>${extra}<p class="meta">${esc(it.source_label||'')}</p><button class="more" type="button" data-more="${esc(it.code)}">⋮</button></div></article>`;
 }
-function bindCards(root){
-  root.querySelectorAll('.thumb-wrap').forEach(w=>{
-    w.addEventListener('click',e=>{e.preventDefault();if(window.matchMedia('(hover:hover) and (pointer:fine)').matches)return;w.classList.contains('playing')?stopPreview(w):startPreview(w);});
-    w.addEventListener('mouseenter',()=>{if(!window.matchMedia('(hover:hover) and (pointer:fine)').matches)return;clearTimeout(hoverTimer);hoverTimer=setTimeout(()=>startPreview(w),600);});
-    w.addEventListener('mouseleave',()=>{clearTimeout(hoverTimer);stopPreview(w);});
-  });
-  root.querySelectorAll('.open').forEach(a=>a.addEventListener('click',()=>{watched.add(a.closest('.card').dataset.code);saveSet('fc2watched',watched);}));
-  root.querySelectorAll('.more').forEach(b=>b.addEventListener('click',ev=>{ev.stopPropagation();openMenu(b.dataset.more,ev);}));
-}
+document.addEventListener('click',e=>{
+  const more=e.target.closest('.more');
+  if(more){e.preventDefault();e.stopPropagation();openMenu(more.dataset.more,e);return;}
+  const open=e.target.closest('.open');
+  if(open){const card=open.closest('.card');if(card){watched.add(card.dataset.code);saveSet('fc2watched',watched);}return;}
+  const thumb=e.target.closest('.thumb-wrap');
+  if(thumb){e.preventDefault();thumb.classList.contains('playing')?stopPreview(thumb):startPreview(thumb);}
+});
+document.addEventListener('mouseover',e=>{
+  const w=e.target.closest('.thumb-wrap');
+  if(!w||!window.matchMedia('(hover:hover) and (pointer:fine)').matches)return;
+  clearTimeout(hoverTimer);hoverTimer=setTimeout(()=>startPreview(w),600);
+});
+document.addEventListener('mouseout',e=>{
+  const w=e.target.closest('.thumb-wrap');
+  if(!w||w.contains(e.relatedTarget))return;
+  clearTimeout(hoverTimer);
+  if(window.matchMedia('(hover:hover) and (pointer:fine)').matches)stopPreview(w);
+});
 function startPreview(w){
   const it=byCode[w.dataset.code];if(!it||!it.preview)return;
-  if(playing&&playing!==w)stopPreview(playing);
   const v=w.querySelector('video');if(!v.getAttribute('src'))v.src=it.preview;
-  const p=Number(progress[it.code]||0);w.classList.add('playing');playing=w;
+  const p=Number(progress[it.code]||0);w.classList.add('playing');playingSet.add(w);
+  if(playingSet.size>4){const oldest=[...playingSet].find(x=>x!==w);if(oldest)stopPreview(oldest);}
   const play=async()=>{try{await v.play();if(p>0&&p<.95){try{v.currentTime=p*(v.duration||0);}catch(e){}}}catch(e){}};
   v.onloadedmetadata=play;
   v.ontimeupdate=()=>{if(!v.duration)return;const r=v.currentTime/v.duration;progress[it.code]=r;localStorage.setItem('fc2progress',JSON.stringify(progress));const bar=w.querySelector('.prog i');if(bar)bar.style.width=Math.min(100,r*100)+'%';if(r>.9){watched.add(it.code);saveSet('fc2watched',watched);}};
   play();
 }
-function stopPreview(w){if(!w)return;const v=w.querySelector('video');v.pause();v.removeAttribute('src');v.load();w.classList.remove('playing');if(playing===w)playing=null;}
+function stopPreview(w){if(!w)return;const v=w.querySelector('video');v.pause();v.removeAttribute('src');v.load();w.classList.remove('playing');playingSet.delete(w);}
 function railHTML(title,arr,ranked,go){if(!arr.length)return '';return `<section class="section"><h2${go?` data-go="${go}"`:''}>${title}</h2><div class="rail">${arr.map((it,i)=>cardHTML(it,ranked?i+1:0)).join('')}</div></section>`;}
 function render(){
   const query=qEl.value.trim();
@@ -616,7 +627,6 @@ function render(){
   if(page==='popular'||page==='rising')list=list.slice(0,100);
   resultCount.textContent=(query?'検索結果 ':'')+list.length+'件';
   grid.innerHTML=list.length?list.map((it,i)=>cardHTML(it,(page==='popular'||page==='rising')?i+1:0)).join(''):'<p class="empty">該当する作品がありません。</p>';
-  bindCards(document);
   document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>{page=b.dataset.go;if(page==='rising')chip='rising';if(page==='popular')chip='popular';render();}));
   document.querySelectorAll('[data-rise]').forEach(b=>b.addEventListener('click',()=>{riseWin=b.dataset.rise;render();}));
   document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('on',b.dataset.page===page||((page==='later'||page==='saved')&&b.dataset.page==='library')));
