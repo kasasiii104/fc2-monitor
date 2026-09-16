@@ -40,6 +40,39 @@
       color: var(--text);
       font-size: 16px;
     }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .toolbar button {
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #11161f;
+      color: var(--text);
+      font-size: 13px;
+    }
+    .toolbar button.on {
+      background: #243044;
+      color: var(--accent);
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .fav {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    .fav.on {
+      color: #fbbf24;
+    }
     main {
       padding: 12px;
       display: grid;
@@ -47,14 +80,36 @@
     }
     .card {
       display: grid;
-      grid-template-columns: 112px 1fr;
+      grid-template-columns: 128px 1fr;
       gap: 12px;
-      text-decoration: none;
       color: inherit;
       background: var(--card);
       border-radius: 16px;
       padding: 10px;
       overflow: hidden;
+    }
+    .thumb-wrap {
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+    }
+    .thumb-wrap video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .thumb-wrap.playing video {
+      opacity: 1;
+    }
+    .links a {
+      display: inline-block;
+      margin-right: 8px;
+      color: var(--accent);
+      font-size: 13px;
     }
     .thumb-wrap {
       position: relative;
@@ -94,174 +149,303 @@
 <body>
   <header>
     <h1>FC2-PPV 新着モニター</h1>
-    <p class="sub">更新: 2026-09-16 14:24:51 / 今回の新着 0件</p>
+    <p class="sub">更新: 2026-09-16 14:36:49 / 今回の新着 0件</p>
     <input id="q" type="search" placeholder="番号やタイトルで検索">
+    <div class="toolbar">
+      <button type="button" data-filter="all" class="on">すべて</button>
+      <button type="button" data-filter="new">NEW</button>
+      <button type="button" data-filter="fav">お気に入り</button>
+      <button type="button" data-sort="new">新しい順</button>
+    </div>
   </header>
   <main id="list">
     
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4977035" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4977035" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4977035/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4977035/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4977035/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4977035</span>
-                <p class="title">1:00:10</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4977035</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4977035">☆</button>
+                </div>
+                <p class="title">♡9/27日迄半額 21歳になった、小柄で可愛らしいJDさんは、おじさんの大のお気に入り。フルMAXの勃起ち〇ぽで、ズコズコ生ハメ2発中出し！汁を垂らした肉ヒダが、ち〇ぽに吸い付く結合部がエグ過ぎです</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4977035" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4977035&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4977035" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4941884" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4941884" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4941884/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4941884/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4941884/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4941884</span>
-                <p class="title">1:31:52</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4941884</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4941884">☆</button>
+                </div>
+                <p class="title">【初撮り】エキゾチックな見た目がそそる原宿で有名なクレー.プ屋の店長さん。抱き心地の良いカラダの奥に濃厚クリームをトッピング。</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4941884" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4941884&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4941884" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4975367" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4975367" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4975367/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4975367/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4975367/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4975367</span>
-                <p class="title">1:06:21</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4975367</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4975367">☆</button>
+                </div>
+                <p class="title">70%OFF【20歳】Eカップ、神スタイルを持ち合わせる爆美女。競泳水着でヨガる姿は抜けすぎて困っちゃう。大量ザーメンを2回も出しちゃいました。</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4975367" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4975367&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4975367" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4977040" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4977040" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4977040/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4977040/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4977040/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4977040</span>
-                <p class="title">1:42:49</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4977040</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4977040">☆</button>
+                </div>
+                <p class="title">新作【特典有】ななみ02 苦手なディープキス 口内射精 アナル舐め 正常位で中出し【藻無】</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4977040" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4977040&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4977040" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4977021" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4977021" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4977021/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4977021/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4977021/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4977021</span>
-                <p class="title">1:39:41</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4977021</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4977021">☆</button>
+                </div>
+                <p class="title">(無)【個撮】Iカップ巨乳系メンヘラ、イラマチオサポート【4K画質】</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4977021" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4977021&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4977021" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4975437" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4975437" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4975437/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4975437/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4975437/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4975437</span>
-                <p class="title">1:03:29</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4975437</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4975437">☆</button>
+                </div>
+                <p class="title">【9/21迄500pt】隙間時間に呼び出してサクッと立ちバックで気持ちよくさせてもらったお返しにおもちゃでたくさん遊んであげた動画です♪（最後は生中でイタダキです）※レビュー特典／高画質Ver</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4975437" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4975437&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4975437" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4975586" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4975586" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4975586/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4975586/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4975586/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4975586</span>
-                <p class="title">1:09:15</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4975586</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4975586">☆</button>
+                </div>
+                <p class="title">【完全素人&初撮り】S級！神スタイル巨乳19歳♡恥ずかしがり屋で初々しくて超敏感で可愛すぎる♡膣奥中出しハメ※特典有り※</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4975586" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4975586&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4975586" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4975986" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4975986" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4975986/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4975986/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4975986/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4975986</span>
-                <p class="title">0:51:03</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4975986</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4975986">☆</button>
+                </div>
+                <p class="title">【初回70%オフ】 0387_006 れいらちゃん19歳 顔射解禁！元ミスコン代表＋ご当地アイドルの可愛いお顔をオジサンザーメンで汚す！堕ち切った末路はAV女優としての人生しか残されていないのか！？（</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4975986" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4975986&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4975986" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4976559" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4976559" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4976559/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4976559/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4976559/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4976559</span>
-                <p class="title">0:55:56</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4976559</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4976559">☆</button>
+                </div>
+                <p class="title">※初回数量限定2340pt→580pt※【個数限定】人生つらいといっていました。しかし話を聞いたらわからなくもないのですが、神様のいたずらというものはここまでも非情な出来事が重なるのでしょうか？</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4976559" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4976559&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4976559" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4975283" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4975283" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4975283/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4975283/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4975283/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4975283</span>
-                <p class="title">0:57:15</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4975283</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4975283">☆</button>
+                </div>
+                <p class="title">今回も【3P】！みんな大好きオホ声「リカちゃん」が今回も絶叫しながら2本のチンポをガチ発射！</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4975283" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4975283&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4975283" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4976524" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4976524" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4976524/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4976524/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4976524/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4976524</span>
-                <p class="title">0:50:53</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4976524</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4976524">☆</button>
+                </div>
+                <p class="title">【9/28まで特別価格】美しすぎるボディーライン＆フワトロ巨乳。29歳パーソナルトレーナーの大人のエロいセックス</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4976524" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4976524&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4976524" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
 
-            <a class="card" href="https://missav.live/ja/fc2-ppv-4976369" target="_blank" rel="noopener">
-              <div class="thumb-wrap">
+            <article class="card" data-code="FC2-PPV-4976369" data-seen="2026-09-16 14:09:18" data-new="0">
+              <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4976369/preview.mp4" aria-label="プレビュー再生">
                 <img src="https://fourhoi.com/fc2-ppv-4976369/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4976369/cover-n.jpg"></video>
                 
-              </div>
+              </button>
               <div class="body">
-                <span class="code">FC2-PPV-4976369</span>
-                <p class="title">0:24:10</p>
-                <p class="meta">初回確認: 2026-09-16 14:09:18</p>
+                <div class="row">
+                  <span class="code">FC2-PPV-4976369</span>
+                  <button class="fav" type="button" data-code="FC2-PPV-4976369">☆</button>
+                </div>
+                <p class="title">【神ビジュアル】”Fカップ美女保育士”を車内に呼び出し 喉奥フェラ＆2連続生中出し含む計3発射。※限定公開中</p>
+                <p class="meta">初回確認: 2026-09-16 14:09:18 ／ MissAV</p>
+                <p class="links"><a href="https://missav.live/ja/fc2-ppv-4976369" target="_blank" rel="noopener">MissAV</a> <a href="https://javdb.com/search?q=FC2-PPV-4976369&f=all" target="_blank" rel="noopener">JavDB</a> <a href="https://adult.contents.fc2.com/search/?q=4976369" target="_blank" rel="noopener">FC2検索</a></p>
               </div>
-            </a>
+            </article>
             
   </main>
   <script>
     const q = document.getElementById('q');
+    const list = document.getElementById('list');
     const cards = [...document.querySelectorAll('.card')];
-    q.addEventListener('input', () => {
+    const favs = new Set(JSON.parse(localStorage.getItem('fc2favs') || '[]'));
+    let filter = 'all';
+    const saveFavs = () => localStorage.setItem('fc2favs', JSON.stringify([...favs]));
+    const apply = () => {
       const keyword = q.value.trim().toLowerCase();
       cards.forEach(card => {
-        card.style.display = card.textContent.toLowerCase().includes(keyword) ? '' : 'none';
+        const text = card.textContent.toLowerCase();
+        const isFav = favs.has(card.dataset.code);
+        const isNew = card.dataset.new === '1';
+        let ok = text.includes(keyword);
+        if (filter === 'new') ok = ok && isNew;
+        if (filter === 'fav') ok = ok && isFav;
+        card.style.display = ok ? '' : 'none';
+        const btn = card.querySelector('.fav');
+        btn.classList.toggle('on', isFav);
+        btn.textContent = isFav ? '★' : '☆';
+      });
+    };
+    q.addEventListener('input', apply);
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        filter = btn.dataset.filter;
+        document.querySelectorAll('[data-filter]').forEach(b => b.classList.toggle('on', b === btn));
+        apply();
+      });
+    });
+    document.querySelector('[data-sort="new"]').addEventListener('click', () => {
+      cards.sort((a, b) => (b.dataset.seen || '').localeCompare(a.dataset.seen || ''));
+      cards.forEach(card => list.appendChild(card));
+    });
+    document.querySelectorAll('.fav').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.dataset.code;
+        if (favs.has(code)) favs.delete(code);
+        else favs.add(code);
+        saveFavs();
+        apply();
+      });
+    });
+    apply();
+
+    let current = null;
+    const stopPreview = (wrap) => {
+      const video = wrap.querySelector('video');
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      wrap.classList.remove('playing');
+    };
+    const playPreview = async (wrap) => {
+      const video = wrap.querySelector('video');
+      const src = wrap.dataset.preview;
+      if (!src) return;
+      if (current && current !== wrap) stopPreview(current);
+      if (!video.src) video.src = src;
+      wrap.classList.add('playing');
+      current = wrap;
+      try { await video.play(); } catch (e) {}
+    };
+    document.querySelectorAll('.thumb-wrap').forEach(wrap => {
+      wrap.addEventListener('pointerenter', () => playPreview(wrap));
+      wrap.addEventListener('pointerleave', () => stopPreview(wrap));
+      wrap.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (wrap.classList.contains('playing')) stopPreview(wrap);
+        else playPreview(wrap);
       });
     });
   </script>
