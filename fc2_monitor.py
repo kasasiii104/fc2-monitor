@@ -31,7 +31,7 @@ MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
 PAGES = int(os.environ.get("PAGES", "8"))
 BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "6"))
-VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "20"))
+VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "40"))
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 JST = timezone(timedelta(hours=9))
@@ -107,6 +107,8 @@ def parse_views(text: str) -> int | None:
         r"([\d,]+)\s*(?:views|view|Views)",
         r"(?:視聴回数|再生回数|回再生|視聴)\s*[:：]?\s*([\d,]+)",
         r"([\d,]+)\s*(?:回再生|回視聴)",
+        r"([\d,]+)\s*(?:次播放|播放|次視聴)",
+        r"([\d,]+)\s*(?:people wanted|wanted|想看)",
     ]:
         match = re.search(pat, text or "", flags=re.I)
         if match:
@@ -119,23 +121,42 @@ def parse_views(text: str) -> int | None:
     return None
 
 
+def extra_sources(code_num: str) -> dict:
+    return {
+        "Supjav": f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
+        "JavDB": f"https://javdb.com/search?q=FC2-PPV-{code_num}&f=all",
+        "FC2検索": f"https://adult.contents.fc2.com/search/?q={code_num}",
+        "123AV": f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}",
+        "JavFC2": f"https://javfc2.xyz/search?q={code_num}",
+    }
+
+
 def fill_missing_views(items: list[dict]) -> None:
     fetched = 0
     for item in items:
         if item.get("views") or fetched >= VIEW_FETCH_LIMIT:
             continue
-        sources = item.get("sources") or {}
-        url = sources.get("MissAV") or (item.get("url") if "missav" in str(item.get("url", "")) else "")
-        if not url:
-            continue
-        try:
-            views = parse_views(fetch_soup(url).get_text(" ", strip=True))
-            if views:
-                item["views"] = views
-                fetched += 1
-                print(f"再生数: {item['code']} = {views}")
-        except Exception as e:
-            print(f"再生数取得失敗 {item.get('code')}: {e}")
+        code_num = item.get("code_num") or str(item.get("code", "")).split("-")[-1]
+        sources = dict(item.get("sources") or {})
+        sources.update(extra_sources(code_num))
+        urls = []
+        for key in ("MissAV", "Supjav", "JavDB", "123AV", "JavFC2"):
+            if sources.get(key) and sources[key] not in urls:
+                urls.append(sources[key])
+        views = None
+        last_err = None
+        for url in urls:
+            try:
+                views = parse_views(fetch_soup(url).get_text(" ", strip=True))
+                if views:
+                    item["views"] = views
+                    fetched += 1
+                    print(f"再生数: {item['code']} = {views} ({url})")
+                    break
+            except Exception as e:
+                last_err = e
+        if not views and last_err:
+            print(f"再生数取得失敗 {item.get('code')}: {last_err}")
 
 
 def enrich(code_num, title, source, url, duration="", views=None):
@@ -150,16 +171,6 @@ def enrich(code_num, title, source, url, duration="", views=None):
         "views": views,
         "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg",
         "preview": f"https://fourhoi.com/{slug}/preview.mp4",
-    }
-
-
-def extra_sources(code_num: str) -> dict:
-    return {
-        "Supjav": f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
-        "JavDB": f"https://javdb.com/search?q=FC2-PPV-{code_num}&f=all",
-        "FC2検索": f"https://adult.contents.fc2.com/search/?q={code_num}",
-        "123AV": f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}",
-        "JavFC2": f"https://javfc2.xyz/search?q={code_num}",
     }
 
 
@@ -191,6 +202,8 @@ def scrape_missav(pages=None):
                     current["title"], current["url"] = title, full_url
                 if parse_duration(around) and not current.get("duration"):
                     current["duration"] = parse_duration(around)
+                if parse_views(around) and not current.get("views"):
+                    current["views"] = parse_views(around)
         print(f"MissAV {page}ページ: {len(collected) - before}件追加 / 合計{len(collected)}")
         if len(collected) == before:
             break
@@ -288,8 +301,9 @@ def render_html(items, updated_at, new_count):
         play_url = sources.get("MissAV") or item.get("url") or "#"
         others = "".join(f'<a href="{url}" target="_blank" rel="noopener">{name}</a>' for name, url in sources.items() if name != "MissAV")
         duration = item.get("duration") or ""
-        views_label = f"{item['views']:,}回" if isinstance(item.get("views"), int) else ""
-        meta = " ／ ".join(x for x in [duration, views_label] if x) or "-"
+        views_label = f"{item['views']:,} 回視聴" if isinstance(item.get("views"), int) else ""
+        seen = (item.get("first_seen") or "")[:16]
+        meta = " ・ ".join(x for x in [views_label, seen] if x)
         cards.append(f"""
 <article class="card" data-code="{item['code']}" data-seen="{item.get('first_seen','')}" data-new="{1 if item.get('is_new') else 0}" data-views="{item.get('views') or 0}">
   <button class="thumb-wrap" type="button" data-preview="{item.get('preview','')}" aria-label="プレビュー">
@@ -299,10 +313,12 @@ def render_html(items, updated_at, new_count):
     <span class="time">{duration}</span>
   </button>
   <div class="body">
-    <div class="row"><span class="code">{item['code']}</span><button class="fav" type="button" data-code="{item['code']}">☆</button></div>
-    <p class="title">{item['title']}</p>
-    <p class="meta">{meta}</p>
-    <a class="play" href="{play_url}" target="_blank" rel="noopener">再生する</a>
+    <a class="open" href="{play_url}" target="_blank" rel="noopener">
+      <p class="title">{item['title']}</p>
+      <p class="subline">{item['code']}</p>
+      <p class="meta">{meta or '-'}</p>
+    </a>
+    <button class="fav" type="button" data-code="{item['code']}">☆</button>
     <p class="links">{others}</p>
   </div>
 </article>""")
@@ -311,56 +327,62 @@ def render_html(items, updated_at, new_count):
 <html lang="ja"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>FC2-PPV 新着モニター</title>
+<title>FC2-PPV</title>
 <style>
-:root {{ color-scheme:dark; --bg:#0b0d12; --card:#171b24; --text:#f3f5f7; --muted:#9aa3b2; --accent:#7dd3fc; --new:#34d399; }}
+:root {{ color-scheme:dark; --bg:#0f0f0f; --card:#0f0f0f; --text:#f1f1f1; --muted:#aaa; --accent:#3ea6ff; --new:#3ddc84; }}
 * {{ box-sizing:border-box; }}
-html,body {{ margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
-header {{ position:sticky; top:0; z-index:50; padding:12px 12px 10px; background:#0b0d12; border-bottom:1px solid #2a3140; }}
-h1 {{ margin:0; font-size:17px; }}
-.sub {{ margin:4px 0 10px; color:var(--muted); font-size:12px; }}
-input {{ width:100%; border:0; border-radius:12px; padding:11px 12px; background:#11161f; color:var(--text); font-size:16px; }}
-.toolbar {{ display:flex; gap:6px; overflow-x:auto; padding:8px 0 2px; }}
-.toolbar button {{ flex:0 0 auto; border:0; border-radius:999px; padding:7px 11px; background:#11161f; color:var(--text); font-size:12px; }}
-.toolbar button.on {{ background:#243044; color:var(--accent); }}
-main {{ padding:12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }}
-@media (min-width:800px) {{ main {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} }}
-.card {{ background:var(--card); border-radius:16px; overflow:hidden; isolation:isolate; }}
-.thumb-wrap {{ position:relative; display:block; width:100%; aspect-ratio:16/10; padding:0; border:0; background:#0f131b; overflow:hidden; }}
+html,body {{ margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }}
+header {{ position:sticky; top:0; z-index:50; background:#0f0f0f; padding:8px 12px 0; border-bottom:1px solid #222; }}
+.top {{ display:flex; align-items:center; gap:10px; }}
+h1 {{ margin:0; font-size:16px; font-weight:700; }}
+.count {{ color:var(--muted); font-size:12px; margin-left:auto; }}
+input {{ width:100%; margin:8px 0; border:0; border-radius:20px; padding:10px 14px; background:#121212; color:var(--text); font-size:16px; outline:none; }}
+.toolbar {{ display:flex; gap:8px; overflow-x:auto; padding:0 0 10px; }}
+.toolbar button {{ flex:0 0 auto; border:0; border-radius:8px; padding:7px 12px; background:#272727; color:var(--text); font-size:13px; }}
+.toolbar button.on {{ background:#f1f1f1; color:#0f0f0f; }}
+main {{ padding:0 0 72px; display:grid; grid-template-columns:1fr; }}
+@media (min-width:700px) {{ main {{ padding:12px 12px 24px; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }} }}
+@media (min-width:1100px) {{ main {{ grid-template-columns:repeat(3,minmax(0,1fr)); }} }}
+.card {{ background:var(--card); }}
+.thumb-wrap {{ position:relative; display:block; width:100%; aspect-ratio:16/9; padding:0; border:0; background:#000; overflow:hidden; }}
 .thumb-wrap img,.thumb-wrap video {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }}
 .thumb-wrap video {{ opacity:0; pointer-events:none; }}
 .thumb-wrap.playing video {{ opacity:1; }}
-.badge.new {{ position:absolute; top:8px; left:8px; z-index:2; background:rgba(16,24,20,.85); color:var(--new); font-size:11px; padding:3px 7px; border-radius:999px; }}
-.time {{ position:absolute; right:8px; bottom:8px; z-index:2; background:rgba(0,0,0,.7); color:#fff; font-size:11px; padding:2px 6px; border-radius:6px; }}
-.body {{ padding:10px; }}
-.row {{ display:flex; justify-content:space-between; align-items:center; }}
-.code {{ color:var(--accent); font-weight:700; font-size:12px; }}
-.fav {{ border:0; background:transparent; color:var(--muted); font-size:18px; }}
+.badge.new {{ position:absolute; top:8px; left:8px; z-index:2; background:#3ddc84; color:#073; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px; }}
+.time {{ position:absolute; right:8px; bottom:8px; z-index:2; background:rgba(0,0,0,.85); color:#fff; font-size:12px; padding:2px 6px; border-radius:4px; }}
+.body {{ position:relative; padding:10px 12px 14px 12px; }}
+.open {{ color:inherit; text-decoration:none; display:block; padding-right:28px; }}
+.title {{ margin:0 0 4px; font-size:15px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }}
+.subline,.meta {{ margin:0; color:var(--muted); font-size:12px; }}
+.fav {{ position:absolute; top:8px; right:8px; border:0; background:transparent; color:#aaa; font-size:20px; }}
 .fav.on {{ color:#fbbf24; }}
-.title {{ margin:6px 0 4px; font-size:13px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.8em; }}
-.meta {{ margin:0 0 8px; color:var(--muted); font-size:11px; }}
-.play {{ display:block; text-align:center; text-decoration:none; background:#243044; color:var(--accent); border-radius:10px; padding:8px 10px; font-size:13px; font-weight:700; }}
-.links a {{ display:inline-block; margin:8px 8px 0 0; color:var(--muted); font-size:11px; }}
-.empty {{ grid-column:1/-1; text-align:center; color:var(--muted); padding:40px 0; }}
+.links {{ margin:8px 0 0; }}
+.links a {{ margin-right:10px; color:#3ea6ff; font-size:12px; text-decoration:none; }}
+.empty {{ text-align:center; color:var(--muted); padding:40px 0; }}
+.nav {{ position:fixed; left:0; right:0; bottom:0; z-index:50; display:flex; background:#0f0f0f; border-top:1px solid #222; padding:6px 0 env(safe-area-inset-bottom); }}
+.nav button {{ flex:1; border:0; background:transparent; color:#aaa; font-size:11px; padding:8px 0; }}
+.nav button.on {{ color:#fff; }}
 </style></head>
 <body>
 <header>
-  <h1>FC2-PPV 新着モニター</h1>
-  <p class="sub">更新: {updated_at} / 今回の新着 {new_count}件</p>
-  <input id="q" type="search" placeholder="番号やタイトルで検索">
+  <div class="top"><h1>FC2-PPV</h1><span class="count">更新 {updated_at[5:16]} ・ 新着 {new_count}</span></div>
+  <input id="q" type="search" placeholder="検索">
   <div class="toolbar">
     <button type="button" data-filter="all" class="on">すべて</button>
-    <button type="button" data-filter="new">NEW</button>
-    <button type="button" data-filter="fav">お気に入り</button>
-    <button type="button" data-filter="watched">視聴履歴</button>
+    <button type="button" data-filter="new">新着</button>
     <button type="button" data-filter="today">今日</button>
-    <button type="button" data-filter="yesterday">昨日</button>
     <button type="button" data-filter="week">1週間</button>
     <button type="button" data-sort="new">新しい順</button>
-    <button type="button" data-sort="views">再生数順</button>
+    <button type="button" data-sort="views">人気順</button>
   </div>
 </header>
 <main id="list">{cards_html}</main>
+<nav class="nav">
+  <button type="button" data-filter="all" class="on">ホーム</button>
+  <button type="button" data-filter="new">新着</button>
+  <button type="button" data-filter="fav">保存</button>
+  <button type="button" data-filter="watched">履歴</button>
+</nav>
 <script>
 const q=document.getElementById('q'), list=document.getElementById('list'), cards=[...document.querySelectorAll('.card')];
 const favs=new Set(JSON.parse(localStorage.getItem('fc2favs')||'[]'));
@@ -392,7 +414,7 @@ const apply=()=>{{
 q.addEventListener('input', apply);
 document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{{
   filter=b.dataset.filter;
-  document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on', x.dataset.filter===filter));
   apply();
 }}));
 document.querySelector('[data-sort="new"]').addEventListener('click',()=>{{
@@ -403,7 +425,7 @@ document.querySelector('[data-sort="views"]').addEventListener('click',()=>{{
   cards.sort((a,b)=>Number(b.dataset.views||0)-Number(a.dataset.views||0));
   cards.forEach(c=>list.appendChild(c));
 }});
-document.querySelectorAll('.play, .links a').forEach(a=>a.addEventListener('click',()=>{{
+document.querySelectorAll('.open, .links a').forEach(a=>a.addEventListener('click',()=>{{
   const card=a.closest('.card'); if(!card) return;
   watched.add(card.dataset.code);
   localStorage.setItem('fc2watched', JSON.stringify([...watched]));
