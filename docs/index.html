@@ -15,9 +15,22 @@ input { width:100%; margin:8px 0; border:0; border-radius:20px; padding:10px 14p
 .toolbar { display:flex; gap:8px; overflow-x:auto; padding:0 0 10px; }
 .toolbar button { flex:0 0 auto; border:0; border-radius:8px; padding:7px 12px; background:#272727; color:var(--text); font-size:13px; }
 .toolbar button.on { background:#f1f1f1; color:#0f0f0f; }
+.side { display:none; }
 main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
-@media (min-width:700px) { main { padding:12px 12px 24px; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; } }
-@media (min-width:1100px) { main { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:900px) {
+  .nav { display:none; }
+  .side { display:flex; flex-direction:column; position:fixed; left:0; top:57px; bottom:0; width:216px; padding:12px 10px; gap:4px; border-right:1px solid #222; background:#0f0f0f; z-index:40; }
+  .side button { border:0; background:transparent; color:#f1f1f1; text-align:left; border-radius:10px; padding:10px 14px; font-size:14px; }
+  .side button.on { background:#272727; }
+  header { padding:8px 24px 0 24px; }
+  .top h1 { font-size:20px; }
+  input { max-width:640px; margin:10px auto; display:block; background:#121212; border:1px solid #303030; }
+  main { margin-left:216px; padding:20px 24px 32px; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+  .card { border-radius:12px; overflow:hidden; }
+  .thumb-wrap { border-radius:12px; }
+  .body { padding:10px 4px 8px; }
+}
+@media (min-width:1400px) { main { grid-template-columns:repeat(4,minmax(0,1fr)); } }
 .card { background:var(--card); }
 .thumb-wrap { position:relative; display:block; width:100%; aspect-ratio:16/9; padding:0; border:0; background:#000; overflow:hidden; }
 .thumb-wrap img,.thumb-wrap video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
@@ -31,7 +44,6 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
 .subline,.meta { margin:0; color:var(--muted); font-size:12px; }
 .fav { position:absolute; top:8px; right:8px; border:0; background:transparent; color:#aaa; font-size:20px; }
 .fav.on { color:#fbbf24; }
-.links { margin:8px 0 0; }
 .links a { margin-right:10px; color:#3ea6ff; font-size:12px; text-decoration:none; }
 .empty { text-align:center; color:var(--muted); padding:40px 0; }
 .nav { position:fixed; left:0; right:0; bottom:0; z-index:50; display:flex; background:#0f0f0f; border-top:1px solid #222; padding:6px 0 env(safe-area-inset-bottom); }
@@ -40,7 +52,7 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
 </style></head>
 <body>
 <header>
-  <div class="top"><h1>FC2-PPV</h1><span class="count">更新 09-16 16:04 ・ 新着 67</span></div>
+  <div class="top"><h1>FC2-PPV</h1><span class="count">更新 09-16 16:15 ・ 新着 62</span></div>
   <input id="q" type="search" placeholder="検索">
   <div class="toolbar">
     <button type="button" data-filter="all" class="on">すべて</button>
@@ -51,6 +63,15 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
     <button type="button" data-sort="views">人気順</button>
   </div>
 </header>
+<aside class="side">
+  <button type="button" data-filter="all" class="on">ホーム</button>
+  <button type="button" data-filter="new">新着</button>
+  <button type="button" data-filter="fav">保存済み</button>
+  <button type="button" data-filter="watched">視聴履歴</button>
+  <button type="button" data-filter="today">今日</button>
+  <button type="button" data-filter="week">1週間</button>
+  <button type="button" data-sort="views">人気順</button>
+</aside>
 <main id="list">
 <article class="card" data-code="FC2-PPV-4977035" data-seen="2026-09-16 14:09:18" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4977035/preview.mp4" aria-label="プレビュー">
@@ -484,11 +505,1127 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4949558" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955168" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955168/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4955168/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955168/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:53:15</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4955168" target="_blank" rel="noopener">
+      <p class="title">【激レア】**アナ志望『高偏差値大学在籍 Fカップ美人JD』危険日NTR2連続孕ませ中出し。超希少プライベートガチハメ撮り。※残りわずか</p>
+      <p class="subline">FC2-PPV-4955168</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4955168">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4955168" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4955168&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4955168" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4955168" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4955168" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4954902" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4954902/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4954902/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4954902/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:58:55</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4954902" target="_blank" rel="noopener">
+      <p class="title">【8/20迄1132pt迄】『まだイッちゃだめ♡』バスケ*マネージャー美*女によるチンポしごき♡ヤりたい盛りの性欲に弄ばれ根こそぎ搾り取られる最高絶頂！【顔出し・中出し・無】</p>
+      <p class="subline">FC2-PPV-4954902</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4954902">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4954902" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4954902&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4954902" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4954902" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4954902" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4955707" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955707/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4955707/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955707/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:28:31</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4955707" target="_blank" rel="noopener">
+      <p class="title">※在庫限り※【本気の鬼騎乗位】Iカップ神乳グラドルが超高級VIPルームで神乳激揺れの鬼騎乗位！ケツ叩かれながらアヘって腰振り無様なチ●ポ中●になって中出しされる映像です</p>
+      <p class="subline">FC2-PPV-4955707</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4955707">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4955707" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4955707&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4955707" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4955707" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4955707" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950168" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950168/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950168/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950168/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:30:08</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950168" target="_blank" rel="noopener">
+      <p class="title">【2発射】甘えん坊系の短髪隣人大○生が「フェラ好き♡」と自ら求め、可愛い顔とのギャップで淫らに乱れながらオトナの熱いザーメンをしっかり受け止める</p>
+      <p class="subline">FC2-PPV-4950168</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950168">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950168" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950168&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950168" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950168" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950168" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4945540" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4945540/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4945540/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4945540/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:53:14</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4945540" target="_blank" rel="noopener">
+      <p class="title">【ニューハーフ】ド変態ナース・セリナちゃん。イケメン患者のち〇ぽを咥え込みア〇ルへ生中出しザーメン流し込み往診！【無修正】</p>
+      <p class="subline">FC2-PPV-4945540</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4945540">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4945540" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4945540&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4945540" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4945540" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4945540" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4955287" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955287/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4955287/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955287/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:44:31</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4955287" target="_blank" rel="noopener">
+      <p class="title">※15日まで初回限定60％OFF※【ＡＦ】【3ｐ】【顔出し】スーパーで買い物中のところをホテルに連れていきＡＦハメ撮り</p>
+      <p class="subline">FC2-PPV-4955287</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4955287">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4955287" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4955287&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4955287" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4955287" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4955287" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947807" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947807/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947807/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947807/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:05:53</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947807" target="_blank" rel="noopener">
+      <p class="title">【初回限定特別価格！】Gカップの圧倒的ボリューム♡オシャレで性格も良すぎる彼女が魅せる、男の夢をすべて叶える極上の密着バストケアと情熱的なおねだり</p>
+      <p class="subline">FC2-PPV-4947807</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947807">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947807" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947807&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947807" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947807" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947807" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950205" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950205/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950205/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950205/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:47:35</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950205" target="_blank" rel="noopener">
+      <p class="title">【2カメ個撮無修正】チェコの高級エスコートクラブ嬢第3弾｜22歳コールセンター勤務の素人*とハメ撮り中出しファック！</p>
+      <p class="subline">FC2-PPV-4950205</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950205">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950205" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950205&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950205" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950205" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950205" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4955543" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955543/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4955543/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955543/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:59:41</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4955543" target="_blank" rel="noopener">
+      <p class="title">※日焼け跡のFカップ帰国したばかりの超名器ダイビング講師。日焼け美ボディを太マラに膣奥まで突かれ、鬼ピストンで絶頂を繰り返しビクビク痙攣。中出し、口内射精、衝撃の4回射精※7GB高画質原盤送付</p>
+      <p class="subline">FC2-PPV-4955543</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4955543">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4955543" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4955543&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4955543" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4955543" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4955543" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4930448" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4930448/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4930448/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4930448/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:12:49</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4930448" target="_blank" rel="noopener">
+      <p class="title">新人教諭育成RTA 男*性徒の玩具。</p>
+      <p class="subline">FC2-PPV-4930448</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4930448">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4930448" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4930448&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4930448" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4930448" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4930448" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4935910" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4935910/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4935910/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4935910/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:43:56</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4935910" target="_blank" rel="noopener">
+      <p class="title">可愛過ぎるニューハーフの男の〇の童貞を貰っちゃいました IMEDAMAFC2</p>
+      <p class="subline">FC2-PPV-4935910</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4935910">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4935910" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4935910&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4935910" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4935910" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4935910" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947990" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947990/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947990/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947990/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:41:45</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947990" target="_blank" rel="noopener">
+      <p class="title">＜**國際線空服員的淫亂姿態♡＞高岭之花美人小姐的陰道肛門大特寫 光滑無毛/狹陰道/美臀/美陰唇陰道/超接寫細看！ | FC2電子市場</p>
+      <p class="subline">FC2-PPV-4947990</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947990">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947990" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947990&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947990" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947990" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947990" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4944559" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4944559/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4944559/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4944559/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:30:59</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4944559" target="_blank" rel="noopener">
+      <p class="title">[無修正・完全素人・中出し・潮吹き]＜高級ラグジュアリーエステ新人ＮＯ１エステティシャン＞稀代の努*家 素朴で一生懸命、華奢な身体 純度100%18きつきつマンコに２連続中出ししちゃいました</p>
+      <p class="subline">FC2-PPV-4944559</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4944559">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4944559" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4944559&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4944559" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4944559" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4944559" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4953622" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4953622/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4953622/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4953622/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:44:47</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4953622" target="_blank" rel="noopener">
+      <p class="title">レス2.5年の幸薄奥さん。ジャンプするも、浮気現場発見し確保！浮気相手とのSEXでも満足しきれなかったのか、自宅であそこが大洪水。。。</p>
+      <p class="subline">FC2-PPV-4953622</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4953622">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4953622" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4953622&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4953622" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4953622" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4953622" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949495" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949495/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949495/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949495/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:41:48</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949495" target="_blank" rel="noopener">
+      <p class="title">溢れ出すほどの中出し！【無】【中出し】スレンダーちっぱい美女がサンタコス。少しおっぱいが成長してたので大量中出しでお祝い。ホワイトクリスマス。※特典あり</p>
+      <p class="subline">FC2-PPV-4949495</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949495">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949495" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949495&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949495" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949495" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949495" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4952194" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4952194/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4952194/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4952194/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:06:29</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4952194" target="_blank" rel="noopener">
+      <p class="title">8/31まで990pt！【特典付き】経験少ない小柄**にセクシー下着着せてローション濡れに♡敏感クリ吸われて跳ねイキする姿が可愛すぎて、膣奥まで届く深ピストンで種付けSEX!!</p>
+      <p class="subline">FC2-PPV-4952194</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4952194">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4952194" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4952194&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4952194" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4952194" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4952194" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949177" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949177/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949177/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949177/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:56:43</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949177" target="_blank" rel="noopener">
+      <p class="title">「舐めるのは好きかな♡」おっとり系OLを電マでおしおき！グチョグチョマンコから糸引く大量のマン汁がとまらない【無・顔出し・中出し】</p>
+      <p class="subline">FC2-PPV-4949177</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949177">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949177" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949177&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949177" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949177" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949177" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950393" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950393/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950393/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950393/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:58:53</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950393" target="_blank" rel="noopener">
+      <p class="title">★顔出し★素人さんがえっちな事をしにやってきた！ケース＃144 どこにでもいそうなジャニオタJDがセクシー下着でいきまくっちゃった！スタイル良好 ジュリちゃん（20）の場合</p>
+      <p class="subline">FC2-PPV-4950393</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950393">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950393" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950393&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950393" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950393" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950393" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949874" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949874/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949874/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949874/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:12:37</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949874" target="_blank" rel="noopener">
+      <p class="title">【実録】アイドル研究生のヒミツの演技指導。固いチンポに殻を破りエロくなっていく表情は必見。</p>
+      <p class="subline">FC2-PPV-4949874</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949874">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949874" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949874&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949874" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949874" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949874" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4953633" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4953633/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4953633/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4953633/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:25:05</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4953633" target="_blank" rel="noopener">
+      <p class="title">初撮り♥完全顔出し♥彼氏持ちの普通OLをナンパしてホテルデート！騎乗位で泣き声を漏らしながら腰を振り続け、最後は「中に出して♡」と懇願して大量生中出し！【海外版】特典付</p>
+      <p class="subline">FC2-PPV-4953633</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4953633">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4953633" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4953633&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4953633" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4953633" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4953633" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4948206" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4948206/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4948206/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4948206/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:47:13</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4948206" target="_blank" rel="noopener">
+      <p class="title">【無】デカ乳輪のＨカップのパイズリがエグい！唾液ダラダラのフェラも凄で大量顔射に激し過ぎるスパイダー騎乗位で中だし ※特典高画質</p>
+      <p class="subline">FC2-PPV-4948206</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4948206">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4948206" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4948206&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4948206" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4948206" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4948206" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950084" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950084/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950084/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950084/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:10:40</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950084" target="_blank" rel="noopener">
+      <p class="title">※100個限定【神回】すべてが完璧な女優との密会デート。感じまくりで絶頂する彼女に興奮し過ぎて１ｍ射精中出し。やばいよこれ</p>
+      <p class="subline">FC2-PPV-4950084</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950084">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950084" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950084&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950084" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950084" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950084" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949940" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949940/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949940/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949940/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:15:54</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949940" target="_blank" rel="noopener">
+      <p class="title">あの六駆レイヤーさんがリマスターで復活！艦これ響衣装で寝バックエッチ編２</p>
+      <p class="subline">FC2-PPV-4949940</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949940">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949940" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949940&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949940" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949940" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949940" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949847" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949847/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949847/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949847/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:57:08</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949847" target="_blank" rel="noopener">
+      <p class="title">31日迄1490pt!!【続】※特典 バイリンガル美容部員。鍛え上げたbodyで甘さド誘惑、おマン㋙がっつりホールドで射精管理。白目アへ顔.痙攣イキまくる体に奥まで大量ドクドク精液爆発！</p>
+      <p class="subline">FC2-PPV-4949847</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949847">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949847" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949847&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949847" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949847" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949847" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950187" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950187/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950187/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950187/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:06:17</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950187" target="_blank" rel="noopener">
+      <p class="title">【8/25迄1290pt】天然Fカップ圧倒的透明感の白肌ムスメ。上反りチンポで色白ボディを赤くさせ「そこ当たる…！」と喘ぎながらガクガク痙攣を繰り返す。愛液あふれる剛毛マンコにたっぷり中出し。</p>
+      <p class="subline">FC2-PPV-4950187</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950187">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950187" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950187&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950187" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950187" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950187" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950006" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950006/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950006/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950006/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:10:35</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950006" target="_blank" rel="noopener">
+      <p class="title">♡8/16日迄半額【無・完全素人・生中出し】たまらまい肉体を見せつける２５歳の美人OL！まだまだ進化します！ねっとりたっぷりのフェラも必見！おじさんのビキビキちんぽで、ズコズコ突かれ、生（なま）中出し</p>
+      <p class="subline">FC2-PPV-4950006</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950006">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950006" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950006&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950006" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950006" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950006" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4938999" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4938999/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4938999/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4938999/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:00:06</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4938999" target="_blank" rel="noopener">
+      <p class="title">【10日間限定セール】S級美人スレンダーメンエス嬢を神引きしました♡顔身体どちらも完璧！疲れ切った体と性欲両方癒す大天使ちゃんでした。 【無修正・中出し】</p>
+      <p class="subline">FC2-PPV-4938999</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4938999">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4938999" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4938999&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4938999" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4938999" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4938999" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4950243" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950243/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4950243/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950243/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:36:19</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4950243" target="_blank" rel="noopener">
+      <p class="title">※8/24まで特割【無修正】今回もワクワクが止まらない！！とことん追求するあやなちゃんの下半身～栗もアナルも吸引地獄に...永久保存版の映像解禁～次回は3P確定！！</p>
+      <p class="subline">FC2-PPV-4950243</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4950243">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4950243" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4950243&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4950243" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4950243" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4950243" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4927208" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4927208/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4927208/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4927208/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:26:29</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4927208" target="_blank" rel="noopener">
+      <p class="title">大和なでしこ、呉服店お嬢の休日。</p>
+      <p class="subline">FC2-PPV-4927208</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4927208">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4927208" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4927208&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4927208" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4927208" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4927208" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949061" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949061/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949061/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949061/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:13:07</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949061" target="_blank" rel="noopener">
+      <p class="title">【8月末迄！数量限定！980pt！トータル2時間超】真夏と言えば汗だ！汗！！JD、人妻、人気メンエス嬢、総勢5名とじっとり濃密に絡み合う厳選！種付けシーンまとめちゃいました♡【無修正】</p>
+      <p class="subline">FC2-PPV-4949061</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949061">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949061" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949061&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949061" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949061" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949061" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949830" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949830/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949830/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949830/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:26:47</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949830" target="_blank" rel="noopener">
+      <p class="title">21歳ナルミちゃん、ホテルでハメ撮り</p>
+      <p class="subline">FC2-PPV-4949830</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949830">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949830" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949830&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949830" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949830" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949830" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949884" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949884/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949884/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949884/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:57:00</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949884" target="_blank" rel="noopener">
+      <p class="title">【未經修改】與原本的T○N模特兒初次見面的影片出現了 | FC2電子市場</p>
+      <p class="subline">FC2-PPV-4949884</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949884">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949884" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949884&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949884" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949884" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949884" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949882" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949882/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949882/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949882/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:00:02</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949882" target="_blank" rel="noopener">
+      <p class="title">【未經修改】在某交友網站上，被可愛的JD女孩討零用錢，於是見面後脫光她看了看…驚人的奇蹟乳頭 | FC2電子市場</p>
+      <p class="subline">FC2-PPV-4949882</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949882">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949882" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949882&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949882" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949882" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949882" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949772" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949772/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949772/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949772/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:52:46</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949772" target="_blank" rel="noopener">
+      <p class="title">[藻無し特典]アフピル持参し人生初の中出し志願。ドM栄養士かんなちゃん スレンダーな身体を雑に扱われてイキ狂い。</p>
+      <p class="subline">FC2-PPV-4949772</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949772">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949772" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949772&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949772" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949772" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949772" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949783" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949783/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949783/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949783/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:21:21</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949783" target="_blank" rel="noopener">
+      <p class="title">【幻の映像】最高クラスのファッションモデル、19歳の輝きを記録した秘蔵アーカイブ。これまで公開されなかった貴重な映像を限定公開。無垢な美女が騙..されるリアリティ。</p>
+      <p class="subline">FC2-PPV-4949783</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949783">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949783" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949783&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949783" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949783" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949783" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949740" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949740/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949740/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949740/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:20:48</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949740" target="_blank" rel="noopener">
+      <p class="title">(無)【個撮】ゆめかわ系、逆さディープスロートで頑張る【4K画質】</p>
+      <p class="subline">FC2-PPV-4949740</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949740">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949740" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949740&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949740" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949740" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949740" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4938843" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4938843/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4938843/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4938843/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:32:52</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4938843" target="_blank" rel="noopener">
+      <p class="title">【初撮り/個撮】専業主婦ことちゃん(29)♡結婚5年目の美巨尻Eカップ人妻が旦那に内緒でNTR背徳SEX 妖艶なフェロモン漂う成熟ボディ！手マンでびしょ濡れからの大好きなバックでハメまくり</p>
+      <p class="subline">FC2-PPV-4938843</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4938843">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4938843" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4938843&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4938843" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4938843" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4938843" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4932244" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4932244/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4932244/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4932244/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:20:50</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4932244" target="_blank" rel="noopener">
+      <p class="title">20歲時當偶像度過的大叔人妻！拋棄婚後平靜的日子，尋求刺激與大雞巴男人偷情中出性交！！</p>
+      <p class="subline">FC2-PPV-4932244</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4932244">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4932244" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4932244&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4932244" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4932244" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4932244" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949466" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949466/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949466/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949466/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">2:00:56</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949466" target="_blank" rel="noopener">
+      <p class="title">【初回70%オフ】 0419_002 まやちゃん19歳 2026年大注目の色白Fカップ元アイドル再び！前作のリベ.ンジで中出し2発射の洗礼で、不幸な赤ちゃんを妊娠するまでの孕ませAVシリーズスタート（</p>
+      <p class="subline">FC2-PPV-4949466</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949466">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949466" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949466&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949466" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949466" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949466" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949746" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949746/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949746/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949746/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:40:53</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949746" target="_blank" rel="noopener">
+      <p class="title">【ムッチリＦカップデカ尻】ちょい生意気な極美女ギャルちゃん 初めての潮吹き生中出しSEX</p>
+      <p class="subline">FC2-PPV-4949746</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949746">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949746" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949746&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949746" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949746" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949746" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949505" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949505/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949505/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949505/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:09:53</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949505" target="_blank" rel="noopener">
+      <p class="title">♡8/15日迄半額！【無・完全素人】引っ越しをひかえて忙しい日々の中、最後のご挨拶も兼ねて綺麗なシングル〇ザーさんが来店してくれました。相当たまっての最後のマッサージなので丁寧に施術いたします</p>
+      <p class="subline">FC2-PPV-4949505</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949505">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949505" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949505&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949505" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949505" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949505" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949735" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949735/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949735/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949735/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:03:31</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949735" target="_blank" rel="noopener">
+      <p class="title">2週間限定割引【無】20歳！173cm高身長・超絶美脚・美巨乳・美裸体の極上美女が黒人初解禁！濃厚3Pエロエロプレイで貪欲腰振り、2人への連続中出し懇願♡【海外版】特典付</p>
+      <p class="subline">FC2-PPV-4949735</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949735">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949735" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949735&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949735" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949735" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949735" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949544" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949544/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949544/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949544/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:42:57</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949544" target="_blank" rel="noopener">
+      <p class="title">【無】久しぶりに逢ったプリティ人妻は街中でもフェラするし、車に乗った瞬間からおまんこが洪水でしたｗ【レビューでＤＬ可能】</p>
+      <p class="subline">FC2-PPV-4949544</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949544">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949544" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949544&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949544" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949544" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949544" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949155" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949155/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949155/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949155/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:09:26</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949155" target="_blank" rel="noopener">
+      <p class="title">※【超良乳】Eｶｯﾌﾟに育ったｶﾞﾁ恋大●生とｶﾗｵｹで…。濁音喘ぎ声で潮吹きにご褒美種付けで黙らせる。。。</p>
+      <p class="subline">FC2-PPV-4949155</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949155">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949155" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949155&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949155" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949155" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949155" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949097" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949097/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949097/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949097/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:10:15</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949097" target="_blank" rel="noopener">
+      <p class="title">【SSS超絶美女の美裸体が再び！】超有名タレントファッションモデル事務所所属。圧倒的スタイルと洗練されたエロス。彼氏と別れて疼くカラダを慰める固いチンポの刺激。</p>
+      <p class="subline">FC2-PPV-4949097</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949097">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949097" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949097&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949097" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949097" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949097" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949204" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949204/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949204/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949204/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:50:36</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949204" target="_blank" rel="noopener">
+      <p class="title">セクハラボディトリートメント ＃330【透き通るような白い肌のスレンダー美ボディの美人OLが快楽を我慢しながらぐちょ濡れ絶頂】</p>
+      <p class="subline">FC2-PPV-4949204</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949204">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949204" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949204&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949204" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949204" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949204" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947719" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947719/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947719/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947719/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:43:23</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947719" target="_blank" rel="noopener">
+      <p class="title">【※アナルsho女解禁・※】業界で活躍する長身スレンダーのマルチタレント（175cm）がはじめてのアナル開発…アナルビーズでじっくり拡張されイッた瞬間ケツ穴痙攣ビーズが尻尾みたいに揺れまくって</p>
+      <p class="subline">FC2-PPV-4947719</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947719">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947719" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947719&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947719" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947719" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947719" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949460" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949460/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949460/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949460/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:02:39</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949460" target="_blank" rel="noopener">
+      <p class="title">おすすめ！【上物★顔出し☆モ無し】そんなことしたことありません！がとても興奮する人妻！谷間に挟んでほしいと純粋に心の声がでてしまう人妻の強烈な乳に燃える</p>
+      <p class="subline">FC2-PPV-4949460</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949460">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949460" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949460&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949460" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949460" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949460" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949295" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949295/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949295/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949295/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:59:17</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949295" target="_blank" rel="noopener">
+      <p class="title">【8/17まで特別価格】美人で爆乳美ボディーのモデル兼インフルエンサーの彼女とイチャイチャ中出しセックス</p>
+      <p class="subline">FC2-PPV-4949295</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949295">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949295" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949295&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949295" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949295" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949295" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949214" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949214/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949214/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949214/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:00:48</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949214" target="_blank" rel="noopener">
+      <p class="title">【完全顔出し】『某大手外資系企業入社 新卒Hカップ爆美女OL』危険日ピル無し生中出し含む鬼畜NTR2連続射精。超希少プライベートガチハメ撮り。※残りわずか</p>
+      <p class="subline">FC2-PPV-4949214</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949214">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949214" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949214&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949214" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949214" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949214" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949116" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949116/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4949116/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949116/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:47:43</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4949116" target="_blank" rel="noopener">
+      <p class="title">おっとりしてるのにスイッチが入るとS嬢に変身！？147cmミニマムむすめのおまんちょすに過去イチ級の大量精○を放出！</p>
+      <p class="subline">FC2-PPV-4949116</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4949116">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4949116" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4949116&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4949116" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4949116" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4949116" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4948361" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4948361/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4948361/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4948361/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:05:54</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4948361" target="_blank" rel="noopener">
+      <p class="title">【過去一】ガチ.緊急！！(初撮り) ※撮影経験.ナㇱ！ 「最初で最後です。」田舎の元ヤンＳランク美女発掘！.はじめて極太ちんぽを体験シ 気持ちよすぎで.涙、がとまらない 「特典付き」</p>
+      <p class="subline">FC2-PPV-4948361</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4948361">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4948361" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4948361&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4948361" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4948361" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4948361" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947542" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947542/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947542/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947542/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:30:00</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947542" target="_blank" rel="noopener">
+      <p class="title">186日目：【淫乱人妻】電マでクリイキ数十回…着衣オナニーから正の字落書きまで完全堕落</p>
+      <p class="subline">FC2-PPV-4947542</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947542">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947542" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947542&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947542" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947542" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947542" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947759" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947759/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947759/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947759/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:40:48</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947759" target="_blank" rel="noopener">
+      <p class="title">【個撮】ネイリストの若妻。強面の男にビビッてしまい、最後まで言いなりに。。。</p>
+      <p class="subline">FC2-PPV-4947759</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947759">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947759" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947759&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947759" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947759" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947759" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4948798" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4948798/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4948798/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4948798/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:41:55</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4948798" target="_blank" rel="noopener">
+      <p class="title">※在庫限り※【アナル開発第二弾!!】Iカップ神乳グラドルが人生初のアナルプラグ調教！プラグ飲み込んだままケツ穴ヒクヒク痙攣トラブル発生！前回よりじ〜っくり丁寧に拡張してアゲた極秘映像です。</p>
+      <p class="subline">FC2-PPV-4948798</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4948798">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4948798" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4948798&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4948798" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4948798" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4948798" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947420" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947420/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947420/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947420/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:03:35</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947420" target="_blank" rel="noopener">
+      <p class="title">【初回70%オフ】 0249_0250_001 ゆうりちゃん18歳 れいちゃん18歳 リアル親友のドスケベセフレ2人のダブルフェラ・交互挿入味比べを堪能！ぶっ.かけ中出し乱交ファックで同時に孕ませたる</p>
+      <p class="subline">FC2-PPV-4947420</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947420">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947420" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947420&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947420" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947420" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947420" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4946552" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4946552/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4946552/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4946552/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:49:18</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4946552" target="_blank" rel="noopener">
+      <p class="title">【無】上品な清楚系の見た目にホントのドスケベ！メイドコスでえげつない言葉責めと一切休ましてくれない刺激で連続射精…、ゴックン 中だし ※特典高画質</p>
+      <p class="subline">FC2-PPV-4946552</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4946552">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4946552" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4946552&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4946552" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4946552" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4946552" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947897" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947897/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947897/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947897/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:31:21</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947897" target="_blank" rel="noopener">
+      <p class="title">あの六駆レイヤーさんがリマスターで復活！艦これ響衣装でオナニー＆エッチ編！</p>
+      <p class="subline">FC2-PPV-4947897</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947897">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947897" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947897&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947897" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947897" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947897" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4934520" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4934520/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4934520/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4934520/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">0:52:39</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4934520" target="_blank" rel="noopener">
+      <p class="title">【無修正】フワフワ柔らかおっぱいの美容部員、きょうこちゃんの濃厚フェラからの中出しセックス！</p>
+      <p class="subline">FC2-PPV-4934520</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4934520">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4934520" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4934520&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4934520" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4934520" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4934520" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4948541" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4948541/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4948541/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4948541/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:21:54</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4948541" target="_blank" rel="noopener">
+      <p class="title">【無修正ｘ個人撮影】★Kerberos番外編★巨乳五十路妻が全身網タイツを着用して仮面舞踏会！熟女のだらしない体が狂いながら反応する！</p>
+      <p class="subline">FC2-PPV-4948541</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4948541">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4948541" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4948541&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4948541" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4948541" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4948541" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4947596" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4947596/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4947596/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4947596/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:10:32</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4947596" target="_blank" rel="noopener">
+      <p class="title">⭐50％OFF(1500円OFF)⭐ 8/16までの期間限定価格⭐【Ｈカップの美爆乳エロ奥様】ご主人すみません。不在中にご自宅で3Pして奥さんに顔射と中出しまでしちゃってます。。</p>
+      <p class="subline">FC2-PPV-4947596</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4947596">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4947596" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4947596&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4947596" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4947596" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4947596" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4948496" data-seen="2026-09-16 16:15:02" data-new="1" data-views="0">
+  <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4948496/preview.mp4" aria-label="プレビュー">
+    <img src="https://fourhoi.com/fc2-ppv-4948496/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
+    <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4948496/cover-n.jpg"></video>
+    <span class="badge new">NEW</span>
+    <span class="time">1:33:18</span>
+  </button>
+  <div class="body">
+    <a class="open" href="https://missav.live/ja/fc2-ppv-4948496" target="_blank" rel="noopener">
+      <p class="title">【14日間限定セール】む..す//めガチャ！厳選！☆激かわ素人メンエス嬢の生ハメ中出し総集編第二弾！【無修正・中出し】</p>
+      <p class="subline">FC2-PPV-4948496</p>
+      <p class="meta">2026-09-16 16:15</p>
+    </a>
+    <button class="fav" type="button" data-code="FC2-PPV-4948496">☆</button>
+    <p class="links"><a href="https://supjav.com/ja/?s=FC2PPV+4948496" target="_blank" rel="noopener">Supjav</a><a href="https://javdb.com/search?q=FC2-PPV-4948496&f=all" target="_blank" rel="noopener">JavDB</a><a href="https://adult.contents.fc2.com/search/?q=4948496" target="_blank" rel="noopener">FC2検索</a><a href="https://123av.com/ja/search?keyword=FC2-PPV-4948496" target="_blank" rel="noopener">123AV</a><a href="https://javfc2.xyz/search?q=4948496" target="_blank" rel="noopener">JavFC2</a></p>
+  </div>
+</article>
+
+<article class="card" data-code="FC2-PPV-4949558" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949558/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4949558/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949558/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:36:24</span>
   </button>
   <div class="body">
@@ -502,11 +1639,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957736" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957736" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957736/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957736/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957736/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:40:38</span>
   </button>
   <div class="body">
@@ -520,11 +1657,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960483" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960483" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960483/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960483/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960483/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:59:40</span>
   </button>
   <div class="body">
@@ -538,11 +1675,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960168" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960168" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960168/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960168/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960168/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:05:19</span>
   </button>
   <div class="body">
@@ -574,11 +1711,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4958891" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4958891" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4958891/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4958891/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4958891/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:12:10</span>
   </button>
   <div class="body">
@@ -592,11 +1729,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4946717" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4946717" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4946717/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4946717/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4946717/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:42:21</span>
   </button>
   <div class="body">
@@ -610,11 +1747,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960601" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960601" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960601/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960601/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960601/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:19:35</span>
   </button>
   <div class="body">
@@ -628,11 +1765,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960728" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960728" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960728/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960728/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960728/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:10:45</span>
   </button>
   <div class="body">
@@ -646,11 +1783,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960612" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960612" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960612/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960612/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960612/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:38:08</span>
   </button>
   <div class="body">
@@ -664,11 +1801,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955925" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955925" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955925/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955925/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955925/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:11:42</span>
   </button>
   <div class="body">
@@ -682,11 +1819,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960017" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960017" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960017/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960017/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960017/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:04:49</span>
   </button>
   <div class="body">
@@ -700,11 +1837,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960778" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960778" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960778/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960778/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960778/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:51:35</span>
   </button>
   <div class="body">
@@ -736,11 +1873,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957228" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957228" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957228/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957228/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957228/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">2:53:30</span>
   </button>
   <div class="body">
@@ -754,11 +1891,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4959142" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4959142" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4959142/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4959142/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4959142/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:04:24</span>
   </button>
   <div class="body">
@@ -772,11 +1909,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4950403" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4950403" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950403/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4950403/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950403/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:11:15</span>
   </button>
   <div class="body">
@@ -790,11 +1927,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4959070" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4959070" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4959070/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4959070/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4959070/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:09:59</span>
   </button>
   <div class="body">
@@ -808,11 +1945,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960206" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960206" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960206/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960206/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960206/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:53:15</span>
   </button>
   <div class="body">
@@ -826,11 +1963,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956843" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956843" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956843/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956843/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956843/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">2:11:13</span>
   </button>
   <div class="body">
@@ -844,11 +1981,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957420" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957420" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957420/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957420/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957420/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:54:08</span>
   </button>
   <div class="body">
@@ -862,11 +1999,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4959150" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4959150" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4959150/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4959150/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4959150/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:04:37</span>
   </button>
   <div class="body">
@@ -880,11 +2017,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960066" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960066" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960066/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960066/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960066/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:46:35</span>
   </button>
   <div class="body">
@@ -898,11 +2035,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960075" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960075" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960075/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960075/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960075/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:17:52</span>
   </button>
   <div class="body">
@@ -916,11 +2053,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4960229" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4960229" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4960229/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4960229/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4960229/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:29:42</span>
   </button>
   <div class="body">
@@ -934,11 +2071,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4932559" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4932559" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4932559/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4932559/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4932559/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:02:24</span>
   </button>
   <div class="body">
@@ -952,11 +2089,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957599" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957599" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957599/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957599/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957599/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:58:33</span>
   </button>
   <div class="body">
@@ -970,11 +2107,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4958738" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4958738" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4958738/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4958738/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4958738/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:57:48</span>
   </button>
   <div class="body">
@@ -988,11 +2125,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4949877" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4949877" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4949877/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4949877/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4949877/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:27:52</span>
   </button>
   <div class="body">
@@ -1006,11 +2143,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957610" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957610" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957610/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957610/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957610/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:03:17</span>
   </button>
   <div class="body">
@@ -1024,11 +2161,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957686" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957686" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957686/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957686/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957686/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:37:10</span>
   </button>
   <div class="body">
@@ -1042,11 +2179,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4953652" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4953652" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4953652/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4953652/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4953652/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:35:27</span>
   </button>
   <div class="body">
@@ -1060,11 +2197,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957326" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957326" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957326/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957326/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957326/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:50:37</span>
   </button>
   <div class="body">
@@ -1078,11 +2215,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957009" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957009" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957009/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957009/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957009/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:08:43</span>
   </button>
   <div class="body">
@@ -1096,11 +2233,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957333" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957333" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957333/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957333/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957333/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:15:53</span>
   </button>
   <div class="body">
@@ -1114,11 +2251,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957408" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957408" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957408/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957408/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957408/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:56:03</span>
   </button>
   <div class="body">
@@ -1132,11 +2269,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957436" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957436" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957436/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957436/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957436/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:00:43</span>
   </button>
   <div class="body">
@@ -1150,11 +2287,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4932990" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4932990" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4932990/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4932990/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4932990/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:19:12</span>
   </button>
   <div class="body">
@@ -1168,11 +2305,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957615" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957615" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957615/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957615/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957615/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:48:03</span>
   </button>
   <div class="body">
@@ -1186,11 +2323,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957069" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957069" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957069/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957069/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957069/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:38:26</span>
   </button>
   <div class="body">
@@ -1204,11 +2341,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957238" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957238" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957238/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957238/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957238/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:29:22</span>
   </button>
   <div class="body">
@@ -1222,11 +2359,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955683" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955683" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955683/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955683/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955683/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:11:11</span>
   </button>
   <div class="body">
@@ -1240,11 +2377,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956890" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956890" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956890/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956890/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956890/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:05:31</span>
   </button>
   <div class="body">
@@ -1258,11 +2395,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4874588" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4874588" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4874588/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4874588/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4874588/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:08:08</span>
   </button>
   <div class="body">
@@ -1276,11 +2413,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956846" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956846" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956846/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956846/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956846/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:38:32</span>
   </button>
   <div class="body">
@@ -1294,11 +2431,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957056" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957056" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957056/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957056/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957056/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:38:05</span>
   </button>
   <div class="body">
@@ -1312,11 +2449,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4950405" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4950405" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950405/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4950405/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950405/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:39:20</span>
   </button>
   <div class="body">
@@ -1330,11 +2467,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4957105" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4957105" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4957105/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4957105/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4957105/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:46:40</span>
   </button>
   <div class="body">
@@ -1348,11 +2485,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956913" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956913" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956913/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956913/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956913/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:14:28</span>
   </button>
   <div class="body">
@@ -1366,11 +2503,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956891" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956891" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956891/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956891/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956891/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:42:22</span>
   </button>
   <div class="body">
@@ -1384,11 +2521,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956600" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956600" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956600/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956600/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956600/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:49:52</span>
   </button>
   <div class="body">
@@ -1402,11 +2539,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955809" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955809" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955809/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955809/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955809/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:28:46</span>
   </button>
   <div class="body">
@@ -1420,11 +2557,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956763" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956763" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956763/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956763/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956763/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:54:24</span>
   </button>
   <div class="body">
@@ -1438,11 +2575,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4953812" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4953812" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4953812/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4953812/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4953812/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:04:02</span>
   </button>
   <div class="body">
@@ -1456,11 +2593,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4934536" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4934536" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4934536/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4934536/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4934536/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:02:19</span>
   </button>
   <div class="body">
@@ -1474,11 +2611,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955836" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955836" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955836/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955836/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955836/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:23:01</span>
   </button>
   <div class="body">
@@ -1492,11 +2629,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956648" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956648" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956648/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956648/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956648/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:55:38</span>
   </button>
   <div class="body">
@@ -1510,11 +2647,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955884" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955884" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955884/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955884/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955884/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:46:56</span>
   </button>
   <div class="body">
@@ -1528,11 +2665,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4939465" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4939465" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4939465/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4939465/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4939465/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:10:27</span>
   </button>
   <div class="body">
@@ -1546,11 +2683,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4950213" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4950213" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4950213/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4950213/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4950213/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:49:40</span>
   </button>
   <div class="body">
@@ -1564,11 +2701,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956715" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956715" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956715/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956715/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956715/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:27:49</span>
   </button>
   <div class="body">
@@ -1582,11 +2719,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956023" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956023" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956023/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956023/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956023/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:20:00</span>
   </button>
   <div class="body">
@@ -1600,11 +2737,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955762" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955762" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955762/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955762/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955762/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:25:58</span>
   </button>
   <div class="body">
@@ -1618,11 +2755,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956022" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956022" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956022/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956022/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956022/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">2:05:40</span>
   </button>
   <div class="body">
@@ -1636,11 +2773,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4956632" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4956632" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4956632/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4956632/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4956632/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:38:46</span>
   </button>
   <div class="body">
@@ -1654,11 +2791,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4953235" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4953235" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4953235/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4953235/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4953235/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:36:41</span>
   </button>
   <div class="body">
@@ -1672,11 +2809,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4955757" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4955757" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4955757/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4955757/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4955757/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">1:02:13</span>
   </button>
   <div class="body">
@@ -1690,11 +2827,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4954897" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4954897" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4954897/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4954897/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4954897/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">0:35:24</span>
   </button>
   <div class="body">
@@ -1708,11 +2845,11 @@ main { padding:0 0 72px; display:grid; grid-template-columns:1fr; }
   </div>
 </article>
 
-<article class="card" data-code="FC2-PPV-4948503" data-seen="2026-09-16 16:04:17" data-new="1" data-views="0">
+<article class="card" data-code="FC2-PPV-4948503" data-seen="2026-09-16 16:04:17" data-new="0" data-views="0">
   <button class="thumb-wrap" type="button" data-preview="https://fourhoi.com/fc2-ppv-4948503/preview.mp4" aria-label="プレビュー">
     <img src="https://fourhoi.com/fc2-ppv-4948503/cover-n.jpg" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
     <video muted loop playsinline preload="none" poster="https://fourhoi.com/fc2-ppv-4948503/cover-n.jpg"></video>
-    <span class="badge new">NEW</span>
+    
     <span class="time">2:09:17</span>
   </button>
   <div class="body">
@@ -7471,14 +8608,14 @@ document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click'
   document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on', x.dataset.filter===filter));
   apply();
 }));
-document.querySelector('[data-sort="new"]').addEventListener('click',()=>{
-  cards.sort((a,b)=>(b.dataset.seen||'').localeCompare(a.dataset.seen||''));
+document.querySelectorAll('[data-sort="new"]').forEach(b=>b.addEventListener('click',()=>{
+  cards.sort((a,c)=>(c.dataset.seen||'').localeCompare(a.dataset.seen||''));
   cards.forEach(c=>list.appendChild(c));
-});
-document.querySelector('[data-sort="views"]').addEventListener('click',()=>{
-  cards.sort((a,b)=>Number(b.dataset.views||0)-Number(a.dataset.views||0));
+}));
+document.querySelectorAll('[data-sort="views"]').forEach(b=>b.addEventListener('click',()=>{
+  cards.sort((a,c)=>Number(c.dataset.views||0)-Number(a.dataset.views||0));
   cards.forEach(c=>list.appendChild(c));
-});
+}));
 document.querySelectorAll('.open, .links a').forEach(a=>a.addEventListener('click',()=>{
   const card=a.closest('.card'); if(!card) return;
   watched.add(card.dataset.code);
