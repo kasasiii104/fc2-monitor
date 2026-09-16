@@ -27,7 +27,7 @@ DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
 MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "60"))
-KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "500"))
+KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 
@@ -461,6 +461,10 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
       <button type="button" data-filter="all" class="on">すべて</button>
       <button type="button" data-filter="new">NEW</button>
       <button type="button" data-filter="fav">お気に入り</button>
+      <button type="button" data-filter="watched">視聴履歴</button>
+      <button type="button" data-filter="today">今日</button>
+      <button type="button" data-filter="yesterday">昨日</button>
+      <button type="button" data-filter="week">1週間</button>
       <button type="button" data-sort="new">新しい順</button>
       <button type="button" data-sort="views">再生数順</button>
     </div>
@@ -473,17 +477,34 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
     const list = document.getElementById('list');
     const cards = [...document.querySelectorAll('.card')];
     const favs = new Set(JSON.parse(localStorage.getItem('fc2favs') || '[]'));
+    const watched = new Set(JSON.parse(localStorage.getItem('fc2watched') || '[]'));
     let filter = 'all';
     const saveFavs = () => localStorage.setItem('fc2favs', JSON.stringify([...favs]));
+    const saveWatched = () => localStorage.setItem('fc2watched', JSON.stringify([...watched]));
+    const ymd = (d) => d.toISOString().slice(0, 10);
+    const now = new Date();
+    const today = ymd(new Date(now.getTime() + 9 * 3600 * 1000));
+    const yesterdayDate = new Date(now.getTime() + 9 * 3600 * 1000);
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = ymd(yesterdayDate);
+    const weekAgo = new Date(now.getTime() + 9 * 3600 * 1000);
+    weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
+    const weekStart = ymd(weekAgo);
     const apply = () => {{
       const keyword = q.value.trim().toLowerCase();
       cards.forEach(card => {{
         const text = card.textContent.toLowerCase();
         const isFav = favs.has(card.dataset.code);
         const isNew = card.dataset.new === '1';
+        const isWatched = watched.has(card.dataset.code);
+        const seenDay = (card.dataset.seen || '').slice(0, 10);
         let ok = text.includes(keyword);
         if (filter === 'new') ok = ok && isNew;
         if (filter === 'fav') ok = ok && isFav;
+        if (filter === 'watched') ok = ok && isWatched;
+        if (filter === 'today') ok = ok && seenDay === today;
+        if (filter === 'yesterday') ok = ok && seenDay === yesterday;
+        if (filter === 'week') ok = ok && seenDay >= weekStart;
         card.style.display = ok ? '' : 'none';
         const btn = card.querySelector('.fav');
         btn.classList.toggle('on', isFav);
@@ -505,6 +526,14 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
     document.querySelector('[data-sort="views"]').addEventListener('click', () => {{
       cards.sort((a, b) => Number(b.dataset.views || 0) - Number(a.dataset.views || 0));
       cards.forEach(card => list.appendChild(card));
+    }});
+    document.querySelectorAll('.links a').forEach(a => {{
+      a.addEventListener('click', () => {{
+        const card = a.closest('.card');
+        if (!card) return;
+        watched.add(card.dataset.code);
+        saveWatched();
+      }});
     }});
     document.querySelectorAll('.fav').forEach(btn => {{
       btn.addEventListener('click', () => {{
@@ -595,7 +624,8 @@ def main() -> int:
             item["is_new"] = False
             merged.append(item)
 
-    merged = merged[:KEEP_ITEMS]
+    if KEEP_ITEMS > 0:
+        merged = merged[:KEEP_ITEMS]
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     HTML_FILE.parent.mkdir(parents=True, exist_ok=True)
