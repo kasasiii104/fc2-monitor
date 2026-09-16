@@ -26,8 +26,8 @@ HEADERS = {
 DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
-MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "40"))
-KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "200"))
+MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "60"))
+KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "500"))
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 
@@ -52,10 +52,23 @@ def save_json(path: Path, payload) -> None:
         f.write("\n")
 
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str, photo: str | None = None) -> None:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram未設定のため通知スキップ")
         return
+    if photo:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        res = requests.post(
+            url,
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "photo": photo,
+                "caption": text[:1024],
+            },
+            timeout=20,
+        )
+        if res.ok:
+            return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     res = requests.post(
         url,
@@ -96,7 +109,22 @@ def is_better_title(new: str, old: str) -> bool:
     return len(new) > len(old)
 
 
-def enrich(code_num: str, title: str, source: str, url: str) -> dict:
+def parse_duration(text: str) -> str:
+    match = re.search(r"\b(\d{1,2}:\d{2}(?::\d{2})?)\b", text or "")
+    return match.group(1) if match else ""
+
+
+def parse_views(text: str) -> int | None:
+    match = re.search(r"([\d,]+)\s*(?:views|view|回再生|視聴|Views)", text or "", flags=re.I)
+    if not match:
+        return None
+    try:
+        return int(match.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def enrich(code_num: str, title: str, source: str, url: str, duration: str = "", views: int | None = None) -> dict:
     slug = f"fc2-ppv-{code_num}"
     return {
         "code": f"FC2-PPV-{code_num}",
@@ -104,6 +132,8 @@ def enrich(code_num: str, title: str, source: str, url: str) -> dict:
         "title": title or f"FC2-PPV-{code_num}",
         "source": source,
         "url": url,
+        "duration": duration,
+        "views": views,
         "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg",
         "preview": f"https://fourhoi.com/{slug}/preview.mp4",
     }
@@ -119,14 +149,37 @@ def scrape_missav() -> list[dict]:
             continue
         code_num = match.group(1)
         full_url = href if href.startswith("http") else urljoin("https://missav.live", href)
-        raw = a.get("title") or a.get_text(" ", strip=True)
+        img = a.find("img")
+        raw = " ".join([
+            a.get("title") or "",
+            (img.get("alt") if img else "") or "",
+            a.get_text(" ", strip=True),
+        ])
         title = clean_title(raw, code_num)
+        around = " ".join([
+            raw,
+            a.parent.get_text(" ", strip=True) if a.parent else "",
+        ])
+        duration = parse_duration(around)
+        views = parse_views(around)
         current = collected.get(code_num)
         if not current:
-            collected[code_num] = enrich(code_num, title or f"FC2-PPV-{code_num}", "MissAV", full_url)
-        elif is_better_title(title, current["title"]):
-            current["title"] = title
-            current["url"] = full_url
+            collected[code_num] = enrich(
+                code_num,
+                title or f"FC2-PPV-{code_num}",
+                "MissAV",
+                full_url,
+                duration=duration,
+                views=views,
+            )
+        else:
+            if is_better_title(title, current["title"]):
+                current["title"] = title
+                current["url"] = full_url
+            if duration and not current.get("duration"):
+                current["duration"] = duration
+            if views and not current.get("views"):
+                current["views"] = views
     return list(collected.values())[:MAX_ITEMS]
 
 
@@ -148,7 +201,15 @@ def scrape_supjav() -> list[dict]:
         seen.add(code_num)
         title = clean_title(a.get("title") or a.get_text(" ", strip=True), code_num)
         full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
-        items.append(enrich(code_num, title or f"FC2-PPV-{code_num}", "Supjav", full_url))
+        around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
+        items.append(enrich(
+            code_num,
+            title or f"FC2-PPV-{code_num}",
+            "Supjav",
+            full_url,
+            duration=parse_duration(around),
+            views=parse_views(around),
+        ))
         if len(items) >= MAX_ITEMS:
             break
     return items
@@ -170,7 +231,12 @@ def merge_videos(groups: list[list[dict]]) -> list[dict]:
                 merged[code]["sources"][item["source"]] = item["url"]
                 if item["source"] == "MissAV":
                     merged[code]["url"] = item["url"]
-                    merged[code]["title"] = item["title"]
+                    if is_better_title(item["title"], merged[code]["title"]):
+                        merged[code]["title"] = item["title"]
+                if item.get("duration") and not merged[code].get("duration"):
+                    merged[code]["duration"] = item["duration"]
+                if item.get("views") and not merged[code].get("views"):
+                    merged[code]["views"] = item["views"]
     result = []
     for code in order:
         item = merged[code]
@@ -206,6 +272,11 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
         code_num = item.get("code_num") or item["code"].split("-")[-1]
         sources.setdefault("JavDB", f"https://javdb.com/search?q=FC2-PPV-{code_num}&f=all")
         sources.setdefault("FC2検索", f"https://adult.contents.fc2.com/search/?q={code_num}")
+        sources.setdefault("123AV", f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}")
+        sources.setdefault("JavFC2", f"https://javfc2.xyz/search?q={code_num}")
+        duration = item.get("duration") or "-"
+        views = item.get("views")
+        views_label = f"{views:,}回" if isinstance(views, int) else "-"
         source_links = " ".join(
             f'<a href="{url}" target="_blank" rel="noopener">{name}</a>'
             for name, url in sources.items()
@@ -213,7 +284,7 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
         seen = item.get("first_seen", "")
         cards.append(
             f"""
-            <article class="card" data-code="{item['code']}" data-seen="{seen}" data-new="{1 if item.get('is_new') else 0}">
+            <article class="card" data-code="{item['code']}" data-seen="{seen}" data-new="{1 if item.get('is_new') else 0}" data-views="{item.get('views') or 0}" data-duration="{duration}">
               <button class="thumb-wrap" type="button" data-preview="{preview}" aria-label="プレビュー再生">
                 <img src="{thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">
                 <video muted loop playsinline preload="none" poster="{thumb}"></video>
@@ -225,6 +296,7 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
                   <button class="fav" type="button" data-code="{item['code']}">☆</button>
                 </div>
                 <p class="title">{item['title']}</p>
+                <p class="meta">時間: {duration} ／ 再生: {views_label}</p>
                 <p class="meta">初回確認: {item.get('first_seen', '-')} ／ {item.get('source_label', item.get('source', ''))}</p>
                 <p class="links">{source_links}</p>
               </div>
@@ -390,6 +462,7 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
       <button type="button" data-filter="new">NEW</button>
       <button type="button" data-filter="fav">お気に入り</button>
       <button type="button" data-sort="new">新しい順</button>
+      <button type="button" data-sort="views">再生数順</button>
     </div>
   </header>
   <main id="list">
@@ -427,6 +500,10 @@ def render_html(items: list[dict], updated_at: str, new_count: int) -> str:
     }});
     document.querySelector('[data-sort="new"]').addEventListener('click', () => {{
       cards.sort((a, b) => (b.dataset.seen || '').localeCompare(a.dataset.seen || ''));
+      cards.forEach(card => list.appendChild(card));
+    }});
+    document.querySelector('[data-sort="views"]').addEventListener('click', () => {{
+      cards.sort((a, b) => Number(b.dataset.views || 0) - Number(a.dataset.views || 0));
       cards.forEach(card => list.appendChild(card));
     }});
     document.querySelectorAll('.fav').forEach(btn => {{
@@ -504,6 +581,8 @@ def main() -> int:
             "first_seen": old.get("first_seen", stamp),
             "last_seen": stamp,
             "is_new": is_new,
+            "duration": video.get("duration") or old.get("duration", ""),
+            "views": video.get("views") or old.get("views"),
         }
         merged.append(item)
         if is_new:
@@ -550,11 +629,18 @@ def main() -> int:
         source_lines = []
         for name, url in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items():
             source_lines.append(f"{name}: {url}")
+        extra = []
+        if video.get("duration"):
+            extra.append(f"時間: {video['duration']}")
+        if video.get("views"):
+            extra.append(f"再生: {video['views']:,}")
         send_telegram(
             "【新着 FC2-PPV】\n\n"
             f"{video['code']}\n"
-            f"{video['title']}\n\n"
-            + "\n".join(source_lines)
+            f"{video['title']}\n"
+            + (" / ".join(extra) + "\n\n" if extra else "\n")
+            + "\n".join(source_lines),
+            photo=video.get("thumb"),
         )
         print(f"通知: {video['code']}")
     return 0
