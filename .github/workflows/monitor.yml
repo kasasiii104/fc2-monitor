@@ -27,6 +27,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INCLUDE_KEYWORDS: ${{ secrets.INCLUDE_KEYWORDS }}
+          EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
         run: python fc2_monitor.py
 
       - name: Commit site data
@@ -43,17 +45,17 @@ jobs:
             git push
           fi
 
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
   pages:
     needs: check
-    if: github.ref == 'refs/heads/main' && always()
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
       - id: deployment
         uses: actions/deploy-pages@v4
