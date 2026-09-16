@@ -340,9 +340,22 @@ input {{ width:100%; margin:8px 0; border:0; border-radius:20px; padding:10px 14
 .toolbar {{ display:flex; gap:8px; overflow-x:auto; padding:0 0 10px; }}
 .toolbar button {{ flex:0 0 auto; border:0; border-radius:8px; padding:7px 12px; background:#272727; color:var(--text); font-size:13px; }}
 .toolbar button.on {{ background:#f1f1f1; color:#0f0f0f; }}
+.side {{ display:none; }}
 main {{ padding:0 0 72px; display:grid; grid-template-columns:1fr; }}
-@media (min-width:700px) {{ main {{ padding:12px 12px 24px; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }} }}
-@media (min-width:1100px) {{ main {{ grid-template-columns:repeat(3,minmax(0,1fr)); }} }}
+@media (min-width:900px) {{
+  .nav {{ display:none; }}
+  .side {{ display:flex; flex-direction:column; position:fixed; left:0; top:57px; bottom:0; width:216px; padding:12px 10px; gap:4px; border-right:1px solid #222; background:#0f0f0f; z-index:40; }}
+  .side button {{ border:0; background:transparent; color:#f1f1f1; text-align:left; border-radius:10px; padding:10px 14px; font-size:14px; }}
+  .side button.on {{ background:#272727; }}
+  header {{ padding:8px 24px 0 24px; }}
+  .top h1 {{ font-size:20px; }}
+  input {{ max-width:640px; margin:10px auto; display:block; background:#121212; border:1px solid #303030; }}
+  main {{ margin-left:216px; padding:20px 24px 32px; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }}
+  .card {{ border-radius:12px; overflow:hidden; }}
+  .thumb-wrap {{ border-radius:12px; }}
+  .body {{ padding:10px 4px 8px; }}
+}}
+@media (min-width:1400px) {{ main {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} }}
 .card {{ background:var(--card); }}
 .thumb-wrap {{ position:relative; display:block; width:100%; aspect-ratio:16/9; padding:0; border:0; background:#000; overflow:hidden; }}
 .thumb-wrap img,.thumb-wrap video {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }}
@@ -356,7 +369,6 @@ main {{ padding:0 0 72px; display:grid; grid-template-columns:1fr; }}
 .subline,.meta {{ margin:0; color:var(--muted); font-size:12px; }}
 .fav {{ position:absolute; top:8px; right:8px; border:0; background:transparent; color:#aaa; font-size:20px; }}
 .fav.on {{ color:#fbbf24; }}
-.links {{ margin:8px 0 0; }}
 .links a {{ margin-right:10px; color:#3ea6ff; font-size:12px; text-decoration:none; }}
 .empty {{ text-align:center; color:var(--muted); padding:40px 0; }}
 .nav {{ position:fixed; left:0; right:0; bottom:0; z-index:50; display:flex; background:#0f0f0f; border-top:1px solid #222; padding:6px 0 env(safe-area-inset-bottom); }}
@@ -376,6 +388,15 @@ main {{ padding:0 0 72px; display:grid; grid-template-columns:1fr; }}
     <button type="button" data-sort="views">人気順</button>
   </div>
 </header>
+<aside class="side">
+  <button type="button" data-filter="all" class="on">ホーム</button>
+  <button type="button" data-filter="new">新着</button>
+  <button type="button" data-filter="fav">保存済み</button>
+  <button type="button" data-filter="watched">視聴履歴</button>
+  <button type="button" data-filter="today">今日</button>
+  <button type="button" data-filter="week">1週間</button>
+  <button type="button" data-sort="views">人気順</button>
+</aside>
 <main id="list">{cards_html}</main>
 <nav class="nav">
   <button type="button" data-filter="all" class="on">ホーム</button>
@@ -417,14 +438,14 @@ document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click'
   document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on', x.dataset.filter===filter));
   apply();
 }}));
-document.querySelector('[data-sort="new"]').addEventListener('click',()=>{{
-  cards.sort((a,b)=>(b.dataset.seen||'').localeCompare(a.dataset.seen||''));
+document.querySelectorAll('[data-sort="new"]').forEach(b=>b.addEventListener('click',()=>{{
+  cards.sort((a,c)=>(c.dataset.seen||'').localeCompare(a.dataset.seen||''));
   cards.forEach(c=>list.appendChild(c));
-}});
-document.querySelector('[data-sort="views"]').addEventListener('click',()=>{{
-  cards.sort((a,b)=>Number(b.dataset.views||0)-Number(a.dataset.views||0));
+}}));
+document.querySelectorAll('[data-sort="views"]').forEach(b=>b.addEventListener('click',()=>{{
+  cards.sort((a,c)=>Number(c.dataset.views||0)-Number(a.dataset.views||0));
   cards.forEach(c=>list.appendChild(c));
-}});
+}}));
 document.querySelectorAll('.open, .links a').forEach(a=>a.addEventListener('click',()=>{{
   const card=a.closest('.card'); if(!card) return;
   watched.add(card.dataset.code);
