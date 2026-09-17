@@ -29,11 +29,14 @@ HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
 CRAWL_FILE = Path(os.environ.get("CRAWL_FILE", "docs/crawl_state.json"))
 VIEWS_HISTORY_FILE = Path(os.environ.get("VIEWS_HISTORY_FILE", "docs/views_history.json"))
+FETCH_STATE_FILE = Path(os.environ.get("FETCH_STATE_FILE", "docs/fetch_state.json"))
 MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
 PAGES = int(os.environ.get("PAGES", "8"))
 BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "6"))
-VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "40"))
+VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
+TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
+FAIL_SKIP_SEC = 12 * 3600
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 JST = timezone(timedelta(hours=9))
@@ -128,27 +131,62 @@ def duration_seconds(text: str) -> int:
     return 0
 
 
+def parse_compact_count(raw: str):
+    text = (raw or "").replace(",", "").strip()
+    match = re.match(r"^([\d.]+)\s*(万|億|k|m)?$", text, flags=re.I)
+    if not match:
+        return None
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return None
+    unit = (match.group(2) or "").lower()
+    if unit == "万":
+        value *= 10000
+    elif unit == "億":
+        value *= 100000000
+    elif unit == "k":
+        value *= 1000
+    elif unit == "m":
+        value *= 1000000
+    value = int(value)
+    return value if 0 < value < 100000000 else None
+
+
 def parse_views(text: str):
-    for pat in [
-        r"([\d,]+)\s*(?:views|view|Views)",
-        r"(?:視聴回数|再生回数|回再生|視聴)\s*[:：]?\s*([\d,]+)",
-        r"([\d,]+)\s*(?:回再生|回視聴)",
-        r"([\d,]+)\s*(?:次播放|播放|次視聴)",
-        r"([\d,]+)\s*(?:people wanted|wanted|想看)",
-    ]:
-        match = re.search(pat, text or "", flags=re.I)
+    blob = text or ""
+    patterns = [
+        r"([\d,.]+)\s*(万|億|k|m)?\s*(?:views|view)",
+        r"(?:視聴回数|再生回数|再生数|回再生|視聴)\s*[:：]?\s*([\d,.]+)\s*(万|億|k|m)?",
+        r"([\d,.]+)\s*(万|億)?\s*(?:回再生|回視聴)",
+        r"([\d,.]+)\s*(?:次播放|播放|次視聴)",
+        r"([\d,.]+)\s*(?:people wanted|wanted|想看)",
+        r'"(?:views|view_count|play_count)"\s*:\s*"?([\d,.]+)"?',
+        r'data-(?:views|view-count|play)="([\d,.]+)"',
+    ]
+    for pat in patterns:
+        match = re.search(pat, blob, flags=re.I)
         if match:
-            try:
-                value = int(match.group(1).replace(",", ""))
-                if 0 < value < 100000000:
-                    return value
-            except ValueError:
-                pass
+            raw = match.group(1)
+            unit = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+            value = parse_compact_count(raw + (unit or ""))
+            if value:
+                return value
     return None
+
+
+def needs_jp_title(title: str) -> bool:
+    return title_score(title or "")[0] < 3
+
+
+def missav_detail_urls(code_num: str):
+    slug = f"fc2-ppv-{code_num}"
+    return [f"https://missav.ws/ja/{slug}", f"https://missav.live/ja/{slug}", f"https://missav.ai/ja/{slug}"]
 
 
 def extra_sources(code_num: str) -> dict:
     return {
+        "MissAV": f"https://missav.ws/ja/fc2-ppv-{code_num}",
         "Supjav": f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
         "JavDB": f"https://javdb.com/search?q=FC2-PPV-{code_num}&f=all",
         "FC2検索": f"https://adult.contents.fc2.com/search/?q={code_num}",
@@ -157,32 +195,126 @@ def extra_sources(code_num: str) -> dict:
     }
 
 
-def fill_missing_views(items):
-    fetched = 0
-    for item in items:
-        if item.get("views") or fetched >= VIEW_FETCH_LIMIT:
+def extract_page_title(soup, code_num: str) -> str:
+    parts = []
+    for tag in (soup.find("meta", attrs={"property": "og:title"}), soup.find("meta", attrs={"name": "twitter:title"})):
+        if tag and tag.get("content"):
+            parts.append(tag["content"])
+    if soup.title and soup.title.get_text():
+        parts.append(soup.title.get_text(" ", strip=True))
+    h1 = soup.find("h1")
+    if h1:
+        parts.append(h1.get_text(" ", strip=True))
+    for raw in parts:
+        title = clean_title(raw, code_num)
+        if title_score(title)[0] >= 3:
+            return title
+    for raw in parts:
+        title = clean_title(raw, code_num)
+        if title_score(title)[0] > 0:
+            return title
+    return ""
+
+
+def rotate_items(items, cursor: int):
+    if not items:
+        return []
+    start = cursor % len(items)
+    return items[start:] + items[:start]
+
+
+def fill_missing_views(items) -> None:
+    state = load_json(FETCH_STATE_FILE, {})
+    fails = state.get("view_fail") if isinstance(state.get("view_fail"), dict) else {}
+    cursor = int(state.get("view_cursor") or 0)
+    now = now_ts()
+    fetched = tried = 0
+    for item in rotate_items(items, cursor):
+        if fetched >= VIEW_FETCH_LIMIT or tried >= VIEW_FETCH_LIMIT * 3:
+            break
+        if isinstance(item.get("views"), int) and item["views"] > 0:
             continue
-        code_num = item.get("code_num") or str(item.get("code", "")).split("-")[-1]
+        code = item.get("code") or ""
+        last_fail = int(fails.get(code) or 0)
+        if last_fail and now - last_fail < FAIL_SKIP_SEC:
+            continue
+        tried += 1
+        code_num = item.get("code_num") or str(code).split("-")[-1]
         sources = dict(item.get("sources") or {})
         sources.update(extra_sources(code_num))
         urls = []
-        for key in ("MissAV", "Supjav", "JavDB", "123AV", "JavFC2"):
+        for key in ("MissAV", "Supjav", "123AV", "JavDB", "JavFC2"):
             if sources.get(key) and sources[key] not in urls:
                 urls.append(sources[key])
-        views = None
-        last_err = None
+        for extra in missav_detail_urls(code_num):
+            if extra not in urls:
+                urls.append(extra)
+        views = last_err = None
         for url in urls:
             try:
-                views = parse_views(fetch_soup(url).get_text(" ", strip=True))
+                soup = fetch_soup(url)
+                views = parse_views(soup.get_text(" ", strip=True) + " " + str(soup))
                 if views:
                     item["views"] = views
                     fetched += 1
-                    print(f"再生数: {item['code']} = {views} ({url})")
+                    fails.pop(code, None)
+                    print(f"再生数: {code} = {views} ({url})")
                     break
             except Exception as e:
                 last_err = e
-        if not views and last_err:
-            print(f"再生数取得失敗 {item.get('code')}: {last_err}")
+        if not views:
+            fails[code] = now
+            if last_err:
+                print(f"再生数取得失敗 {code}: {last_err}")
+    state["view_fail"] = fails
+    state["view_cursor"] = (cursor + max(tried, 1)) % max(len(items), 1)
+    save_json(FETCH_STATE_FILE, state)
+
+
+def refresh_japanese_titles(items) -> None:
+    state = load_json(FETCH_STATE_FILE, {})
+    fails = state.get("title_fail") if isinstance(state.get("title_fail"), dict) else {}
+    cursor = int(state.get("title_cursor") or 0)
+    now = now_ts()
+    updated = tried = 0
+    targets = [x for x in items if needs_jp_title(x.get("title", ""))]
+    for item in rotate_items(targets, cursor):
+        if updated >= TITLE_FETCH_LIMIT or tried >= TITLE_FETCH_LIMIT * 3:
+            break
+        code = item.get("code") or ""
+        last_fail = int(fails.get(code) or 0)
+        if last_fail and now - last_fail < FAIL_SKIP_SEC:
+            continue
+        tried += 1
+        code_num = item.get("code_num") or str(code).split("-")[-1]
+        urls = missav_detail_urls(code_num) + [
+            f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
+            f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}",
+        ]
+        found = ""
+        last_err = None
+        for url in urls:
+            try:
+                soup = fetch_soup(url)
+                found = extract_page_title(soup, code_num)
+                if found and is_better_title(found, item.get("title", "")):
+                    print(f"タイトル更新: {code} -> {found[:40]}")
+                    item["title"] = found
+                    updated += 1
+                    fails.pop(code, None)
+                    break
+                if found and title_score(found)[0] >= 3:
+                    fails.pop(code, None)
+                    break
+            except Exception as e:
+                last_err = e
+        if needs_jp_title(item.get("title", "")):
+            fails[code] = now
+            if last_err:
+                print(f"タイトル取得失敗 {code}: {last_err}")
+    state["title_fail"] = fails
+    state["title_cursor"] = (cursor + max(tried, 1)) % max(len(targets), 1)
+    save_json(FETCH_STATE_FILE, state)
 
 
 def enrich(code_num, title, source, url, duration="", views=None):
@@ -323,14 +455,11 @@ def calc_trend(points, current, hours, now):
     older = [p for p in points if isinstance(p.get("t"), (int, float)) and p["t"] <= now - hours * 1800]
     if not older:
         return None
-    chosen = min(older, key=lambda p: abs(p["t"] - target))
-    prev = chosen.get("v")
-    if not isinstance(prev, int):
-        return None
-    return max(0, current - prev)
+    prev = min(older, key=lambda p: abs(p["t"] - target)).get("v")
+    return max(0, current - prev) if isinstance(prev, int) else None
 
 
-def update_views_history(items):
+def update_views_history(items) -> None:
     hist = load_json(VIEWS_HISTORY_FILE, {"items": {}})
     store = hist.get("items") if isinstance(hist, dict) else {}
     if not isinstance(store, dict):
@@ -351,7 +480,7 @@ def update_views_history(items):
     save_json(VIEWS_HISTORY_FILE, {"updated_at": now_jst(), "items": store})
 
 
-def json_for_script(payload):
+def json_for_script(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
@@ -393,16 +522,15 @@ HTML_TEMPLATE = r"""<!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
 <title>FC2-PPV</title>
 <style>
 :root{color-scheme:dark;--bg:#0f0f0f;--text:#f1f1f1;--muted:#aaa;--line:#272727;--chip:#272727;--bar:#f00}
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 header{position:sticky;top:0;z-index:80;background:#0f0f0f;border-bottom:1px solid var(--line);padding:calc(8px + env(safe-area-inset-top)) 12px 0}
 .top{display:flex;align-items:center;gap:10px}h1{margin:0;font-size:16px}
 .count{color:var(--muted);font-size:11px;margin-left:auto;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.search-wrap{position:relative;flex:1}
-.search-row{display:none;gap:8px;align-items:center}
+.search-wrap{position:relative;flex:1}.search-row{display:none;gap:8px;align-items:center}
 .search-row.on,.page-search .search-row{display:flex}
 #q{width:100%;border:1px solid #303030;border-radius:20px;padding:12px 14px;background:#121212;color:#fff;font-size:16px;outline:none}
 .icon-btn{border:0;background:#272727;color:#fff;border-radius:18px;min-height:44px;padding:0 14px}
@@ -412,8 +540,7 @@ header{position:sticky;top:0;z-index:80;background:#0f0f0f;border-bottom:1px sol
 .sug img{width:72px;height:40px;object-fit:cover;border-radius:6px;background:#000}
 .chips,.sorts,.rail{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x;scrollbar-width:none}
 .chips::-webkit-scrollbar,.rail::-webkit-scrollbar,.sorts::-webkit-scrollbar{display:none}
-.chips{padding:0 0 10px}
-.lib-tabs{display:none;padding:0 12px 8px}.lib-tabs.on{display:flex}
+.chips{padding:0 0 10px}.lib-tabs{display:none;padding:0 12px 8px}.lib-tabs.on{display:flex}
 .chips button,.sorts button{flex:0 0 auto;border:0;border-radius:8px;min-height:36px;padding:8px 14px;background:var(--chip);color:#fff}
 .chips button.on,.sorts button.on{background:#f1f1f1;color:#111}
 .side{display:none}main{padding:0 0 calc(92px + env(safe-area-inset-bottom))}
@@ -456,7 +583,7 @@ header{position:sticky;top:0;z-index:80;background:#0f0f0f;border-bottom:1px sol
 <header>
   <div class="top"><h1>FC2-PPV</h1><span class="count">更新 __UPDATED_AT__ ・ 新着 __NEW_COUNT__ ・ __ITEM_COUNT__件</span></div>
   <div class="search-row"><div class="search-wrap"><input id="q" type="search" placeholder="番号・タイトルで検索" autocomplete="off"><div id="suggest" class="suggest"></div></div><button class="icon-btn" id="filterBtn" type="button">絞り込み</button></div>
-  <div class="chips" id="chips">
+  <div class="chips">
     <button type="button" data-chip="all" class="on">すべて</button>
     <button type="button" data-chip="new">新着</button>
     <button type="button" data-chip="rising">急上昇</button>
@@ -482,7 +609,7 @@ header{position:sticky;top:0;z-index:80;background:#0f0f0f;border-bottom:1px sol
   <div id="libTabs" class="lib-tabs chips"><button type="button" data-lib="later">後で見る</button><button type="button" data-lib="saved">保存済み</button></div>
   <div id="shelves"></div>
   <div class="list-head"><h2 id="listTitle">すべての作品</h2><span id="resultCount"></span>
-    <div class="sorts" id="sorts">
+    <div class="sorts">
       <button type="button" data-sort="new" class="on">新しい順</button>
       <button type="button" data-sort="old">古い順</button>
       <button type="button" data-sort="views">再生数順</button>
@@ -572,7 +699,7 @@ function sortItems(arr){
 function cardHTML(it,rank){
   const prog=Number(progress[it.code]||0),tr=trendOf(it);
   const extra=(page==='rising'||chip==='rising')&&tr?`<p class="meta trend">${riseWin} +${tr.toLocaleString()}</p>`:'';
-  return `<article class="card" data-code="${it.code}"><button class="thumb-wrap" type="button" data-code="${it.code}"><img src="${it.thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0"><video muted loop playsinline preload="none" poster="${it.thumb}"></video>${rank?`<span class="rank${rank<=3?' top':''}">#${rank}</span>`:(it.is_new?'<span class="badge new">NEW</span>':'')}<span class="time">${it.duration||''}</span><span class="prog"><i style="width:${Math.min(100,prog*100)}%"></i></span></button><div class="body"><a class="title open" href="${esc(it.sources.MissAV||it.url||'#')}" target="_blank" rel="noopener">${esc(it.title)}</a><p class="subline">${esc(it.code)}</p><p class="meta">${[viewsLabel(it.views),relTime(it.first_seen)].filter(Boolean).join(' ・ ')}</p>${extra}<p class="meta">${esc(it.source_label||'')}</p><button class="more" type="button" data-more="${esc(it.code)}">⋮</button></div></article>`;
+  return `<article class="card" data-code="${it.code}"><button class="thumb-wrap" type="button" data-code="${it.code}"><img src="${it.thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0"><video muted loop playsinline preload="none" poster="${it.thumb}" referrerpolicy="no-referrer"></video>${rank?`<span class="rank${rank<=3?' top':''}">#${rank}</span>`:(it.is_new?'<span class="badge new">NEW</span>':'')}<span class="time">${it.duration||''}</span><span class="prog"><i style="width:${Math.min(100,prog*100)}%"></i></span></button><div class="body"><a class="title open" href="${esc(it.sources.MissAV||it.url||'#')}" target="_blank" rel="noopener">${esc(it.title)}</a><p class="subline">${esc(it.code)}</p><p class="meta">${[viewsLabel(it.views),relTime(it.first_seen)].filter(Boolean).join(' ・ ')}</p>${extra}<p class="meta">${esc(it.source_label||'')}</p><button class="more" type="button" data-more="${esc(it.code)}">⋮</button></div></article>`;
 }
 document.addEventListener('click',e=>{
   const more=e.target.closest('.more');
@@ -595,7 +722,9 @@ document.addEventListener('mouseout',e=>{
 });
 function startPreview(w){
   const it=byCode[w.dataset.code];if(!it||!it.preview)return;
-  const v=w.querySelector('video');if(!v.getAttribute('src'))v.src=it.preview;
+  const v=w.querySelector('video');
+  v.setAttribute('referrerpolicy','no-referrer');v.referrerPolicy='no-referrer';
+  if(!v.getAttribute('src'))v.src=it.preview;
   const p=Number(progress[it.code]||0);w.classList.add('playing');playingSet.add(w);
   if(playingSet.size>4){const oldest=[...playingSet].find(x=>x!==w);if(oldest)stopPreview(oldest);}
   const play=async()=>{try{await v.play();if(p>0&&p<.95){try{v.currentTime=p*(v.duration||0);}catch(e){}}}catch(e){}};
@@ -645,7 +774,7 @@ function showSuggest(){
 }
 function openSheet(el){el.classList.add('on');sheetBg.classList.add('on');}
 function closeSheets(){panel.classList.remove('on');menu.classList.remove('on');sheetBg.classList.remove('on');}
-function openMenu(code,ev){
+function openMenu(code){
   const it=byCode[code];
   menu.innerHTML=`<button data-act="later">${later.has(code)?'後で見るから外す':'後で見る'}</button><button data-act="save">${favs.has(code)?'保存を解除':'保存'}</button><button data-act="watched">${watched.has(code)?'視聴済みを解除':'視聴済みにする'}</button><button data-act="unwatch">履歴から削除</button>${Object.entries(it.sources||{}).map(([n,u])=>`<button data-url="${esc(u)}">${esc(n)}</button>`).join('')}`;
   openSheet(menu);
@@ -685,7 +814,6 @@ def main() -> int:
     if not latest:
         send_telegram("監視エラー: 動画リストを抽出できませんでした。")
         return 1
-    fill_missing_views(latest)
     history = load_json(HISTORY_FILE, {"ids": []})
     known = set(history.get("ids", []))
     existing = load_json(DATA_FILE, {"items": []})
@@ -713,6 +841,8 @@ def main() -> int:
             merged.append(item)
     if KEEP_ITEMS > 0:
         merged = merged[:KEEP_ITEMS]
+    refresh_japanese_titles(merged)
+    fill_missing_views(merged)
     update_views_history(merged)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
