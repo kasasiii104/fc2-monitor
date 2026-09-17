@@ -108,21 +108,24 @@ def fetch_page(url: str) -> dict:
             soup = None
             title = ""
         low = text.lower()
-        cloudflare = (
+        title_l = (title or "").lower()
+        real_title = bool(title) and "just a moment" not in title_l
+        challenge = (
             res.status_code in (403, 503)
-            or "just a moment" in low
-            or "cf-browser-verification" in low
-            or "challenge-platform" in low
+            or title_l.startswith("just a moment")
+            or "<title>just a moment" in low[:4000]
         )
+        if res.status_code == 200 and real_title and len(text) > 20000:
+            challenge = False
         return {
-            "ok": res.status_code == 200 and not cloudflare and len(text) > 2000,
+            "ok": res.status_code == 200 and not challenge and len(text) > 2000,
             "status": res.status_code,
             "final_url": str(res.url),
             "text": text,
             "soup": soup,
             "size": len(text),
             "title": title,
-            "cloudflare": cloudflare,
+            "cloudflare": challenge,
             "error": None,
         }
     except Exception as e:
@@ -146,6 +149,52 @@ def log_views_attempt(source: str, code: str, page: dict, found=None, note: str 
         f"title={(page.get('title') or '')[:80]!r} cloudflare={page.get('cloudflare')} "
         f"views={found} {note} {page.get('error') or ''}".strip()
     )
+
+
+MISS_AV_VIEW_KEYS = [
+    "view_count", "play_count", "回視聴", "回再生", "視聴回数", "再生回数",
+    "played", "views", "view", "再生", "視聴",
+]
+
+
+def debug_missav_views(code: str, page: dict) -> None:
+    text = page.get("text") or ""
+    soup = page.get("soup")
+    if not text:
+        print(f"[MissAV views debug] code={code} empty_html")
+        return
+    low = text.lower()
+    printed = 0
+    for key in MISS_AV_VIEW_KEYS:
+        idx = low.find(key.lower())
+        if idx < 0:
+            continue
+        start = max(0, idx - 300)
+        end = min(len(text), idx + len(key) + 300)
+        ctx = re.sub(r"\s+", " ", text[start:end])
+        print(f"[MissAV views debug]\nkeyword={key}\ncontext={ctx}")
+        printed += 1
+        if printed >= 8:
+            break
+    extras = []
+    if soup is not None:
+        for script in soup.find_all("script"):
+            stype = (script.get("type") or "").lower()
+            body = script.string or script.get_text() or ""
+            if "ld+json" in stype or "application/json" in stype:
+                extras.append(((stype or "json-script")[:40], body[:400]))
+            elif "__INITIAL_STATE__" in body:
+                extras.append(("__INITIAL_STATE__", body[:400]))
+        for tag in soup.find_all(attrs=True):
+            for k, v in list(tag.attrs.items()):
+                if re.search(r"view|play", str(k), flags=re.I) and not re.search(r"preview|viewport", str(k), flags=re.I):
+                    extras.append((str(k), str(v)[:200]))
+    if extras:
+        print(f"[MissAV views debug] extras code={code}")
+        for name, body in extras[:12]:
+            print(f"  {name}: {re.sub(r'\\s+', ' ', body)[:300]}")
+    if printed == 0 and not extras:
+        print(f"[MissAV views debug] code={code} no_view_keywords")
 
 
 def clean_title(text: str, code_num: str) -> str:
@@ -365,8 +414,13 @@ def fill_missing_views(items) -> None:
         for source, url, extractor in collect_view_targets(item):
             page = fetch_page(url)
             any_page = page
-            value = extractor(page.get("soup"), page.get("text") or "") if page.get("ok") else None
-            log_views_attempt(source, code, page, value, "" if value else ("views_not_found" if page.get("ok") else "fetch_failed"))
+            title_ok = "just a moment" not in (page.get("title") or "").lower()
+            usable = page.get("ok") or (page.get("status") == 200 and title_ok and (page.get("size") or 0) > 20000)
+            value = extractor(page.get("soup"), page.get("text") or "") if usable else None
+            note = "" if value else ("views_not_found" if usable else "fetch_failed")
+            log_views_attempt(source, code, page, value, note)
+            if source == "MissAV" and usable and not value:
+                debug_missav_views(code, page)
             if value:
                 found, source_name = value, source
                 break
