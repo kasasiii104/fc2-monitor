@@ -97,6 +97,57 @@ def fetch_soup(url: str):
     return BeautifulSoup(res.text, "html.parser")
 
 
+def fetch_page(url: str) -> dict:
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=30, allow_redirects=True)
+        text = res.text or ""
+        try:
+            soup = BeautifulSoup(text, "html.parser")
+            title = soup.title.get_text(" ", strip=True) if soup.title else ""
+        except Exception:
+            soup = None
+            title = ""
+        low = text.lower()
+        cloudflare = (
+            res.status_code in (403, 503)
+            or "just a moment" in low
+            or "cf-browser-verification" in low
+            or "challenge-platform" in low
+        )
+        return {
+            "ok": res.status_code == 200 and not cloudflare and len(text) > 2000,
+            "status": res.status_code,
+            "final_url": str(res.url),
+            "text": text,
+            "soup": soup,
+            "size": len(text),
+            "title": title,
+            "cloudflare": cloudflare,
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "status": 0,
+            "final_url": url,
+            "text": "",
+            "soup": None,
+            "size": 0,
+            "title": "",
+            "cloudflare": False,
+            "error": str(e),
+        }
+
+
+def log_views_attempt(source: str, code: str, page: dict, found=None, note: str = "") -> None:
+    print(
+        f"[views] {source} code={code} status={page.get('status')} "
+        f"url={page.get('final_url')} size={page.get('size')} "
+        f"title={(page.get('title') or '')[:80]!r} cloudflare={page.get('cloudflare')} "
+        f"views={found} {note} {page.get('error') or ''}".strip()
+    )
+
+
 def clean_title(text: str, code_num: str) -> str:
     title = re.sub(r"\s+", " ", (text or "")).strip()
     title = re.sub(r"^\d{1,2}:\d{2}(?::\d{2})?\s*", "", title)
@@ -154,26 +205,56 @@ def parse_compact_count(raw: str):
     return value if 0 < value < 100000000 else None
 
 
+VIEW_TEXT_PATTERNS = [
+    r"([\d,.]+)\s*(万|億|k|m)?\s*(?:views?|view_count|play_count|pv)\b",
+    r"(?:視聴回数|再生回数|再生数|回再生|視聴数)\s*[:：]?\s*([\d,.]+)\s*(万|億|k|m)?",
+    r"([\d,.]+)\s*(万|億)?\s*(?:回再生|回視聴)",
+    r"([\d,.]+)\s*(?:次播放|次視聴)",
+]
+VIEW_JSON_PATTERNS = [
+    r'"(?:view_count|play_count|views)"\s*:\s*"?([\d,.]+)"?',
+    r"'(?:view_count|play_count|views)'\s*:\s*'?([\d,.]+)'?",
+    r'data-(?:views|view-count|play-count|view_count)="([\d,.]+)"',
+]
+
+
 def parse_views(text: str):
     blob = text or ""
-    patterns = [
-        r"([\d,.]+)\s*(万|億|k|m)?\s*(?:views|view)",
-        r"(?:視聴回数|再生回数|再生数|回再生|視聴)\s*[:：]?\s*([\d,.]+)\s*(万|億|k|m)?",
-        r"([\d,.]+)\s*(万|億)?\s*(?:回再生|回視聴)",
-        r"([\d,.]+)\s*(?:次播放|播放|次視聴)",
-        r"([\d,.]+)\s*(?:people wanted|wanted|想看)",
-        r'"(?:views|view_count|play_count)"\s*:\s*"?([\d,.]+)"?',
-        r'data-(?:views|view-count|play)="([\d,.]+)"',
-    ]
-    for pat in patterns:
+    for pat in VIEW_TEXT_PATTERNS + VIEW_JSON_PATTERNS:
         match = re.search(pat, blob, flags=re.I)
-        if match:
-            raw = match.group(1)
-            unit = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
-            value = parse_compact_count(raw + (unit or ""))
-            if value:
-                return value
+        if not match:
+            continue
+        if re.search(r"wanted|想看", match.group(0), flags=re.I):
+            continue
+        raw = match.group(1)
+        unit = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+        value = parse_compact_count(raw + (unit or ""))
+        if value:
+            return value
     return None
+
+
+def extract_views_from_html(soup, text: str = ""):
+    blob = text or ""
+    if soup is not None:
+        blob = " ".join([soup.get_text(" ", strip=True), str(soup)])
+        for tag in soup.find_all(attrs=True):
+            for key, val in list(tag.attrs.items()):
+                if re.search(r"view|play", str(key), flags=re.I) and not re.search(r"preview|viewport", str(key), flags=re.I):
+                    blob += f" {key}={val}"
+        for script in soup.find_all("script"):
+            body = script.string or script.get_text() or ""
+            if "ld+json" in (script.get("type") or "").lower() or re.search(r"view_count|play_count|\"views\"", body):
+                blob += " " + body
+    return parse_views(blob)
+
+
+def extract_missav_views(soup, text: str = ""):
+    return extract_views_from_html(soup, text)
+
+
+def extract_supjav_views(soup, text: str = ""):
+    return extract_views_from_html(soup, text)
 
 
 def needs_jp_title(title: str) -> bool:
@@ -224,53 +305,84 @@ def rotate_items(items, cursor: int):
     return items[start:] + items[:start]
 
 
+def refresh_interval(item: dict, now: int) -> int:
+    first = parse_jst(item.get("first_seen") or "")
+    age = (now - int(first.timestamp())) if first else 10**9
+    if item.get("is_new") or age <= 2 * 86400:
+        return 4 * 3600
+    if isinstance(item.get("trend_6h"), int) or isinstance(item.get("trend_24h"), int):
+        return 6 * 3600
+    return VIEW_REFRESH_SEC
+
+
+def collect_view_targets(item: dict):
+    code_num = item.get("code_num") or str(item.get("code", "")).split("-")[-1]
+    sources = dict(item.get("sources") or {})
+    extras = extra_sources(code_num)
+    targets = []
+    for url in missav_detail_urls(code_num) + [sources.get("MissAV"), extras.get("MissAV")]:
+        if url:
+            targets.append(("MissAV", url, extract_missav_views))
+    for url in [sources.get("Supjav"), extras.get("Supjav")]:
+        if url:
+            targets.append(("Supjav", url, extract_supjav_views))
+    for name in ("123AV", "JavFC2"):
+        url = sources.get(name) or extras.get(name)
+        if url:
+            targets.append((name, url, extract_views_from_html))
+    seen, unique = set(), []
+    for source, url, fn in targets:
+        if url in seen:
+            continue
+        seen.add(url)
+        unique.append((source, url, fn))
+    return unique
+
+
 def fill_missing_views(items) -> None:
     state = load_json(FETCH_STATE_FILE, {})
     fails = state.get("view_fail") if isinstance(state.get("view_fail"), dict) else {}
     cursor = int(state.get("view_cursor") or 0)
     now = now_ts()
     fetched = tried = 0
+    for item in items:
+        item["views_updated"] = False
     for item in rotate_items(items, cursor):
         if fetched >= VIEW_FETCH_LIMIT or tried >= VIEW_FETCH_LIMIT * 3:
             break
-        has_views = isinstance(item.get("views"), int) and item["views"] > 0
-        checked_at = int(item.get("views_checked_at") or 0)
-        stale = (not has_views) or (now - checked_at >= VIEW_REFRESH_SEC)
-        if not stale:
+        last_ok = int(item.get("last_views_fetch") or item.get("views_checked_at") or 0)
+        due = now - last_ok >= refresh_interval(item, now)
+        if not due:
             continue
         code = item.get("code") or ""
         last_fail = int(fails.get(code) or 0)
-        if last_fail and now - last_fail < FAIL_SKIP_SEC and has_views is False:
+        if last_fail and now - last_fail < FAIL_SKIP_SEC and last_ok and now - last_ok < 24 * 3600:
+            item["last_views_attempt"] = now
             continue
         tried += 1
-        code_num = item.get("code_num") or str(code).split("-")[-1]
-        confirmed = dict(item.get("sources") or {})
-        urls = []
-        for key in ("MissAV", "Supjav", "123AV", "JavDB", "JavFC2"):
-            if confirmed.get(key) and confirmed[key] not in urls:
-                urls.append(confirmed[key])
-        for extra in list(extra_sources(code_num).values()) + missav_detail_urls(code_num):
-            if extra not in urls:
-                urls.append(extra)
-        views = last_err = None
-        for url in urls:
-            try:
-                soup = fetch_soup(url)
-                views = parse_views(soup.get_text(" ", strip=True) + " " + str(soup))
-                if views:
-                    item["views"] = views
-                    item["views_checked_at"] = now
-                    fetched += 1
-                    fails.pop(code, None)
-                    print(f"再生数: {code} = {views} ({url})")
-                    break
-            except Exception as e:
-                last_err = e
-        if not views:
+        item["last_views_attempt"] = now
+        found = source_name = any_page = None
+        for source, url, extractor in collect_view_targets(item):
+            page = fetch_page(url)
+            any_page = page
+            value = extractor(page.get("soup"), page.get("text") or "") if page.get("ok") else None
+            log_views_attempt(source, code, page, value, "" if value else ("views_not_found" if page.get("ok") else "fetch_failed"))
+            if value:
+                found, source_name = value, source
+                break
+        if found:
+            item["views"] = found
+            item["views_source"] = source_name
+            item["last_views_fetch"] = now
             item["views_checked_at"] = now
+            item["views_updated"] = True
+            fetched += 1
+            fails.pop(code, None)
+            print(f"再生数: {code} = {found} ({source_name})")
+        else:
             fails[code] = now
-            if last_err:
-                print(f"再生数取得失敗 {code}: {last_err}")
+            if any_page:
+                log_views_attempt("ALL", code, any_page, None, "all_sources_failed")
     state["view_fail"] = fails
     state["view_cursor"] = (cursor + max(tried, 1)) % max(len(items), 1)
     save_json(FETCH_STATE_FILE, state)
@@ -296,8 +408,7 @@ def refresh_japanese_titles(items) -> None:
             f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
             f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}",
         ]
-        found = ""
-        last_err = None
+        found, last_err = "", None
         for url in urls:
             try:
                 soup = fetch_soup(url)
@@ -357,16 +468,22 @@ def scrape_missav(pages=None):
             raw = " ".join([a.get("title") or "", (img.get("alt") if img else "") or "", a.get_text(" ", strip=True)])
             title = clean_title(raw, code_num)
             around = " ".join([raw, a.parent.get_text(" ", strip=True) if a.parent else ""])
+            duration = parse_duration(around)
+            views = extract_missav_views(a.parent, around) if a.parent else parse_views(around)
             current = collected.get(code_num)
             if not current:
-                collected[code_num] = enrich(code_num, title, "MissAV", full_url, parse_duration(around), parse_views(around))
+                collected[code_num] = enrich(code_num, title or f"FC2-PPV-{code_num}", "MissAV", full_url, duration, views)
+                if views:
+                    collected[code_num]["views_source"] = "MissAV"
             else:
                 if is_better_title(title, current["title"]):
-                    current["title"], current["url"] = title, full_url
-                if parse_duration(around) and not current.get("duration"):
-                    current["duration"] = parse_duration(around)
-                if parse_views(around) and not current.get("views"):
-                    current["views"] = parse_views(around)
+                    current["title"] = title
+                    current["url"] = full_url
+                if duration and not current.get("duration"):
+                    current["duration"] = duration
+                if views and not current.get("views"):
+                    current["views"] = views
+                    current["views_source"] = "MissAV"
         print(f"MissAV {page}ページ: {len(collected) - before}件追加 / 合計{len(collected)}")
         if len(collected) == before:
             break
@@ -395,7 +512,11 @@ def scrape_supjav(pages=None):
             seen.add(code_num)
             full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
             around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
-            items.append(enrich(code_num, clean_title(a.get("title") or a.get_text(" ", strip=True), code_num), "Supjav", full_url, parse_duration(around), parse_views(around)))
+            views = extract_supjav_views(a.parent, around) if a.parent else parse_views(around)
+            row = enrich(code_num, clean_title(a.get("title") or a.get_text(" ", strip=True), code_num), "Supjav", full_url, parse_duration(around), views)
+            if views:
+                row["views_source"] = "Supjav"
+            items.append(row)
         print(f"Supjav {page}ページ: {len(seen) - before}件追加 / 合計{len(seen)}")
         if len(seen) == before:
             break
@@ -420,6 +541,8 @@ def merge_videos(groups):
                     merged[code]["duration"] = item["duration"]
                 if item.get("views") and not merged[code].get("views"):
                     merged[code]["views"] = item["views"]
+                    if item.get("views_source"):
+                        merged[code]["views_source"] = item["views_source"]
     out = []
     for code in order:
         merged[code]["source_label"] = " / ".join(merged[code]["sources"].keys())
@@ -457,11 +580,11 @@ def calc_trend(points, current, hours, now):
     if not isinstance(current, int) or not points:
         return None
     target = now - hours * 3600
-    oldest_ok = now - int(hours * 3600 * 1.5)
-    newest_ok = now - int(hours * 3600 * 0.7)
+    if hours <= 6:
+        oldest_ok, newest_ok = now - 8 * 3600, now - 4 * 3600
+    else:
+        oldest_ok, newest_ok = now - 30 * 3600, now - 18 * 3600
     window = [p for p in points if isinstance(p.get("t"), (int, float)) and isinstance(p.get("v"), int) and oldest_ok <= p["t"] <= newest_ok]
-    if not window:
-        window = [p for p in points if isinstance(p.get("t"), (int, float)) and isinstance(p.get("v"), int) and p["t"] <= newest_ok]
     if not window:
         return None
     prev = min(window, key=lambda p: abs(p["t"] - target)).get("v")
@@ -479,7 +602,7 @@ def update_views_history(items) -> None:
         views = item.get("views")
         rec = store.get(code) or {"points": []}
         points = rec.get("points") if isinstance(rec.get("points"), list) else []
-        if isinstance(views, int):
+        if isinstance(views, int) and item.get("views_updated"):
             if not points or points[-1].get("v") != views or now - int(points[-1].get("t") or 0) > 3 * 3600:
                 points.append({"t": now, "v": views})
             points = points[-40:]
@@ -507,6 +630,7 @@ def public_item(item):
         "duration": item.get("duration") or "",
         "duration_sec": duration_seconds(item.get("duration") or ""),
         "views": item.get("views") if isinstance(item.get("views"), int) else 0,
+        "views_source": item.get("views_source") or "",
         "first_seen": item.get("first_seen") or "",
         "last_seen": item.get("last_seen") or "",
         "is_new": bool(item.get("is_new")),
@@ -838,9 +962,7 @@ function sortItems(arr){
   if(page==='popular' || chip==='popular') copy.sort((a,b)=>(b.views||0)-(a.views||0));
   if(page==='history') copy.sort((a,b)=>(watchTimes[b.code]||0)-(watchTimes[a.code]||0));
   const q = fc2num(qEl.value.trim());
-  if(q){
-    copy.sort((a,b)=>(b.code_num===q?1:0)-(a.code_num===q?1:0));
-  }
+  if(q) copy.sort((a,b)=>(b.code_num===q?1:0)-(a.code_num===q?1:0));
   return copy;
 }
 function cardHTML(it, rank){
@@ -1071,25 +1193,38 @@ def main() -> int:
     try:
         latest = get_latest_videos()
     except Exception as e:
+        print(f"取得失敗: {e}", file=sys.stderr)
         send_telegram(f"監視エラー: ページ取得に失敗しました\n{e}")
         return 1
     if not latest:
         send_telegram("監視エラー: 動画リストを抽出できませんでした。")
         return 1
+
     history = load_json(HISTORY_FILE, {"ids": []})
     known = set(history.get("ids", []))
     existing = load_json(DATA_FILE, {"items": []})
     existing_map = {item["code"]: item for item in existing.get("items", [])}
     first_run = not known
-    new_videos, merged, stamp = [], [], now_jst()
+    new_videos = []
+    merged = []
+    stamp = now_jst()
+
     for video in latest:
         old = existing_map.get(video["code"], {})
         is_new = video["code"] not in known and not first_run
-        item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new}
+        item = {
+            **video,
+            "first_seen": old.get("first_seen", stamp),
+            "last_seen": stamp,
+            "is_new": is_new,
+        }
         if old.get("title") and not is_better_title(item.get("title", ""), old.get("title", "")):
             item["title"] = old["title"]
         item["views"] = video.get("views") or old.get("views")
+        item["views_source"] = video.get("views_source") or old.get("views_source") or ""
         item["views_checked_at"] = video.get("views_checked_at") or old.get("views_checked_at") or 0
+        item["last_views_fetch"] = video.get("last_views_fetch") or old.get("last_views_fetch") or 0
+        item["last_views_attempt"] = video.get("last_views_attempt") or old.get("last_views_attempt") or 0
         item["duration"] = video.get("duration") or old.get("duration", "")
         if old.get("sources"):
             item["sources"] = {**old.get("sources", {}), **item.get("sources", {})}
@@ -1097,13 +1232,16 @@ def main() -> int:
         if is_new:
             new_videos.append(item)
         known.add(video["code"])
+
     latest_codes = {v["code"] for v in latest}
     for item in existing.get("items", []):
         if item["code"] not in latest_codes:
             item["is_new"] = False
             merged.append(item)
+
     if KEEP_ITEMS > 0:
         merged = merged[:KEEP_ITEMS]
+
     refresh_japanese_titles(merged)
     fill_missing_views(merged)
     update_views_history(merged)
@@ -1111,12 +1249,15 @@ def main() -> int:
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     HTML_FILE.parent.mkdir(parents=True, exist_ok=True)
     HTML_FILE.write_text(render_html(merged, stamp, len(new_videos)), encoding="utf-8")
+
     if first_run:
-        send_telegram("監視を開始しました。\n今後の新着だけ通知します。")
+        preview = "\n".join(f"- {v['code']}" for v in latest[:8])
+        send_telegram("監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + preview)
+        print("初回保存完了")
         return 0
 
-    def allowed(video):
-        text = f"{video.get('code','')} {video.get('title','')}"
+    def allowed(video: dict) -> bool:
+        text = f"{video.get('code', '')} {video.get('title', '')}"
         if EXCLUDE_KEYWORDS and any(k.lower() in text.lower() for k in EXCLUDE_KEYWORDS):
             return False
         if INCLUDE_KEYWORDS and not any(k.lower() in text.lower() for k in INCLUDE_KEYWORDS):
@@ -1127,14 +1268,25 @@ def main() -> int:
     if not new_videos:
         print("新着なし")
         return 0
+
     for video in reversed(new_videos):
-        lines = [f"{n}: {u}" for n, u in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items()]
+        source_lines = []
+        for name, url in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items():
+            source_lines.append(f"{name}: {url}")
         extra = []
         if video.get("duration"):
             extra.append(f"時間: {video['duration']}")
         if video.get("views"):
             extra.append(f"再生: {video['views']:,}")
-        send_telegram("【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + ((" / ".join(extra) + "\n\n") if extra else "\n") + "\n".join(lines), photo=video.get("thumb"))
+        send_telegram(
+            "【新着 FC2-PPV】\n\n"
+            f"{video['code']}\n"
+            f"{video['title']}\n"
+            + (" / ".join(extra) + "\n\n" if extra else "\n")
+            + "\n".join(source_lines),
+            photo=video.get("thumb"),
+        )
+        print(f"通知: {video['code']}")
     return 0
 
 
