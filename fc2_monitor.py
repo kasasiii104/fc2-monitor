@@ -130,25 +130,9 @@ def fetch_page(url: str) -> dict:
         }
     except Exception as e:
         return {
-            "ok": False,
-            "status": 0,
-            "final_url": url,
-            "text": "",
-            "soup": None,
-            "size": 0,
-            "title": "",
-            "cloudflare": False,
-            "error": str(e),
+            "ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
+            "size": 0, "title": "", "cloudflare": False, "error": str(e),
         }
-
-
-def log_views_attempt(source: str, code: str, page: dict, found=None, note: str = "") -> None:
-    print(
-        f"[views] {source} code={code} status={page.get('status')} "
-        f"url={page.get('final_url')} size={page.get('size')} "
-        f"title={(page.get('title') or '')[:80]!r} cloudflare={page.get('cloudflare')} "
-        f"views={found} {note} {page.get('error') or ''}".strip()
-    )
 
 
 def clean_title(text: str, code_num: str) -> str:
@@ -253,10 +237,6 @@ def extract_views_from_html(soup, text: str = ""):
     return parse_views(blob)
 
 
-def extract_missav_views(soup, text: str = ""):
-    return extract_views_from_html(soup, text)
-
-
 def extract_supjav_views(soup, text: str = ""):
     return extract_views_from_html(soup, text)
 
@@ -328,7 +308,8 @@ def harvest_supjav_views(pages=None) -> dict:
     for page in (pages or [1, 2, 3]):
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
         info = fetch_page(url)
-        print(f"[Supjav] page={page} status={info.get('status')} title={(info.get('title') or '')[:60]!r} cloudflare={info.get('cloudflare')}")
+        extra = " keeping_previous_views=true" if info.get("cloudflare") or info.get("status") == 403 else ""
+        print(f"[Supjav] page={page} status={info.get('status')} title={(info.get('title') or '')[:60]!r} cloudflare={info.get('cloudflare')}{extra}")
         if not info.get("ok") or not info.get("soup"):
             continue
         soup = info["soup"]
@@ -366,50 +347,52 @@ def harvest_supjav_views(pages=None) -> dict:
     return found
 
 
-def scrape_missav_rankings() -> dict:
-    periods = {
-        "day": ["https://missav.ws/ja/today-hot", "https://missav.live/ja/today-hot", "https://missav.ai/ja/today-hot"],
-        "week": ["https://missav.ws/ja/weekly-hot", "https://missav.live/ja/weekly-hot", "https://missav.ai/ja/weekly-hot"],
-        "month": ["https://missav.ws/ja/monthly-hot", "https://missav.live/ja/monthly-hot", "https://missav.ai/ja/monthly-hot"],
-    }
+def scrape_missav_fc2_rankings() -> dict:
+    periods = {"day": "today_views", "week": "weekly_views", "month": "monthly_views", "total": "views"}
+    hosts = ["https://missav.ws", "https://missav.live", "https://missav.ai"]
     result = {}
-    for period, urls in periods.items():
+    for period, sort in periods.items():
         got = False
-        for url in urls:
-            page = fetch_page(url)
+        for host in hosts:
+            page = fetch_page(f"{host}/ja/fc2?sort={sort}")
             soup = page.get("soup")
             usable = page.get("ok") or (page.get("status") == 200 and (page.get("size") or 0) > 20000)
             if not usable or soup is None:
-                print(f"[MissAV rank {period}] status={page.get('status')} title={(page.get('title') or '')[:50]!r} cloudflare={page.get('cloudflare')}")
+                print(f"[MissAV FC2 rank {period}] status={page.get('status')} title={(page.get('title') or '')[:50]!r} cloudflare={page.get('cloudflare')}")
                 continue
             rank = 0
-            seen_href = set()
-            fc2_found = 0
-            debug_left = 3
+            seen = set()
+            tops = []
             for a in soup.find_all("a", href=True):
-                if not a.find("img"):
+                href = a.get("href") or ""
+                text = a.get_text(" ", strip=True)
+                blob = href + " " + text + " " + (a.get("title") or "")
+                if any(x in href.lower() for x in ("/search", "/login", "/genres", "/makers", "/actresses", "language", "locale")):
                     continue
-                href = a["href"].split("?")[0]
-                if href in seen_href or href.startswith("#"):
+                if "繁體" in text or "简体" in text or text in ("日本語", "English", "繁體中文"):
                     continue
-                if any(x in href for x in ("/genres", "/makers", "/actresses", "/search", "/login")):
+                match = re.search(r"fc2[-_ ]?ppv[-_ ]?(\d{6,8})", blob, flags=re.I)
+                if not match:
                     continue
-                seen_href.add(href)
+                code = f"FC2-PPV-{match.group(1)}"
+                if code in seen:
+                    continue
+                seen.add(code)
                 rank += 1
-                match = re.search(r"fc2-ppv-(\d+)", href, flags=re.I) or CODE_RE.search(a.get_text(" ", strip=True))
-                if match:
-                    result.setdefault(f"FC2-PPV-{match.group(1)}", {})[period] = rank
-                    fc2_found += 1
-                elif debug_left and rank <= 8:
-                    print(f"[MissAV rank debug] {period} #{rank} {href} {a.get_text(' ', strip=True)[:180]}")
-                    debug_left -= 1
-            print(f"[MissAV rank {period}] status={page.get('status')} items={rank} fc2_found={fc2_found}")
+                result.setdefault(code, {})[period] = rank
+                if rank <= 5:
+                    tops.append(f"#{rank} {code}")
+            print(f"[MissAV FC2 rank {period}] status={page.get('status')} fc2_found={rank} " + " ".join(tops[:3]))
             if rank:
                 got = True
                 break
         if not got:
-            print(f"[MissAV rank {period}] failed")
+            print(f"[MissAV FC2 rank {period}] failed")
     return result
+
+
+def scrape_missav_rankings() -> dict:
+    return scrape_missav_fc2_rankings()
 
 
 def apply_missav_ranks(items, ranks, stamp):
@@ -422,33 +405,31 @@ def apply_missav_ranks(items, ranks, stamp):
     known = {item.get("code") for item in items}
     for item in items:
         rec = ranks.get(item.get("code") or "") or {}
-        item["missav_rank_day"] = rec.get("day")
-        item["missav_rank_week"] = rec.get("week")
-        item["missav_rank_month"] = rec.get("month")
-        if rec:
-            item["missav_rank_updated_at"] = stamp
+        if not rec:
+            continue
+        if rec.get("day"):
+            item["missav_rank_day"] = rec.get("day")
+        if rec.get("week"):
+            item["missav_rank_week"] = rec.get("week")
+        if rec.get("month"):
+            item["missav_rank_month"] = rec.get("month")
+        if rec.get("total"):
+            item["missav_rank_total"] = rec.get("total")
+        item["missav_rank_updated_at"] = stamp
     for code, rec in ranks.items():
         if code in known:
             continue
         num = code.split("-")[-1]
         items.append({
-            "code": code,
-            "code_num": num,
-            "title": code,
-            "source": "MissAV",
+            "code": code, "code_num": num, "title": code, "source": "MissAV",
             "url": f"https://missav.ws/ja/fc2-ppv-{num}",
             "sources": {"MissAV": f"https://missav.ws/ja/fc2-ppv-{num}"},
-            "source_label": "MissAV",
-            "duration": "",
-            "views": None,
+            "source_label": "MissAV", "duration": "", "views": None,
             "thumb": f"https://fourhoi.com/fc2-ppv-{num}/cover-n.jpg",
             "preview": f"https://fourhoi.com/fc2-ppv-{num}/preview.mp4",
-            "first_seen": stamp,
-            "last_seen": stamp,
-            "is_new": False,
-            "missav_rank_day": rec.get("day"),
-            "missav_rank_week": rec.get("week"),
-            "missav_rank_month": rec.get("month"),
+            "first_seen": stamp, "last_seen": stamp, "is_new": False,
+            "missav_rank_day": rec.get("day"), "missav_rank_week": rec.get("week"),
+            "missav_rank_month": rec.get("month"), "missav_rank_total": rec.get("total"),
             "missav_rank_updated_at": stamp,
         })
 
@@ -523,13 +504,9 @@ def refresh_japanese_titles(items) -> None:
 def enrich(code_num, title, source, url, duration="", views=None):
     slug = f"fc2-ppv-{code_num}"
     return {
-        "code": f"FC2-PPV-{code_num}",
-        "code_num": code_num,
-        "title": title or f"FC2-PPV-{code_num}",
-        "source": source,
-        "url": url,
-        "duration": duration,
-        "views": views,
+        "code": f"FC2-PPV-{code_num}", "code_num": code_num,
+        "title": title or f"FC2-PPV-{code_num}", "source": source, "url": url,
+        "duration": duration, "views": views,
         "thumb": f"https://fourhoi.com/{slug}/cover-n.jpg",
         "preview": f"https://fourhoi.com/{slug}/preview.mp4",
     }
@@ -669,7 +646,9 @@ def calc_trend(points, current, hours, now):
     if not window:
         return None
     prev = min(window, key=lambda p: abs(p["t"] - target)).get("v")
-    return max(0, current - prev) if isinstance(prev, int) else None
+    if not isinstance(prev, int) or current < prev:
+        return None
+    return current - prev
 
 
 def update_views_history(items) -> None:
@@ -683,12 +662,13 @@ def update_views_history(items) -> None:
         views = item.get("views")
         rec = store.get(code) or {"points": []}
         points = rec.get("points") if isinstance(rec.get("points"), list) else []
-        if isinstance(views, int) and item.get("views_updated"):
+        if isinstance(views, int) and item.get("views_updated") and item.get("views_source") == "Supjav":
             if not points or points[-1].get("v") != views or now - int(points[-1].get("t") or 0) > 3 * 3600:
                 points.append({"t": now, "v": views})
             points = points[-40:]
-        item["trend_6h"] = calc_trend(points[:-1], views if isinstance(views, int) else None, 6, now)
-        item["trend_24h"] = calc_trend(points[:-1], views if isinstance(views, int) else None, 24, now)
+        can_trend = item.get("views_source") == "Supjav" and isinstance(views, int) and len(points) >= 2
+        item["trend_6h"] = calc_trend(points[:-1], views, 6, now) if can_trend else None
+        item["trend_24h"] = calc_trend(points[:-1], views, 24, now) if can_trend else None
         store[code] = {"points": points, "trend_6h": item["trend_6h"], "trend_24h": item["trend_24h"]}
     save_json(VIEWS_HISTORY_FILE, {"updated_at": now_jst(), "items": store})
 
@@ -723,6 +703,7 @@ def public_item(item):
         "missav_rank_day": item.get("missav_rank_day") if isinstance(item.get("missav_rank_day"), int) else None,
         "missav_rank_week": item.get("missav_rank_week") if isinstance(item.get("missav_rank_week"), int) else None,
         "missav_rank_month": item.get("missav_rank_month") if isinstance(item.get("missav_rank_month"), int) else None,
+        "missav_rank_total": item.get("missav_rank_total") if isinstance(item.get("missav_rank_total"), int) else None,
         "missav_rank_updated_at": item.get("missav_rank_updated_at") or "",
     }
 
@@ -761,7 +742,6 @@ h1 { margin:0; font-size:16px; }
 .sug img { width:72px; height:40px; object-fit:cover; border-radius:6px; background:#000; }
 .sug b { display:block; font-size:12px; color:#3ea6ff; }
 .sug span { display:block; font-size:12px; color:#ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.sug-del { margin-left:auto; border:0; background:transparent; color:#aaa; }
 .chips { display:flex; gap:8px; overflow-x:auto; padding:0 0 10px; -webkit-overflow-scrolling:touch; touch-action:pan-x; scrollbar-width:none; }
 .chips::-webkit-scrollbar, .rail::-webkit-scrollbar, .sorts::-webkit-scrollbar { display:none; }
 .lib-tabs { display:none; padding:0 12px 8px; gap:8px; }
@@ -933,22 +913,17 @@ const later = loadSet('fc2watchlater');
 const watchTimes = JSON.parse(localStorage.getItem('fc2watchtimes') || '{}');
 const progress = JSON.parse(localStorage.getItem('fc2progress') || '{}');
 function markWatched(code){
-  watched.add(code);
-  watchTimes[code] = Date.now();
+  watched.add(code); watchTimes[code] = Date.now();
   saveSet('fc2watched', watched);
   localStorage.setItem('fc2watchtimes', JSON.stringify(watchTimes));
 }
 function unmarkWatched(code){
-  watched.delete(code);
-  delete watchTimes[code];
+  watched.delete(code); delete watchTimes[code];
   saveSet('fc2watched', watched);
   localStorage.setItem('fc2watchtimes', JSON.stringify(watchTimes));
 }
 let searches = JSON.parse(localStorage.getItem('fc2searchhist') || '[]');
-let page = 'home';
-let chip = 'all';
-let sort = 'new';
-let riseWin = '24h';
+let page = 'home', chip = 'all', sort = 'new', riseWin = '24h';
 let filters = { vmin: 0, dur: '', seen: '', src: 0 };
 let hoverTimer = null;
 const playingSet = new Set();
@@ -966,8 +941,7 @@ function viewsLabel(n){
   if(!n) return '';
   if(n < 10000) return n.toLocaleString() + '回視聴';
   const v = n / 10000;
-  const s = v >= 100 ? String(Math.round(v)) : String(Math.round(v*10)/10).replace(/\.0$/,'');
-  return s + '万回視聴';
+  return (v >= 100 ? String(Math.round(v)) : String(Math.round(v*10)/10).replace(/\.0$/,'')) + '万回視聴';
 }
 function parseSeen(s){
   if(!s) return 0;
@@ -988,10 +962,7 @@ function relTime(s){
 }
 function trendOf(it){ return riseWin === '6h' ? it.trend_6h : it.trend_24h; }
 function sourceCount(it){ return Object.keys(it.sources||{}).length; }
-function isRecentNew(it){
-  const t = parseSeen(it.first_seen);
-  return !!t && (Date.now() - t) <= 48*3600000;
-}
+function isRecentNew(it){ const t = parseSeen(it.first_seen); return !!t && (Date.now() - t) <= 48*3600000; }
 function matchQuery(it, query){
   const raw = (query||'').trim();
   if(!raw) return true;
@@ -1015,7 +986,7 @@ function matchFilters(it){
   if(filters.seen === '30d' && age > 30*86400000) return false;
   if(Number(filters.src||0) && sourceCount(it) < Number(filters.src)) return false;
   if(chip === 'new' && !isRecentNew(it) && !it.is_new) return false;
-  if(chip === 'rising' && !(trendOf(it) > 0)) return false;
+  if(chip === 'rising' && !(trendOf(it) > 0 && it.views_source==='Supjav')) return false;
   if(chip === 'popular' && !(it.views > 0 && it.views_source==='Supjav')) return false;
   if(chip === 'today' && (it.first_seen||'').slice(0,10) !== new Date(Date.now()+9*3600000).toISOString().slice(0,10)) return false;
   if(chip === 'week' && age > 7*86400000) return false;
@@ -1023,7 +994,7 @@ function matchFilters(it){
   if(chip === 'dur60' && (it.duration_sec||0) < 3600) return false;
   if(chip === 'saved' && !favs.has(it.code)) return false;
   if(page === 'new' && !isRecentNew(it) && !it.is_new) return false;
-  if(page === 'rising' && !(trendOf(it) > 0)) return false;
+  if(page === 'rising' && !(trendOf(it) > 0 && it.views_source==='Supjav')) return false;
   if(page === 'popular' && !(it.views > 0 && it.views_source==='Supjav')) return false;
   if(page === 'history' && !watched.has(it.code)) return false;
   if(page === 'later' && !later.has(it.code)) return false;
@@ -1056,8 +1027,9 @@ function cardHTML(it, rank){
   const extra = (page==='rising' || chip==='rising') && tr ? `<p class="meta trend">${riseWin} +${tr.toLocaleString()}</p>` : '';
   const ranks = [];
   if(it.missav_rank_day) ranks.push('今日 #' + it.missav_rank_day);
-  if(it.missav_rank_week) ranks.push('週間 #' + it.missav_rank_week);
-  if(it.missav_rank_month) ranks.push('月間 #' + it.missav_rank_month);
+  else if(it.missav_rank_week) ranks.push('週間 #' + it.missav_rank_week);
+  else if(it.missav_rank_month) ranks.push('月間 #' + it.missav_rank_month);
+  else if(it.missav_rank_total) ranks.push('累計 #' + it.missav_rank_total);
   const rankLine = ranks.length ? `<p class="meta trend">MissAV ${ranks.join(' / ')}</p>` : '';
   const multi = (it.missav_rank_day && it.missav_rank_day<=10 && (it.trend_24h||0)>0) ? '<p class="meta">複数サイトで人気</p>' : '';
   return `<article class="card" data-code="${it.code}">
@@ -1080,7 +1052,7 @@ function cardHTML(it, rank){
 }
 document.addEventListener('click', e=>{
   const more = e.target.closest('.more');
-  if(more){ e.preventDefault(); e.stopPropagation(); openMenu(more.dataset.more, e); return; }
+  if(more){ e.preventDefault(); e.stopPropagation(); openMenu(more.dataset.more); return; }
   const open = e.target.closest('.open');
   if(open){ const card=open.closest('.card'); if(card) markWatched(card.dataset.code); return; }
   const thumb = e.target.closest('.thumb-wrap');
@@ -1113,10 +1085,7 @@ function startPreview(w){
     if(oldest) stopPreview(oldest);
   }
   const play = async ()=>{
-    try {
-      await v.play();
-      if(p > 0 && p < 0.95) { try { v.currentTime = p * (v.duration||0); } catch(e){} }
-    } catch(e) {}
+    try { await v.play(); if(p > 0 && p < 0.95) { try { v.currentTime = p * (v.duration||0); } catch(e){} } } catch(e) {}
   };
   v.onloadedmetadata = play;
   v.ontimeupdate = ()=>{
@@ -1133,30 +1102,25 @@ function startPreview(w){
 function stopPreview(w){
   if(!w) return;
   const v = w.querySelector('video');
-  v.pause();
-  v.removeAttribute('src');
-  v.load();
-  w.classList.remove('playing');
-  playingSet.delete(w);
+  v.pause(); v.removeAttribute('src'); v.load();
+  w.classList.remove('playing'); playingSet.delete(w);
 }
 function railHTML(title, arr, ranked, go){
   if(!arr.length) return '';
   return `<section class="section"><h2${go?` data-go="${go}" style="cursor:pointer"`:''}>${title}</h2><div class="rail">${arr.map((it,i)=>cardHTML(it, ranked?i+1:0)).join('')}</div></section>`;
 }
-function currentList(){
-  return sortItems(ITEMS.filter(it => matchQuery(it, qEl.value.trim()) && matchFilters(it)));
-}
+function currentList(){ return sortItems(ITEMS.filter(it => matchQuery(it, qEl.value.trim()) && matchFilters(it))); }
 function render(){
   const query = qEl.value.trim();
   document.body.classList.toggle('page-search', page==='search');
   document.querySelector('.search-row').classList.toggle('on', page==='search');
   document.getElementById('libTabs').classList.toggle('on', page==='library' || page==='later' || page==='saved');
-  document.querySelectorAll('[data-lib]').forEach(b=>b.classList.toggle('on', (page==='later' && b.dataset.lib==='later') || (page==='saved' && b.dataset.lib==='saved') || (page==='library' && b.dataset.lib==='later')));
   const showHome = page==='home' && !query && chip==='all' && !filters.vmin && !filters.dur && !filters.seen && !filters.src;
   if(showHome){
     const day = ITEMS.filter(x => x.missav_rank_day).sort((a,b)=>a.missav_rank_day-b.missav_rank_day).slice(0,10);
     const week = ITEMS.filter(x => x.missav_rank_week).sort((a,b)=>a.missav_rank_week-b.missav_rank_week).slice(0,10);
     const month = ITEMS.filter(x => x.missav_rank_month).sort((a,b)=>a.missav_rank_month-b.missav_rank_month).slice(0,10);
+    const total = ITEMS.filter(x => x.missav_rank_total).sort((a,b)=>a.missav_rank_total-b.missav_rank_total).slice(0,10);
     const rise = ITEMS.filter(x => (x.trend_24h||0) > 0 && x.views_source==='Supjav').sort((a,b)=>(b.trend_24h||0)-(a.trend_24h||0)).slice(0,10);
     const pop = ITEMS.filter(x => x.views>0 && x.views_source==='Supjav').sort((a,b)=>b.views-a.views).slice(0,10);
     const news = ITEMS.filter(x => isRecentNew(x) || x.is_new).slice(0,10);
@@ -1165,6 +1129,7 @@ function render(){
     shelves.innerHTML = railHTML('MissAV 今日の人気', day, true, 'rising')
       + railHTML('MissAV 週間人気', week, true, 'rising')
       + railHTML('MissAV 月間人気', month, true, 'rising')
+      + railHTML('MissAV 累計人気', total, true, 'rising')
       + railHTML('Supjav 急上昇', rise, true, 'rising')
       + railHTML('Supjav 総再生数', pop, true, 'popular')
       + railHTML('新着', news, false, 'new')
@@ -1223,7 +1188,13 @@ function showSuggest(){
 }
 function openMenu(code){
   const it = byCode[code];
+  const ranks = [];
+  if(it.missav_rank_day) ranks.push('MissAV 今日 #' + it.missav_rank_day);
+  if(it.missav_rank_week) ranks.push('週間 #' + it.missav_rank_week);
+  if(it.missav_rank_month) ranks.push('月間 #' + it.missav_rank_month);
+  if(it.missav_rank_total) ranks.push('累計 #' + it.missav_rank_total);
   menu.innerHTML = `
+    ${ranks.length?`<button disabled>${esc(ranks.join(' / '))}</button>`:''}
     <button data-act="later">${later.has(code)?'後で見るから外す':'後で見る'}</button>
     <button data-act="save">${favs.has(code)?'保存を解除':'保存'}</button>
     <button data-act="watched">${watched.has(code)?'視聴済みを解除':'視聴済みにする'}</button>
@@ -1231,7 +1202,7 @@ function openMenu(code){
     ${Object.entries(it.sources||{}).map(([n,u])=>`<button class="ext" data-url="${esc(u)}">${esc(n)}</button>`).join('')}
     ${Object.entries(it.search_links||{}).filter(([n])=>!(it.sources||{})[n]).map(([n,u])=>`<button class="ext" data-url="${esc(u)}">${esc(n)}検索</button>`).join('')}`;
   openSheet(menu);
-  menu.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+  menu.querySelectorAll('button[data-act],button[data-url]').forEach(b=>b.addEventListener('click', ()=>{
     if(b.dataset.url){ markWatched(code); window.open(b.dataset.url, '_blank'); }
     if(b.dataset.act==='later'){ later.has(code)?later.delete(code):later.add(code); saveSet('fc2watchlater', later); }
     if(b.dataset.act==='save'){ favs.has(code)?favs.delete(code):favs.add(code); saveSet('fc2favs', favs); }
@@ -1295,19 +1266,13 @@ def main() -> int:
     existing = load_json(DATA_FILE, {"items": []})
     existing_map = {item["code"]: item for item in existing.get("items", [])}
     first_run = not known
-    new_videos = []
-    merged = []
+    new_videos, merged = [], []
     stamp = now_jst()
 
     for video in latest:
         old = existing_map.get(video["code"], {})
         is_new = video["code"] not in known and not first_run
-        item = {
-            **video,
-            "first_seen": old.get("first_seen", stamp),
-            "last_seen": stamp,
-            "is_new": is_new,
-        }
+        item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new}
         if old.get("title") and not is_better_title(item.get("title", ""), old.get("title", "")):
             item["title"] = old["title"]
         item["views"] = video.get("views") or old.get("views")
@@ -1318,6 +1283,7 @@ def main() -> int:
         item["missav_rank_day"] = old.get("missav_rank_day")
         item["missav_rank_week"] = old.get("missav_rank_week")
         item["missav_rank_month"] = old.get("missav_rank_month")
+        item["missav_rank_total"] = old.get("missav_rank_total")
         item["missav_rank_updated_at"] = old.get("missav_rank_updated_at") or ""
         item["duration"] = video.get("duration") or old.get("duration", "")
         if old.get("sources"):
@@ -1332,7 +1298,6 @@ def main() -> int:
         if item["code"] not in latest_codes:
             item["is_new"] = False
             merged.append(item)
-
     if KEEP_ITEMS > 0:
         merged = merged[:KEEP_ITEMS]
 
@@ -1346,12 +1311,11 @@ def main() -> int:
     HTML_FILE.write_text(render_html(merged, stamp, len(new_videos)), encoding="utf-8")
 
     if first_run:
-        preview = "\n".join(f"- {v['code']}" for v in latest[:8])
-        send_telegram("監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + preview)
+        send_telegram("監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]))
         print("初回保存完了")
         return 0
 
-    def allowed(video: dict) -> bool:
+    def allowed(video):
         text = f"{video.get('code', '')} {video.get('title', '')}"
         if EXCLUDE_KEYWORDS and any(k.lower() in text.lower() for k in EXCLUDE_KEYWORDS):
             return False
@@ -1363,22 +1327,15 @@ def main() -> int:
     if not new_videos:
         print("新着なし")
         return 0
-
     for video in reversed(new_videos):
-        source_lines = []
-        for name, url in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items():
-            source_lines.append(f"{name}: {url}")
+        source_lines = [f"{n}: {u}" for n, u in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items()]
         extra = []
         if video.get("duration"):
             extra.append(f"時間: {video['duration']}")
         if video.get("views"):
             extra.append(f"再生: {video['views']:,}")
         send_telegram(
-            "【新着 FC2-PPV】\n\n"
-            f"{video['code']}\n"
-            f"{video['title']}\n"
-            + (" / ".join(extra) + "\n\n" if extra else "\n")
-            + "\n".join(source_lines),
+            "【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + (" / ".join(extra) + "\n\n" if extra else "\n") + "\n".join(source_lines),
             photo=video.get("thumb"),
         )
         print(f"通知: {video['code']}")
