@@ -1115,7 +1115,7 @@ def enrich_hwalker_market(items) -> None:
         item["hwalker_checked_at"] = now
         item["hwalker_url"] = rec.get("source_url") or H_WALKER_URL
         title = (rec.get("title") or "").strip()
-        if title and re.search(r"[ぁ-んァ-ン]", title) and needs_jp_title(item.get("title", "")):
+        if title and title_score(title)[0] > 0 and needs_jp_title(item.get("title", "")):
             item["title"] = title
             item["title_source"] = "FC2ウォーカー"
             title_updated += 1
