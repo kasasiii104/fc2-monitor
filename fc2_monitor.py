@@ -1949,6 +1949,8 @@ main { padding:0 0 calc(92px + env(safe-area-inset-bottom)); }
 .source-link { color:var(--accent); text-decoration:none; position:relative; z-index:2; }
 .source-link:hover, .source-link:focus { text-decoration:underline; }
 .empty { color:var(--muted); padding:30px 12px; text-align:center; }
+.load-more-wrap { display:flex; justify-content:center; padding:8px 12px 28px; }
+.load-more { border:1px solid #3a3a3a; background:#272727; color:#fff; border-radius:18px; min-height:44px; padding:9px 24px; font-size:14px; }
 .trend { color:#3ddc84; }
 a { color:inherit; }
 </style>
@@ -2006,7 +2008,7 @@ a { color:inherit; }
       <button type="button" data-sort="short">短い順</button>
     </div>
   </div>
-  <div id="grid" class="grid"></div>
+  <div id="grid" class="grid"></div><div id="loadMoreWrap" class="load-more-wrap" hidden><button id="loadMore" class="load-more" type="button">さらに表示</button></div>
 </main>
 <nav class="nav">
   <button type="button" data-page="home" class="on">ホーム</button>
@@ -2047,6 +2049,8 @@ const ITEMS = JSON.parse(document.getElementById('data').textContent);
 const qEl = document.getElementById('q');
 const sugEl = document.getElementById('suggest');
 const grid = document.getElementById('grid');
+const loadMoreWrap = document.getElementById('loadMoreWrap');
+const loadMoreBtn = document.getElementById('loadMore');
 const shelves = document.getElementById('shelves');
 const resultCount = document.getElementById('resultCount');
 const listTitle = document.getElementById('listTitle');
@@ -2071,6 +2075,8 @@ function unmarkWatched(code){
 }
 let searches = JSON.parse(localStorage.getItem('fc2searchhist') || '[]');
 let page = 'home', chip = 'all', sort = 'new', riseWin = '24h';
+const PAGE_SIZE = 60;
+let visibleLimit = PAGE_SIZE;
 let filters = { vmin: 0, dur: '', seen: '', src: 0 };
 let hoverTimer = null;
 const playingSet = new Set();
@@ -2133,16 +2139,16 @@ function matchFilters(it){
   if(filters.seen === '30d' && age > 30*86400000) return false;
   if(Number(filters.src||0) && sourceCount(it) < Number(filters.src)) return false;
   if(chip === 'new' && !isRecentNew(it) && !it.is_new) return false;
-  if(chip === 'rising' && !(trendOf(it) > 0 && it.views_source==='Supjav')) return false;
-  if(chip === 'popular' && !(it.views > 0 && it.views_source==='Supjav')) return false;
+  if(chip === 'rising' && !(trendOf(it) > 0)) return false;
+  if(chip === 'popular' && !(it.views > 0 || it.fc2_rating != null || it.missav_rank_day || it.missav_rank_week || it.missav_rank_month || it.missav_rank_total)) return false;
   if(chip === 'today' && (it.first_seen||'').slice(0,10) !== new Date(Date.now()+9*3600000).toISOString().slice(0,10)) return false;
   if(chip === 'week' && age > 7*86400000) return false;
   if(chip === 'views10' && (it.views||0) < 100000) return false;
   if(chip === 'dur60' && (it.duration_sec||0) < 3600) return false;
   if(chip === 'saved' && !favs.has(it.code)) return false;
   if(page === 'new' && !isRecentNew(it) && !it.is_new) return false;
-  if(page === 'rising' && !(trendOf(it) > 0 && it.views_source==='Supjav')) return false;
-  if(page === 'popular' && !(it.views > 0 && it.views_source==='Supjav')) return false;
+  if(page === 'rising' && !(trendOf(it) > 0)) return false;
+  if(page === 'popular' && !(it.views > 0 || it.fc2_rating != null || it.missav_rank_day || it.missav_rank_week || it.missav_rank_month || it.missav_rank_total)) return false;
   if(page === 'history' && !watched.has(it.code)) return false;
   if(page === 'later' && !later.has(it.code)) return false;
   if(page === 'saved' && !favs.has(it.code)) return false;
@@ -2280,8 +2286,8 @@ function render(){
     const week = ITEMS.filter(x => x.missav_rank_week).sort((a,b)=>a.missav_rank_week-b.missav_rank_week).slice(0,10);
     const month = ITEMS.filter(x => x.missav_rank_month).sort((a,b)=>a.missav_rank_month-b.missav_rank_month).slice(0,10);
     const total = ITEMS.filter(x => x.missav_rank_total).sort((a,b)=>a.missav_rank_total-b.missav_rank_total).slice(0,10);
-    const rise = ITEMS.filter(x => (x.trend_24h||0) > 0 && x.views_source==='Supjav').sort((a,b)=>(b.trend_24h||0)-(a.trend_24h||0)).slice(0,10);
-    const pop = ITEMS.filter(x => x.views>0 && x.views_source==='Supjav').sort((a,b)=>b.views-a.views).slice(0,10);
+    const rise = ITEMS.filter(x => (x.trend_24h||0) > 0).sort((a,b)=>(b.trend_24h||0)-(a.trend_24h||0)).slice(0,10);
+    const pop = ITEMS.filter(x => x.views>0).sort((a,b)=>b.views-a.views).slice(0,10);
     const news = ITEMS.filter(x => isRecentNew(x) || x.is_new).slice(0,10);
     const recent = ITEMS.filter(x => watched.has(x.code)).sort((a,b)=>(watchTimes[b.code]||0)-(watchTimes[a.code]||0)).slice(0,10);
     const saved = ITEMS.filter(x => favs.has(x.code)).slice(0,10);
@@ -2302,7 +2308,10 @@ function render(){
   let list = currentList();
   if(page==='popular' || page==='rising') list = list.slice(0,100);
   resultCount.textContent = (query ? '検索結果 ' : '') + list.length + '件';
-  grid.innerHTML = list.length ? list.map((it,i)=>cardHTML(it, (page==='popular'||page==='rising')?i+1:0)).join('') : '<p class="empty">該当する作品がありません。</p>';
+  const visible = list.slice(0, visibleLimit);
+  grid.innerHTML = visible.length ? visible.map((it,i)=>cardHTML(it, (page==='popular'||page==='rising')?i+1:0)).join('') : '<p class="empty">該当する作品がありません。</p>';
+  loadMoreWrap.hidden = visible.length >= list.length;
+  if(!loadMoreWrap.hidden) loadMoreBtn.textContent = 'さらに表示（残り ' + (list.length-visible.length) + '件）';
   document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>{ page=b.dataset.go; if(page==='rising') chip='rising'; if(page==='popular') chip='popular'; render(); }));
   document.querySelectorAll('[data-rise]').forEach(b=>b.addEventListener('click',()=>{ riseWin=b.dataset.rise; render(); }));
   document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('on', b.dataset.page===page || (page==='library' && b.dataset.page==='library')));
@@ -2374,7 +2383,7 @@ function openMenu(code){
     menu.classList.remove('on'); document.getElementById('sheetBg').classList.remove('on');
   }));
 }
-qEl.addEventListener('input', ()=>{ render(); showSuggest(); });
+qEl.addEventListener('input', ()=>{ visibleLimit=PAGE_SIZE; render(); showSuggest(); });
 qEl.addEventListener('focus', showSuggest);
 qEl.addEventListener('keydown', e=>{ if(e.key==='Enter'){ addSearch(qEl.value); sugEl.classList.remove('on'); }});
 document.addEventListener('click', e=>{
@@ -2389,6 +2398,7 @@ function openSheet(el){ el.classList.add('on'); sheetBg.classList.add('on'); }
 document.getElementById('filterBtn').addEventListener('click', ()=>openSheet(panel));
 sheetBg.addEventListener('click', ()=>{ panel.classList.remove('on'); menu.classList.remove('on'); sheetBg.classList.remove('on'); });
 document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click', ()=>{
+  visibleLimit=PAGE_SIZE;
   page=b.dataset.page;
   if(page==='rising') chip='rising';
   if(page==='popular') chip='popular';
@@ -2398,14 +2408,16 @@ document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click', 
   if(page==='library') page='later';
   render();
 }));
-document.querySelectorAll('[data-lib]').forEach(b=>b.addEventListener('click', ()=>{ page=b.dataset.lib; render(); }));
-document.querySelectorAll('[data-chip]').forEach(b=>b.addEventListener('click', ()=>{ chip=b.dataset.chip; page='home'; render(); }));
-document.querySelectorAll('[data-sort]').forEach(b=>b.addEventListener('click', ()=>{ sort=b.dataset.sort; render(); }));
+document.querySelectorAll('[data-lib]').forEach(b=>b.addEventListener('click', ()=>{ visibleLimit=PAGE_SIZE; page=b.dataset.lib; render(); }));
+document.querySelectorAll('[data-chip]').forEach(b=>b.addEventListener('click', ()=>{ visibleLimit=PAGE_SIZE; chip=b.dataset.chip; page='home'; render(); }));
+document.querySelectorAll('[data-sort]').forEach(b=>b.addEventListener('click', ()=>{ visibleLimit=PAGE_SIZE; sort=b.dataset.sort; render(); }));
 panel.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+  visibleLimit=PAGE_SIZE;
   filters[b.dataset.f] = isNaN(Number(b.dataset.v)) ? b.dataset.v : Number(b.dataset.v);
   panel.querySelectorAll('[data-f="'+b.dataset.f+'"]').forEach(x=>x.classList.toggle('on', x===b));
   render();
 }));
+loadMoreBtn.addEventListener('click', ()=>{ visibleLimit += PAGE_SIZE; render(); });
 render();
 </script>
 </body></html>
