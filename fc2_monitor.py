@@ -6,7 +6,7 @@ import re
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote_plus
 
 import requests
 from bs4 import BeautifulSoup
@@ -33,7 +33,11 @@ FETCH_STATE_FILE = Path(os.environ.get("FETCH_STATE_FILE", "docs/fetch_state.jso
 MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
 PAGES = int(os.environ.get("PAGES", "8"))
-BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "6"))
+BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "12"))
+JAVDB_URL = os.environ.get("JAVDB_URL", "https://javdb.com/search?q=FC2&f=all")
+JAVDB_BACKFILL_PAGES = int(os.environ.get("JAVDB_BACKFILL_PAGES", "6"))
+FC2_MARKET_FETCH_LIMIT = int(os.environ.get("FC2_MARKET_FETCH_LIMIT", "24"))
+FC2_MARKET_REFRESH_SEC = int(os.environ.get("FC2_MARKET_REFRESH_SEC", str(7 * 86400)))
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
 TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
 VIEW_REFRESH_SEC = int(os.environ.get("VIEW_REFRESH_SEC", str(8 * 3600)))
@@ -416,22 +420,8 @@ def apply_missav_ranks(items, ranks, stamp):
         if rec.get("total"):
             item["missav_rank_total"] = rec.get("total")
         item["missav_rank_updated_at"] = stamp
-    for code, rec in ranks.items():
-        if code in known:
-            continue
-        num = code.split("-")[-1]
-        items.append({
-            "code": code, "code_num": num, "title": code, "source": "MissAV",
-            "url": f"https://missav.ws/ja/fc2-ppv-{num}",
-            "sources": {"MissAV": f"https://missav.ws/ja/fc2-ppv-{num}"},
-            "source_label": "MissAV", "duration": "", "views": None,
-            "thumb": f"https://fourhoi.com/fc2-ppv-{num}/cover-n.jpg",
-            "preview": f"https://fourhoi.com/fc2-ppv-{num}/preview.mp4",
-            "first_seen": stamp, "last_seen": stamp, "is_new": False,
-            "missav_rank_day": rec.get("day"), "missav_rank_week": rec.get("week"),
-            "missav_rank_month": rec.get("month"), "missav_rank_total": rec.get("total"),
-            "missav_rank_updated_at": stamp,
-        })
+    # Do not create unchecked items from ranking pages. Rankings only annotate known items.
+
 
 
 def fill_missing_views(items) -> None:
@@ -516,11 +506,11 @@ def scrape_missav(pages=None):
     collected = {}
     for page in (pages or list(range(1, PAGES + 1))):
         url = MISSAV_URL if page == 1 else f"{MISSAV_URL}?page={page}"
-        try:
-            soup = fetch_soup(url)
-        except Exception as e:
-            print(f"MissAV {page}ページ失敗: {e}")
-            break
+        info = fetch_page(url)
+        if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
+            print(f"MissAV {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
+            continue
+        soup = info["soup"]
         before = len(collected)
         for a in soup.find_all("a", href=True):
             match = re.search(r"/fc2-ppv-(\d+)", a["href"], flags=re.I)
@@ -548,15 +538,145 @@ def scrape_missav(pages=None):
     return list(collected.values())
 
 
+def scrape_missav_catalog(pages=None):
+    """MissAV /ja/fc2 catalog. Only usable HTTP-200 pages are parsed."""
+    collected = {}
+    bases = ["https://missav.ws/ja/fc2", "https://missav.live/ja/fc2", "https://missav.ai/ja/fc2"]
+    for page_no in (pages or [1, 2]):
+        soup = None
+        final = ""
+        for base in bases:
+            url = base if page_no == 1 else f"{base}?page={page_no}"
+            info = fetch_page(url)
+            print(f"[MissAV /ja/fc2] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')}")
+            if info.get("ok") and info.get("status") == 200 and not info.get("cloudflare"):
+                soup, final = info.get("soup"), info.get("final_url") or base
+                break
+        if soup is None:
+            continue
+        before = len(collected)
+        for a in soup.find_all("a", href=True):
+            href = a.get("href") or ""
+            img = a.find("img")
+            raw = " ".join([href, a.get("title") or "", (img.get("alt") if img else "") or "", a.get_text(" ", strip=True)])
+            m = CODE_RE.search(raw) or re.search(r"/fc2-ppv-(\d{6,8})", href, re.I)
+            if not m:
+                continue
+            num = m.group(1)
+            full = href if href.startswith("http") else urljoin(final, href)
+            title = clean_title(raw, num)
+            cur = collected.get(num)
+            if not cur:
+                collected[num] = enrich(num, title or f"FC2-PPV-{num}", "MissAV", full)
+            elif is_better_title(title, cur.get("title", "")):
+                cur["title"], cur["url"] = title, full
+        print(f"[MissAV /ja/fc2] page={page_no} +{len(collected)-before} total={len(collected)}")
+    return list(collected.values())
+
+
+def scrape_javdb(pages=None):
+    """Independent JavDB discovery. 403/challenge/non-200 pages are simply skipped."""
+    collected = {}
+    for page_no in (pages or [1, 2]):
+        sep = "&" if "?" in JAVDB_URL else "?"
+        url = JAVDB_URL if page_no == 1 else f"{JAVDB_URL}{sep}page={page_no}"
+        info = fetch_page(url)
+        print(f"[JavDB] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')} size={info.get('size')}")
+        if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
+            continue
+        soup = info["soup"]
+        before = len(collected)
+        for a in soup.find_all("a", href=True):
+            href = a.get("href") or ""
+            parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
+            raw = " ".join([a.get("title") or "", a.get_text(" ", strip=True), parent_text, href])
+            m = CODE_RE.search(raw)
+            if not m:
+                continue
+            num = m.group(1)
+            full = href if href.startswith("http") else urljoin(info.get("final_url") or "https://javdb.com/", href)
+            title = clean_title(raw, num)
+            cur = collected.get(num)
+            if not cur:
+                collected[num] = enrich(num, title or f"FC2-PPV-{num}", "JavDB", full)
+            elif is_better_title(title, cur.get("title", "")):
+                cur["title"], cur["url"] = title, full
+        print(f"[JavDB] page={page_no} +{len(collected)-before} total={len(collected)}")
+    return list(collected.values())
+
+
+def fetch_fc2_market(code_num):
+    url = f"https://adult.contents.fc2.com/article/{code_num}/"
+    info = fetch_page(url)
+    print(f"[FC2 Market] FC2-PPV-{code_num} status={info.get('status')} cloudflare={info.get('cloudflare')}")
+    if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
+        return None
+    soup = info["soup"]
+    text = soup.get_text(" ", strip=True)
+    if str(code_num) not in ((info.get("text") or "") + " " + text):
+        return None
+    rating = None
+    count = None
+    for pat in (r"Average Rating\s*([0-5](?:\.\d+)?)", r"平均評価\s*[:：]?\s*([0-5](?:\.\d+)?)"):
+        m = re.search(pat, text, re.I)
+        if m:
+            rating = float(m.group(1)); break
+    for pat in (r"Product Review\s*[\(（]\s*(\d+)\s*[\)）]", r"商品レビュー\s*[\(（]\s*(\d+)\s*[\)）]", r"レビュー\s*(\d+)\s*件"):
+        m = re.search(pat, text, re.I)
+        if m:
+            count = int(m.group(1)); break
+    return {"fc2_market_url": info.get("final_url") or url, "fc2_rating": rating, "fc2_review_count": count}
+
+
+def enrich_fc2_market(items):
+    state = load_json(FETCH_STATE_FILE, {})
+    checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
+    failed = state.get("fc2_market_failed") if isinstance(state.get("fc2_market_failed"), dict) else {}
+    cursor = int(state.get("fc2_market_cursor") or 0)
+    now = now_ts()
+    if not items:
+        return
+    ordered = items[cursor % len(items):] + items[:cursor % len(items)]
+    tried = updated = 0
+    for item in ordered:
+        if tried >= FC2_MARKET_FETCH_LIMIT:
+            break
+        code = item.get("code") or ""
+        if now - int(checked.get(code) or 0) < FC2_MARKET_REFRESH_SEC:
+            continue
+        if now - int(failed.get(code) or 0) < FAIL_SKIP_SEC:
+            continue
+        tried += 1
+        num = item.get("code_num") or code.split("-")[-1]
+        meta = fetch_fc2_market(num)
+        if not meta:
+            failed[code] = now
+            continue
+        item["fc2_market_url"] = meta["fc2_market_url"]
+        if meta.get("fc2_rating") is not None:
+            item["fc2_rating"] = meta["fc2_rating"]
+        if meta.get("fc2_review_count") is not None:
+            item["fc2_review_count"] = meta["fc2_review_count"]
+        item["fc2_market_checked_at"] = now
+        checked[code] = now
+        failed.pop(code, None)
+        updated += 1
+    state["fc2_market_cursor"] = (cursor + max(tried, 1)) % max(len(items), 1)
+    state["fc2_market_checked"] = checked
+    state["fc2_market_failed"] = failed
+    save_json(FETCH_STATE_FILE, state)
+    print(f"[FC2 Market] tried={tried} updated={updated}")
+
+
 def scrape_supjav(pages=None):
     items, seen = [], set()
     for page in (pages or list(range(1, PAGES + 1))):
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
-        try:
-            soup = fetch_soup(url)
-        except Exception as e:
-            print(f"Supjav {page}ページ失敗: {e}")
-            break
+        info = fetch_page(url)
+        if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
+            print(f"Supjav {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
+            continue
+        soup = info["soup"]
         before = len(seen)
         for a in soup.find_all("a", href=True):
             text = " ".join([a.get("title") or "", a.get_text(" ", strip=True)])
@@ -609,24 +729,35 @@ def merge_videos(groups):
 
 
 def get_latest_videos():
-    state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3})
-    missav_pages = [1, 2] + list(range(int(state.get("missav_page", 3)), int(state.get("missav_page", 3)) + BACKFILL_PAGES))
-    supjav_pages = [1, 2] + list(range(int(state.get("supjav_page", 3)), int(state.get("supjav_page", 3)) + BACKFILL_PAGES))
+    state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3, "javdb_page": 3})
+    mp = int(state.get("missav_page", 3))
+    jp = int(state.get("javdb_page", 3))
+    missav_pages = [1, 2] + list(range(mp, mp + BACKFILL_PAGES))
+    javdb_pages = [1, 2] + list(range(jp, jp + JAVDB_BACKFILL_PAGES))
+    # Supjav is an optional helper; keep its request volume small.
+    supjav_pages = [1, 2, 3]
     found, errors = [], []
     try:
         items = scrape_missav(missav_pages)
-        print(f"MissAV: {len(items)}件")
-        found.append(items)
+        catalog = scrape_missav_catalog(missav_pages)
+        print(f"MissAV: search={len(items)} catalog={len(catalog)}")
+        found.extend([items, catalog])
         state["missav_page"] = missav_pages[-1] + 1
     except Exception as e:
         errors.append(f"MissAV: {e}")
     try:
+        items = scrape_javdb(javdb_pages)
+        print(f"JavDB: {len(items)}件")
+        found.append(items)
+        state["javdb_page"] = javdb_pages[-1] + 1
+    except Exception as e:
+        errors.append(f"JavDB: {e}")
+    try:
         items = scrape_supjav(supjav_pages)
         print(f"Supjav: {len(items)}件")
         found.append(items)
-        state["supjav_page"] = supjav_pages[-1] + 1
     except Exception as e:
-        errors.append(f"Supjav: {e}")
+        print(f"Supjav補助スキップ: {e}")
     save_json(CRAWL_FILE, state)
     videos = merge_videos(found)
     if not videos and errors:
@@ -705,6 +836,10 @@ def public_item(item):
         "missav_rank_month": item.get("missav_rank_month") if isinstance(item.get("missav_rank_month"), int) else None,
         "missav_rank_total": item.get("missav_rank_total") if isinstance(item.get("missav_rank_total"), int) else None,
         "missav_rank_updated_at": item.get("missav_rank_updated_at") or "",
+        "fc2_market_url": item.get("fc2_market_url") or "",
+        "fc2_rating": item.get("fc2_rating") if isinstance(item.get("fc2_rating"), (int, float)) else None,
+        "fc2_review_count": item.get("fc2_review_count") if isinstance(item.get("fc2_review_count"), int) else None,
+        "fc2_market_checked_at": item.get("fc2_market_checked_at") or 0,
     }
 
 
@@ -1031,6 +1166,7 @@ function cardHTML(it, rank){
   else if(it.missav_rank_month) ranks.push('月間 #' + it.missav_rank_month);
   else if(it.missav_rank_total) ranks.push('累計 #' + it.missav_rank_total);
   const rankLine = ranks.length ? `<p class="meta trend">MissAV ${ranks.join(' / ')}</p>` : '';
+  const fc2pop = (it.fc2_rating!=null || it.fc2_review_count!=null) ? `<p class="meta">FC2公式 ${it.fc2_rating!=null?'★'+it.fc2_rating:''}${it.fc2_review_count!=null?' ・ レビュー '+it.fc2_review_count.toLocaleString()+'件':''}</p>` : '';
   const multi = (it.missav_rank_day && it.missav_rank_day<=10 && (it.trend_24h||0)>0) ? '<p class="meta">複数サイトで人気</p>' : '';
   return `<article class="card" data-code="${it.code}">
     <button class="thumb-wrap" type="button" data-code="${it.code}" aria-label="プレビュー">
@@ -1044,7 +1180,7 @@ function cardHTML(it, rank){
       <a class="title open" href="${esc(it.sources.MissAV||it.url||'#')}" target="_blank" rel="noopener">${esc(it.title)}</a>
       <p class="subline">${esc(it.code)}</p>
       <p class="meta">${[viewsLabel(it.views)+(it.views&&it.views_source==='Supjav'?' ・ Supjav':''), relTime(it.first_seen)].filter(Boolean).join(' ・ ')}</p>
-      ${rankLine}${multi}${extra}
+      ${rankLine}${fc2pop}${multi}${extra}
       <p class="meta">${esc(it.source_label||'')}</p>
       <button class="more" type="button" data-more="${esc(it.code)}">⋮</button>
     </div>
@@ -1199,6 +1335,7 @@ function openMenu(code){
     <button data-act="save">${favs.has(code)?'保存を解除':'保存'}</button>
     <button data-act="watched">${watched.has(code)?'視聴済みを解除':'視聴済みにする'}</button>
     <button data-act="unwatch">履歴から削除</button>
+    ${it.fc2_market_url?`<button class="ext" data-url="${esc(it.fc2_market_url)}">FC2公式</button>`:''}
     ${Object.entries(it.sources||{}).map(([n,u])=>`<button class="ext" data-url="${esc(u)}">${esc(n)}</button>`).join('')}
     ${Object.entries(it.search_links||{}).filter(([n])=>!(it.sources||{})[n]).map(([n,u])=>`<button class="ext" data-url="${esc(u)}">${esc(n)}検索</button>`).join('')}`;
   openSheet(menu);
@@ -1285,6 +1422,10 @@ def main() -> int:
         item["missav_rank_month"] = old.get("missav_rank_month")
         item["missav_rank_total"] = old.get("missav_rank_total")
         item["missav_rank_updated_at"] = old.get("missav_rank_updated_at") or ""
+        item["fc2_market_url"] = old.get("fc2_market_url") or ""
+        item["fc2_rating"] = old.get("fc2_rating")
+        item["fc2_review_count"] = old.get("fc2_review_count")
+        item["fc2_market_checked_at"] = old.get("fc2_market_checked_at") or 0
         item["duration"] = video.get("duration") or old.get("duration", "")
         if old.get("sources"):
             item["sources"] = {**old.get("sources", {}), **item.get("sources", {})}
@@ -1303,6 +1444,7 @@ def main() -> int:
 
     refresh_japanese_titles(merged)
     fill_missing_views(merged)
+    enrich_fc2_market(merged)
     apply_missav_ranks(merged, scrape_missav_rankings(), stamp)
     update_views_history(merged)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
