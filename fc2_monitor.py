@@ -47,7 +47,7 @@ H_WALKER_STATS_KEY = "hwalker_crawl_stats"
 H_WALKER_REFRESH_SEC = int(os.environ.get("H_WALKER_REFRESH_SEC", str(6 * 3600)))
 CONTINUOUS_BACKFILL_CURSOR_KEY = "metadata_backfill_v2_cursor"
 CONTINUOUS_BACKFILL_STATS_KEY = "metadata_backfill_v2_stats"
-BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "200"))
+BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "500"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
 THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
 THUMB_BACKFILL_ATTEMPTS_KEY = "thumbnail_backfill_v1_attempted_at"
@@ -1197,6 +1197,78 @@ def enrich_hwalker_market(items) -> None:
     state[H_WALKER_STATS_KEY] = stats
     save_json(FETCH_STATE_FILE, state)
     print(f"[FC2 Walker] stats={stats}")
+
+def enrich_new_fc2_market(items) -> None:
+    """Fetch official FC2 metadata for newly discovered items before legacy backfill."""
+    targets = [item for item in items if item.get("is_new") and not item.get("fc2_market_not_found")]
+    if not targets:
+        print("[FC2 New] targets=0")
+        return
+
+    state = load_json(FETCH_STATE_FILE, {})
+    now = now_ts()
+    checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
+    failed = state.get("fc2_market_failed") if isinstance(state.get("fc2_market_failed"), dict) else {}
+    tried = success = not_found = title_updated = rating_updated = review_updated = 0
+
+    for item in targets:
+        code = item.get("code") or ""
+        num = item.get("code_num") or code.split("-")[-1]
+        if not str(num).isdigit():
+            continue
+        tried += 1
+        item["fc2_market_last_attempt"] = now
+        meta = fetch_fc2_market(str(num))
+        if meta and meta.get("blocked") == "eKYC":
+            state["fc2_market_ekyc_blocked_at"] = now
+            print(f"[FC2 New] stop blocked_by=eKYC tried={tried}")
+            break
+        if not meta:
+            failed[code] = now
+            continue
+        if meta.get("not_found"):
+            item["fc2_market_not_found"] = True
+            item["fc2_market_url"] = ""
+            checked[code] = now
+            failed.pop(code, None)
+            not_found += 1
+            continue
+
+        success += 1
+        item["fc2_market_not_found"] = False
+        item["fc2_market_url"] = meta.get("fc2_market_url") or item.get("fc2_market_url") or ""
+        title = (meta.get("fc2_title") or "").strip()
+        if title:
+            item["fc2_title"] = title
+            if re.search(r"[ぁ-んァ-ン]", title) and item.get("title") != title:
+                item["title"] = title
+                item["title_source"] = "FC2公式"
+                title_updated += 1
+        rating = meta.get("fc2_rating")
+        if rating is not None:
+            item["fc2_rating"] = rating
+            item["fc2_rating_source"] = "FC2公式"
+            rating_updated += 1
+        review_count = meta.get("fc2_review_count")
+        if review_count is not None:
+            item["fc2_review_count"] = review_count
+            item["fc2_rating_source"] = "FC2公式"
+            review_updated += 1
+        item["fc2_market_checked_at"] = now
+        item["fc2_market_last_success"] = now
+        checked[code] = now
+        failed.pop(code, None)
+
+    state["fc2_market_checked"] = checked
+    state["fc2_market_failed"] = failed
+    state["fc2_new_stats"] = {
+        "last_run": now, "targets": len(targets), "tried": tried, "success": success,
+        "not_found": not_found, "title_updated": title_updated,
+        "rating_updated": rating_updated, "review_updated": review_updated,
+    }
+    save_json(FETCH_STATE_FILE, state)
+    print(f"[FC2 New] stats={state['fc2_new_stats']}")
+
 
 def run_continuous_metadata_backfill(items) -> None:
     """Incrementally revisit legacy items until all candidates have been attempted."""
@@ -2377,6 +2449,8 @@ def main() -> int:
         merged = merged[:KEEP_ITEMS]
 
     sanitize_item_titles(merged)
+    # New discoveries get official Japanese title/rating/review immediately.
+    enrich_new_fc2_market(new_videos)
     refresh_fc2cmadb_titles(merged)
     run_continuous_metadata_backfill(merged)
     enrich_hwalker_market(merged)
