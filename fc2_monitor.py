@@ -40,6 +40,9 @@ FC2_MARKET_FETCH_LIMIT = int(os.environ.get("FC2_MARKET_FETCH_LIMIT", "24"))
 FC2_MARKET_REFRESH_SEC = int(os.environ.get("FC2_MARKET_REFRESH_SEC", str(7 * 86400)))
 FC2CMADB_URL = os.environ.get("FC2CMADB_URL", "https://fc2cmadb.com").rstrip("/")
 FC2CMADB_FETCH_LIMIT = int(os.environ.get("FC2CMADB_FETCH_LIMIT", "24"))
+H_WALKER_URL = os.environ.get("H_WALKER_URL", "https://fc2cm.h-walker.net").rstrip("/")
+H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "6"))
+H_WALKER_REFRESH_SEC = int(os.environ.get("H_WALKER_REFRESH_SEC", str(6 * 3600)))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
 TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
@@ -950,6 +953,8 @@ def fetch_fc2cmadb_title(code_num: str):
         except Exception as e:
             print(f"[FC2CMADB] FC2-PPV-{code_num} error={type(e).__name__}")
     print(f"[FC2CMADB] FC2-PPV-{code_num} status={last_status} title=False")
+    if last_status == 403:
+        return {"blocked": True, "status": 403}
     return None
 
 
@@ -958,6 +963,10 @@ def refresh_fc2cmadb_titles(items) -> None:
     failed = state.get("fc2cmadb_failed") if isinstance(state.get("fc2cmadb_failed"), dict) else {}
     cursor = int(state.get("fc2cmadb_cursor") or 0)
     now = now_ts()
+    blocked_at = int(state.get("fc2cmadb_blocked_at") or 0)
+    if blocked_at and now - blocked_at < FAIL_SKIP_SEC:
+        print(f"[FC2CMADB] host_blocked=true retry_in={FAIL_SKIP_SEC - (now - blocked_at)}s")
+        return
     targets = [
         x for x in items
         if needs_jp_title(x.get("title", "")) and x.get("title_source") != "FC2公式"
@@ -972,6 +981,10 @@ def refresh_fc2cmadb_titles(items) -> None:
         tried += 1
         num = item.get("code_num") or code.split("-")[-1]
         meta = fetch_fc2cmadb_title(num)
+        if meta and meta.get("blocked"):
+            state["fc2cmadb_blocked_at"] = now
+            print("[FC2CMADB] host_blocked=true fallback=FC2ウォーカー")
+            break
         if not meta:
             failed[code] = now
             continue
@@ -990,6 +1003,144 @@ def refresh_fc2cmadb_titles(items) -> None:
     state["fc2cmadb_failed"] = failed
     save_json(FETCH_STATE_FILE, state)
     print(f"[FC2CMADB] tried={tried} title_updated={updated}")
+
+
+
+def _hwalker_count(text: str):
+    raw = re.sub(r"[^0-9]", "", text or "")
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if 0 <= value < 10000000 else None
+
+
+def scrape_hwalker_market(pages=None) -> dict:
+    """Harvest current FC2 title/rating/review data mirrored from the sales site."""
+    found = {}
+    for page_no in (pages or list(range(1, H_WALKER_PAGES + 1))):
+        url = H_WALKER_URL + "/" if page_no == 1 else f"{H_WALKER_URL}/0/{page_no}/1/0/0/"
+        info = fetch_page(url)
+        if not (info.get("status") == 200 and info.get("soup") is not None):
+            print(f"[FC2 Walker] page={page_no} status={info.get('status')} items=0")
+            continue
+        soup = info["soup"]
+        page_found = 0
+        samples = []
+        for row in soup.find_all("tr"):
+            links = row.find_all("a", href=True)
+            product = None
+            num = ""
+            for a in links:
+                href = a.get("href") or ""
+                m = re.search(r"(?:[?&])aid=(\d{5,8})(?:&|$)", href)
+                if m and "adult.contents.fc2.com" in href:
+                    product = a
+                    num = m.group(1)
+                    break
+            if not product or not num:
+                continue
+
+            title = clean_title(product.get_text(" ", strip=True) or product.get("title") or "", num)
+            if not title:
+                for a in links:
+                    raw = a.get("title") or a.get_text(" ", strip=True)
+                    candidate = clean_title(raw, num)
+                    if candidate and len(candidate) > 6:
+                        title = candidate
+                        break
+
+            cells = row.find_all(["td", "th"])
+            cell_texts = [re.sub(r"\s+", " ", c.get_text(" ", strip=True)).strip() for c in cells]
+            rating = None
+            review_count = None
+            rating_idx = -1
+            for idx, txt in enumerate(cell_texts):
+                if re.fullmatch(r"[0-5](?:\.\d{1,2})", txt):
+                    try:
+                        rating = float(txt)
+                        rating_idx = idx
+                        break
+                    except ValueError:
+                        pass
+            if rating_idx >= 0:
+                for txt in cell_texts[rating_idx + 1:]:
+                    count = _hwalker_count(txt)
+                    if count is not None:
+                        review_count = count
+                        break
+
+            code = f"FC2-PPV-{num}"
+            found[code] = {
+                "title": title,
+                "rating": rating,
+                "review_count": review_count,
+                "source_url": url,
+            }
+            page_found += 1
+            if len(samples) < 3:
+                samples.append(f"{code}:{rating!r}/{review_count!r}")
+        print(
+            f"[FC2 Walker] page={page_no} status={info.get('status')} "
+            f"items={page_found} samples={' '.join(samples)}"
+        )
+    return found
+
+
+def enrich_hwalker_market(items) -> None:
+    state = load_json(FETCH_STATE_FILE, {})
+    now = now_ts()
+    last = int(state.get("hwalker_last_success") or 0)
+    # Always try on a fresh deployment/run if no data has ever been harvested.
+    if last and now - last < H_WALKER_REFRESH_SEC:
+        print(f"[FC2 Walker] skip fresh=true age={now-last}s")
+        return
+
+    records = scrape_hwalker_market()
+    if not records:
+        print("[FC2 Walker] harvested=0 keep_previous=true")
+        return
+
+    state["hwalker_last_success"] = now
+    save_json(FETCH_STATE_FILE, state)
+    matched = rating_updated = review_updated = title_updated = 0
+    for item in items:
+        code = item.get("code") or ""
+        rec = records.get(code)
+        if not rec:
+            continue
+        matched += 1
+        item["hwalker_checked_at"] = now
+        item["hwalker_url"] = rec.get("source_url") or H_WALKER_URL
+        title = (rec.get("title") or "").strip()
+        if title and re.search(r"[ぁ-んァ-ン]", title) and needs_jp_title(item.get("title", "")):
+            item["title"] = title
+            item["title_source"] = "FC2ウォーカー"
+            title_updated += 1
+
+        rating = rec.get("rating")
+        if isinstance(rating, (int, float)) and 0 <= rating <= 5:
+            if item.get("fc2_rating") != rating:
+                rating_updated += 1
+            item["fc2_rating"] = float(rating)
+            item["fc2_rating_source"] = "FC2ウォーカー"
+            item["fc2_market_checked_at"] = now
+
+        count = rec.get("review_count")
+        if isinstance(count, int) and count >= 0:
+            if item.get("fc2_review_count") != count:
+                review_updated += 1
+            item["fc2_review_count"] = count
+            item["fc2_rating_source"] = "FC2ウォーカー"
+            item["fc2_market_checked_at"] = now
+
+    print(
+        f"[FC2 Walker] harvested={len(records)} matched={matched} "
+        f"title_updated={title_updated} rating_updated={rating_updated} "
+        f"review_updated={review_updated}"
+    )
 
 
 def _absolute_fc2_asset(raw: str) -> str:
@@ -1124,8 +1275,10 @@ def enrich_fc2_market(items):
                 title_updated += 1
         if meta.get("fc2_rating") is not None:
             item["fc2_rating"] = meta["fc2_rating"]
+            item["fc2_rating_source"] = "FC2公式"
         if meta.get("fc2_review_count") is not None:
             item["fc2_review_count"] = meta["fc2_review_count"]
+            item["fc2_rating_source"] = "FC2公式"
         item["fc2_market_checked_at"] = now
         item["fc2_market_last_success"] = now
         checked[code] = now
@@ -1312,6 +1465,8 @@ def public_item(item):
         "title_source": item.get("title_source") or "",
         "fc2_rating": item.get("fc2_rating") if isinstance(item.get("fc2_rating"), (int, float)) else None,
         "fc2_review_count": item.get("fc2_review_count") if isinstance(item.get("fc2_review_count"), int) else None,
+        "fc2_rating_source": item.get("fc2_rating_source") or "",
+        "hwalker_checked_at": item.get("hwalker_checked_at") or 0,
         "fc2_market_checked_at": item.get("fc2_market_checked_at") or 0,
     }
 
@@ -1646,7 +1801,8 @@ function cardHTML(it, rank){
   else if(it.missav_rank_month) ranks.push('月間 #' + it.missav_rank_month);
   else if(it.missav_rank_total) ranks.push('累計 #' + it.missav_rank_total);
   const rankLine = ranks.length ? `<p class="meta trend">MissAV ${ranks.join(' / ')}</p>` : '';
-  const fc2pop = (it.fc2_rating!=null || it.fc2_review_count!=null) ? `<p class="meta">FC2公式 ${it.fc2_rating!=null?'★'+it.fc2_rating:''}${it.fc2_review_count!=null?' ・ レビュー '+it.fc2_review_count.toLocaleString()+'件':''}</p>` : '';
+  const fc2Label = it.fc2_rating_source === 'FC2公式' ? 'FC2公式' : (it.fc2_rating_source === 'FC2ウォーカー' ? 'FC2評価（ウォーカー経由）' : 'FC2評価');
+  const fc2pop = (it.fc2_rating!=null || it.fc2_review_count!=null) ? `<p class="meta">${fc2Label} ${it.fc2_rating!=null?'★'+it.fc2_rating:''}${it.fc2_review_count!=null?' ・ レビュー '+it.fc2_review_count.toLocaleString()+'件':''}</p>` : '';
   const multi = (it.missav_rank_day && it.missav_rank_day<=10 && (it.trend_24h||0)>0) ? '<p class="meta">複数サイトで人気</p>' : '';
   const titleEl = it.url
     ? `<a class="title open ext-link" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" data-code="${esc(it.code)}">${esc(it.title)}</a>`
@@ -1915,6 +2071,9 @@ def main() -> int:
         item["fc2_market_not_found"] = bool(old.get("fc2_market_not_found"))
         item["fc2_rating"] = old.get("fc2_rating")
         item["fc2_review_count"] = old.get("fc2_review_count")
+        item["fc2_rating_source"] = old.get("fc2_rating_source") or ""
+        item["hwalker_url"] = old.get("hwalker_url") or ""
+        item["hwalker_checked_at"] = old.get("hwalker_checked_at") or 0
         item["fc2_market_checked_at"] = old.get("fc2_market_checked_at") or 0
         item["fc2_market_last_success"] = old.get("fc2_market_last_success") or 0
         item["fc2_market_last_attempt"] = old.get("fc2_market_last_attempt") or 0
@@ -1940,6 +2099,7 @@ def main() -> int:
 
     sanitize_item_titles(merged)
     refresh_fc2cmadb_titles(merged)
+    enrich_hwalker_market(merged)
     refresh_japanese_titles(merged)
     fill_missing_views(merged)
     enrich_fc2_market(merged)
