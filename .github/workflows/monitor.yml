@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+      - verify-fc2-rating-html-20260926
     paths:
       - "fc2_monitor.py"
       - "requirements.txt"
