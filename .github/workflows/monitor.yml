@@ -11,6 +11,7 @@ on:
     paths:
       - "fc2_monitor.py"
       - "requirements.txt"
+      - "verify_fc2_rating.py"
       - ".github/workflows/monitor.yml"
 
 concurrency:
