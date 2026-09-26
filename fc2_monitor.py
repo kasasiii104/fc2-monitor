@@ -47,6 +47,9 @@ CONTINUOUS_BACKFILL_CURSOR_KEY = "metadata_backfill_v2_cursor"
 CONTINUOUS_BACKFILL_STATS_KEY = "metadata_backfill_v2_stats"
 BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "200"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
+THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
+THUMB_BACKFILL_ATTEMPTS_KEY = "thumbnail_backfill_v1_attempted_at"
+THUMB_BACKFILL_STATS_KEY = "thumbnail_backfill_v1_stats"
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
 TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
 VIEW_REFRESH_SEC = int(os.environ.get("VIEW_REFRESH_SEC", str(8 * 3600)))
@@ -1337,8 +1340,8 @@ def fetch_fc2_sample_assets(code_num: str):
 def enrich_fc2_sample_assets(items) -> None:
     now = now_ts()
     tried = updated = 0
-    # merged is ordered newest-first, so prioritize recent items. If the
-    # official API fails, the existing fourhoi preview/thumb remain intact.
+    # Keep a small newest-first refresh for recent items. Historical thumbnail
+    # repair is handled separately by the continuous thumbnail backfill.
     for item in items:
         if tried >= FC2_SAMPLE_FETCH_LIMIT:
             break
@@ -1359,6 +1362,77 @@ def enrich_fc2_sample_assets(items) -> None:
             item["thumb_source"] = "FC2公式"
         updated += 1
     print(f"[FC2 sample] tried={tried} updated={updated}")
+
+
+def run_thumbnail_backfill(items) -> None:
+    """Continuously repair historical thumbnails without disturbing previews."""
+    state = load_json(FETCH_STATE_FILE, {})
+    raw_attempts = state.get(THUMB_BACKFILL_ATTEMPTS_KEY, {})
+    attempts = raw_attempts if isinstance(raw_attempts, dict) else {}
+    now = now_ts()
+
+    # A Fourhoi cover is only a best-effort default. Prioritize records whose
+    # thumbnail has never been confirmed/replaced by the FC2 official poster.
+    candidates = []
+    live_codes = set()
+    for item in items:
+        code = item.get("code") or ""
+        num = str(item.get("code_num") or code.split("-")[-1])
+        if not code or not num.isdigit():
+            continue
+        live_codes.add(code)
+        if item.get("thumb_source") == "FC2公式":
+            continue
+        candidates.append(item)
+
+    # Never/least-recently attempted first. Preview-bearing records get
+    # priority because those are the visible "No Image but preview works" cases.
+    candidates.sort(key=lambda item: (
+        0 if item.get("preview") else 1,
+        int(attempts.get(item.get("code") or "", 0) or 0),
+        -int(item.get("code_num") or str(item.get("code", "")).split("-")[-1]),
+    ))
+    batch = candidates[:THUMB_BACKFILL_LIMIT]
+
+    tried = poster_updated = preview_updated = failed = 0
+    for item in batch:
+        code = item.get("code") or ""
+        num = str(item.get("code_num") or code.split("-")[-1])
+        tried += 1
+        attempts[code] = now
+        meta = fetch_fc2_sample_assets(num)
+        item["fc2_sample_checked_at"] = now
+        item["thumb_backfill_checked_at"] = now
+        if not meta:
+            failed += 1
+            continue
+        if meta.get("preview"):
+            if item.get("preview") != meta["preview"]:
+                preview_updated += 1
+            item["preview"] = meta["preview"]
+            item["preview_source"] = "FC2公式"
+        if meta.get("poster"):
+            if item.get("thumb") != meta["poster"] or item.get("thumb_source") != "FC2公式":
+                poster_updated += 1
+            item["thumb"] = meta["poster"]
+            item["thumb_source"] = "FC2公式"
+
+    # Keep state bounded to records that still exist in the library.
+    attempts = {code: ts for code, ts in attempts.items() if code in live_codes}
+    remaining = sum(1 for item in items if item.get("thumb_source") != "FC2公式")
+    stats = {
+        "last_run": now,
+        "candidates_before": len(candidates),
+        "processed": tried,
+        "poster_updated": poster_updated,
+        "preview_updated": preview_updated,
+        "failed": failed,
+        "remaining_unconfirmed": remaining,
+    }
+    state[THUMB_BACKFILL_ATTEMPTS_KEY] = attempts
+    state[THUMB_BACKFILL_STATS_KEY] = stats
+    save_json(FETCH_STATE_FILE, state)
+    print(f"[Thumb backfill] stats={stats}")
 
 
 def enrich_fc2_market(items):
@@ -2222,6 +2296,12 @@ def main() -> int:
         item["fc2cmadb_checked_at"] = old.get("fc2cmadb_checked_at") or 0
         item["title_source"] = old.get("title_source") or item.get("title_source") or ""
         item["duration"] = video.get("duration") or old.get("duration", "")
+        item["thumb"] = old.get("thumb") or video.get("thumb") or ""
+        item["thumb_source"] = old.get("thumb_source") or video.get("thumb_source") or ""
+        item["preview"] = old.get("preview") or video.get("preview") or ""
+        item["preview_source"] = old.get("preview_source") or video.get("preview_source") or ""
+        item["fc2_sample_checked_at"] = old.get("fc2_sample_checked_at") or 0
+        item["thumb_backfill_checked_at"] = old.get("thumb_backfill_checked_at") or 0
         if old.get("sources"):
             item["sources"] = {**old.get("sources", {}), **item.get("sources", {})}
         merged.append(item)
@@ -2244,6 +2324,7 @@ def main() -> int:
     refresh_japanese_titles(merged)
     fill_missing_views(merged)
     enrich_fc2_market(merged)
+    run_thumbnail_backfill(merged)
     enrich_fc2_sample_assets(merged)
     apply_missav_ranks(merged, scrape_missav_rankings(), stamp)
     update_views_history(merged)
