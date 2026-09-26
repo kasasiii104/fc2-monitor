@@ -43,6 +43,9 @@ FC2CMADB_FETCH_LIMIT = int(os.environ.get("FC2CMADB_FETCH_LIMIT", "24"))
 H_WALKER_URL = os.environ.get("H_WALKER_URL", "https://fc2cm.h-walker.net").rstrip("/")
 H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "6"))
 H_WALKER_REFRESH_SEC = int(os.environ.get("H_WALKER_REFRESH_SEC", str(6 * 3600)))
+ONE_TIME_BACKFILL_KEY = "metadata_backfill_v1_done"
+BACKFILL_WALKER_PAGES = int(os.environ.get("BACKFILL_WALKER_PAGES", "120"))
+BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "200"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
 TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
@@ -1143,6 +1146,183 @@ def enrich_hwalker_market(items) -> None:
     )
 
 
+
+def run_one_time_metadata_backfill(items) -> None:
+    """One-shot cleanup for legacy items missing FC2 metadata or Japanese titles."""
+    state = load_json(FETCH_STATE_FILE, {})
+    if state.get(ONE_TIME_BACKFILL_KEY):
+        print(
+            f"[Backfill] skip done_at={state.get(ONE_TIME_BACKFILL_KEY)} "
+            f"stats={state.get('metadata_backfill_v1_stats') or {}}"
+        )
+        return
+
+    now = now_ts()
+    candidates = [
+        item for item in items
+        if not item.get("fc2_market_not_found")
+        and (
+            needs_jp_title(item.get("title", ""))
+            or item.get("fc2_rating") is None
+            or item.get("fc2_review_count") is None
+        )
+    ]
+    title_missing_before = sum(1 for x in candidates if needs_jp_title(x.get("title", "")))
+    rating_missing_before = sum(1 for x in candidates if x.get("fc2_rating") is None)
+    review_missing_before = sum(1 for x in candidates if x.get("fc2_review_count") is None)
+    print(
+        f"[Backfill] start candidates={len(candidates)} "
+        f"title_missing={title_missing_before} rating_missing={rating_missing_before} "
+        f"review_missing={review_missing_before}"
+    )
+
+    # Broad, read-only sweep: 120 pages x 50 rows covers roughly the newest
+    # 6,000 rows without issuing one request per local item.
+    records = scrape_hwalker_market(
+        pages=list(range(1, max(1, BACKFILL_WALKER_PAGES) + 1))
+    )
+    walker_matched = walker_title = walker_rating = walker_review = 0
+    for item in candidates:
+        rec = records.get(item.get("code") or "")
+        if not rec:
+            continue
+        walker_matched += 1
+        item["hwalker_checked_at"] = now
+        item["hwalker_url"] = rec.get("source_url") or H_WALKER_URL
+
+        title = (rec.get("title") or "").strip()
+        if title and title_score(title)[0] > 0 and needs_jp_title(item.get("title", "")):
+            item["title"] = title
+            item["title_source"] = "FC2ウォーカー"
+            walker_title += 1
+
+        rating = rec.get("rating")
+        if item.get("fc2_rating") is None and isinstance(rating, (int, float)) and 0 <= rating <= 5:
+            item["fc2_rating"] = float(rating)
+            item["fc2_rating_source"] = "FC2ウォーカー"
+            item["fc2_market_checked_at"] = now
+            walker_rating += 1
+
+        review_count = rec.get("review_count")
+        if item.get("fc2_review_count") is None and isinstance(review_count, int) and review_count >= 0:
+            item["fc2_review_count"] = review_count
+            if not item.get("fc2_rating_source"):
+                item["fc2_rating_source"] = "FC2ウォーカー"
+            item["fc2_market_checked_at"] = now
+            walker_review += 1
+
+    state["hwalker_last_success"] = now
+
+    # Prioritize titles still needing Japanese, then items missing rating/reviews.
+    unresolved = [
+        item for item in candidates
+        if not item.get("fc2_market_not_found")
+        and (
+            needs_jp_title(item.get("title", ""))
+            or item.get("fc2_rating") is None
+            or item.get("fc2_review_count") is None
+        )
+    ]
+    unresolved.sort(
+        key=lambda x: (
+            0 if needs_jp_title(x.get("title", "")) else 1,
+            0 if x.get("fc2_rating") is None else 1,
+            0 if x.get("fc2_review_count") is None else 1,
+        )
+    )
+
+    checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
+    failed = state.get("fc2_market_failed") if isinstance(state.get("fc2_market_failed"), dict) else {}
+    official_tried = official_success = official_title = official_rating = official_review = 0
+    for item in unresolved:
+        if official_tried >= BACKFILL_OFFICIAL_LIMIT:
+            break
+        code = item.get("code") or ""
+        num = item.get("code_num") or code.split("-")[-1]
+        if not str(num).isdigit():
+            continue
+        official_tried += 1
+        item["fc2_market_last_attempt"] = now
+        meta = fetch_fc2_market(str(num))
+        if not meta:
+            failed[code] = now
+            continue
+        if meta.get("not_found"):
+            item["fc2_market_not_found"] = True
+            item["fc2_market_url"] = ""
+            item["fc2_title"] = ""
+            checked[code] = now
+            failed.pop(code, None)
+            continue
+
+        official_success += 1
+        item["fc2_market_not_found"] = False
+        item["fc2_market_url"] = meta.get("fc2_market_url") or item.get("fc2_market_url") or ""
+        title = (meta.get("fc2_title") or "").strip()
+        if title:
+            item["fc2_title"] = title
+            if re.search(r"[ぁ-んァ-ン]", title) and item.get("title") != title:
+                item["title"] = title
+                item["title_source"] = "FC2公式"
+                official_title += 1
+
+        rating = meta.get("fc2_rating")
+        if rating is not None:
+            if item.get("fc2_rating") != rating:
+                official_rating += 1
+            item["fc2_rating"] = rating
+            item["fc2_rating_source"] = "FC2公式"
+
+        review_count = meta.get("fc2_review_count")
+        if review_count is not None:
+            if item.get("fc2_review_count") != review_count:
+                official_review += 1
+            item["fc2_review_count"] = review_count
+            item["fc2_rating_source"] = "FC2公式"
+
+        item["fc2_market_checked_at"] = now
+        item["fc2_market_last_success"] = now
+        checked[code] = now
+        failed.pop(code, None)
+
+    state["fc2_market_checked"] = checked
+    state["fc2_market_failed"] = failed
+
+    title_missing_after = sum(1 for x in items if needs_jp_title(x.get("title", "")))
+    rating_missing_after = sum(1 for x in items if x.get("fc2_rating") is None)
+    review_missing_after = sum(1 for x in items if x.get("fc2_review_count") is None)
+    stats = {
+        "candidates": len(candidates),
+        "walker_pages": BACKFILL_WALKER_PAGES,
+        "walker_harvested": len(records),
+        "walker_matched": walker_matched,
+        "walker_title_updated": walker_title,
+        "walker_rating_filled": walker_rating,
+        "walker_review_filled": walker_review,
+        "official_tried": official_tried,
+        "official_success": official_success,
+        "official_title_updated": official_title,
+        "official_rating_updated": official_rating,
+        "official_review_updated": official_review,
+        "title_missing_before": title_missing_before,
+        "rating_missing_before": rating_missing_before,
+        "review_missing_before": review_missing_before,
+        "title_missing_after": title_missing_after,
+        "rating_missing_after": rating_missing_after,
+        "review_missing_after": review_missing_after,
+    }
+
+    # Mark complete only after at least one source was actually queried. If a
+    # catastrophic network failure happens before that, the next run retries.
+    if records or official_tried:
+        state[ONE_TIME_BACKFILL_KEY] = now
+        state["metadata_backfill_v1_stats"] = stats
+        save_json(FETCH_STATE_FILE, state)
+        print(f"[Backfill] completed stats={stats}")
+    else:
+        print("[Backfill] no_work_completed retry_next_run=true")
+
+
 def _absolute_fc2_asset(raw: str) -> str:
     value = (raw or "").strip()
     if not value:
@@ -2099,6 +2279,7 @@ def main() -> int:
 
     sanitize_item_titles(merged)
     refresh_fc2cmadb_titles(merged)
+    run_one_time_metadata_backfill(merged)
     enrich_hwalker_market(merged)
     refresh_japanese_titles(merged)
     fill_missing_views(merged)
