@@ -12,6 +12,10 @@ on:
       - "requirements.txt"
       - ".github/workflows/monitor.yml"
 
+concurrency:
+  group: fc2ppv-monitor-main
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pages: write
