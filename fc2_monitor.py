@@ -45,8 +45,11 @@ H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "20"))
 H_WALKER_CURSOR_KEY = "hwalker_next_url"
 H_WALKER_STATS_KEY = "hwalker_crawl_stats"
 H_WALKER_REFRESH_SEC = int(os.environ.get("H_WALKER_REFRESH_SEC", str(6 * 3600)))
-CONTINUOUS_BACKFILL_CURSOR_KEY = "metadata_backfill_v2_cursor"
-CONTINUOUS_BACKFILL_STATS_KEY = "metadata_backfill_v2_stats"
+CONTINUOUS_BACKFILL_CURSOR_KEY = "metadata_backfill_v2_cursor"  # legacy; no longer used for selection
+CONTINUOUS_BACKFILL_STATS_KEY = "metadata_backfill_v3_stats"
+BACKFILL_ATTEMPTS_KEY = "metadata_backfill_v3_attempts"
+BACKFILL_RETRY_BASE_SEC = int(os.environ.get("BACKFILL_RETRY_BASE_SEC", str(12 * 3600)))
+BACKFILL_RETRY_MAX_SEC = int(os.environ.get("BACKFILL_RETRY_MAX_SEC", str(3 * 86400)))
 BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "500"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
 THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
@@ -1271,12 +1274,9 @@ def enrich_new_fc2_market(items) -> None:
 
 
 def run_continuous_metadata_backfill(items) -> None:
-    """Incrementally revisit legacy items until all candidates have been attempted."""
+    """Backfill by FC2 code: never let a moving candidate list skip untried items."""
     state = load_json(FETCH_STATE_FILE, {})
     now = now_ts()
-
-    # Stable numeric ordering makes the persisted cursor meaningful even when
-    # new discovery items are inserted at the front of the site data.
     candidates = [
         item for item in items
         if not item.get("fc2_market_not_found")
@@ -1287,35 +1287,49 @@ def run_continuous_metadata_backfill(items) -> None:
         )
     ]
     candidates.sort(key=lambda x: int(x.get("code_num") or 0), reverse=True)
-    if not candidates:
-        state[CONTINUOUS_BACKFILL_CURSOR_KEY] = 0
-        state[CONTINUOUS_BACKFILL_STATS_KEY] = {
-            "last_run": now, "candidates": 0, "processed": 0, "remaining": 0
-        }
-        save_json(FETCH_STATE_FILE, state)
-        print("[Backfill v2] complete candidates=0")
-        return
 
-    cursor = int(state.get(CONTINUOUS_BACKFILL_CURSOR_KEY) or 0)
-    if cursor < 0 or cursor >= len(candidates):
-        cursor = 0
+    attempts = state.get(BACKFILL_ATTEMPTS_KEY)
+    if not isinstance(attempts, dict):
+        attempts = {}
 
+    # Migrate knowledge from the old per-code failure map so a deployment does
+    # not immediately hammer the same temporary failures again.
+    old_failed = state.get("fc2_market_failed")
+    if isinstance(old_failed, dict):
+        for code, ts in old_failed.items():
+            if code not in attempts:
+                attempts[code] = {"last_attempt": int(ts or 0), "failures": 1, "status": "failed"}
+
+    def attempt_info(item):
+        code = item.get("code") or ""
+        rec = attempts.get(code)
+        return rec if isinstance(rec, dict) else {}
+
+    untried = [item for item in candidates if not attempt_info(item).get("last_attempt")]
+    retry_ready = []
+    retry_waiting = []
+    for item in candidates:
+        rec = attempt_info(item)
+        last_attempt = int(rec.get("last_attempt") or 0)
+        if not last_attempt:
+            continue
+        failures = max(1, int(rec.get("failures") or 1))
+        delay = min(BACKFILL_RETRY_MAX_SEC, BACKFILL_RETRY_BASE_SEC * (2 ** min(failures - 1, 6)))
+        if now - last_attempt >= delay:
+            retry_ready.append(item)
+        else:
+            retry_waiting.append(item)
+
+    retry_ready.sort(key=lambda x: int(attempt_info(x).get("last_attempt") or 0))
     limit = max(1, BACKFILL_OFFICIAL_LIMIT)
-    batch = candidates[cursor:cursor + limit]
-    # If the cursor is near the end, finish that pass rather than wrapping in
-    # the same run. The next scheduled run starts a fresh pass at zero.
-    next_cursor = cursor + len(batch)
-    pass_complete = next_cursor >= len(candidates)
-    if pass_complete:
-        next_cursor = 0
+    batch = (untried + retry_ready)[:limit]
 
     title_before = sum(1 for x in candidates if needs_jp_title(x.get("title", "")))
     rating_before = sum(1 for x in candidates if x.get("fc2_rating") is None)
     review_before = sum(1 for x in candidates if x.get("fc2_review_count") is None)
-
     checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
     failed = state.get("fc2_market_failed") if isinstance(state.get("fc2_market_failed"), dict) else {}
-    tried = success = not_found = title_updated = rating_updated = review_updated = 0
+    tried = success = not_found = transient_failed = title_updated = rating_updated = review_updated = 0
     official_blocked = False
 
     for item in batch:
@@ -1325,21 +1339,30 @@ def run_continuous_metadata_backfill(items) -> None:
             continue
         tried += 1
         item["fc2_market_last_attempt"] = now
+        previous = attempt_info(item)
+        previous_failures = int(previous.get("failures") or 0)
         meta = fetch_fc2_market(str(num))
+
         if meta and meta.get("blocked") == "eKYC":
             state["fc2_market_ekyc_blocked_at"] = now
             official_blocked = True
-            print(f"[Backfill v2] stop blocked_by=eKYC tried={tried}")
+            # Do not mark this code failed: the block is global, not evidence
+            # that this individual product is bad.
+            print(f"[Backfill v3] stop blocked_by=eKYC tried={tried}")
             break
+
         if not meta:
+            failures = previous_failures + 1
+            attempts[code] = {"last_attempt": now, "failures": failures, "status": "failed"}
             failed[code] = now
+            transient_failed += 1
             continue
 
         if meta.get("not_found"):
-            # Do not remove the item from the site. Mark only the official
-            # metadata route unavailable so normal third-party sources remain.
             item["fc2_market_not_found"] = True
             item["fc2_market_url"] = ""
+            item["fc2_market_checked_at"] = now
+            attempts[code] = {"last_attempt": now, "failures": 0, "status": "not_found"}
             checked[code] = now
             failed.pop(code, None)
             not_found += 1
@@ -1348,7 +1371,6 @@ def run_continuous_metadata_backfill(items) -> None:
         success += 1
         item["fc2_market_not_found"] = False
         item["fc2_market_url"] = meta.get("fc2_market_url") or item.get("fc2_market_url") or ""
-
         title = (meta.get("fc2_title") or "").strip()
         if title:
             item["fc2_title"] = title
@@ -1356,30 +1378,32 @@ def run_continuous_metadata_backfill(items) -> None:
                 item["title"] = title
                 item["title_source"] = "FC2公式"
                 title_updated += 1
-
         rating = meta.get("fc2_rating")
         if rating is not None:
             if item.get("fc2_rating") != rating or item.get("fc2_rating_source") != "FC2公式":
                 rating_updated += 1
             item["fc2_rating"] = rating
             item["fc2_rating_source"] = "FC2公式"
-
         review_count = meta.get("fc2_review_count")
         if review_count is not None:
             if item.get("fc2_review_count") != review_count:
                 review_updated += 1
             item["fc2_review_count"] = review_count
             item["fc2_rating_source"] = "FC2公式"
-
         item["fc2_market_checked_at"] = now
         item["fc2_market_last_success"] = now
+        attempts[code] = {"last_attempt": now, "failures": 0, "status": "success"}
         checked[code] = now
         failed.pop(code, None)
 
+    # Keep state bounded to codes that still exist in the site dataset, plus
+    # terminal records useful for diagnostics.
+    known_codes = {item.get("code") for item in items if item.get("code")}
+    attempts = {k: v for k, v in attempts.items() if k in known_codes}
+    state[BACKFILL_ATTEMPTS_KEY] = attempts
     state["fc2_market_checked"] = checked
     state["fc2_market_failed"] = failed
-    # Do not skip 200 candidates when FC2 blocked the very first request.
-    state[CONTINUOUS_BACKFILL_CURSOR_KEY] = cursor if official_blocked else next_cursor
+    state.pop(CONTINUOUS_BACKFILL_CURSOR_KEY, None)
 
     remaining_candidates = [
         item for item in items
@@ -1390,16 +1414,27 @@ def run_continuous_metadata_backfill(items) -> None:
             or item.get("fc2_review_count") is None
         )
     ]
+    remaining_codes = {item.get("code") for item in remaining_candidates}
+    remaining_untried = sum(
+        1 for code in remaining_codes
+        if not (isinstance(attempts.get(code), dict) and attempts[code].get("last_attempt"))
+    )
+    remaining_failed = sum(
+        1 for code in remaining_codes
+        if isinstance(attempts.get(code), dict) and attempts[code].get("status") == "failed"
+    )
     stats = {
         "last_run": now,
-        "cursor_start": cursor,
-        "cursor_next": next_cursor,
-        "pass_complete": pass_complete,
         "candidates_before": len(candidates),
-        "processed": len(batch),
+        "untried_before": len(untried),
+        "retry_ready_before": len(retry_ready),
+        "retry_waiting_before": len(retry_waiting),
+        "selected": len(batch),
         "tried": tried,
         "success": success,
         "not_found": not_found,
+        "transient_failed": transient_failed,
+        "official_blocked": official_blocked,
         "title_updated": title_updated,
         "rating_updated": rating_updated,
         "review_updated": review_updated,
@@ -1407,11 +1442,12 @@ def run_continuous_metadata_backfill(items) -> None:
         "rating_missing_before": rating_before,
         "review_missing_before": review_before,
         "remaining_candidates": len(remaining_candidates),
+        "remaining_untried": remaining_untried,
+        "remaining_failed": remaining_failed,
     }
     state[CONTINUOUS_BACKFILL_STATS_KEY] = stats
     save_json(FETCH_STATE_FILE, state)
-    print(f"[Backfill v2] stats={stats}")
-
+    print(f"[Backfill v3] stats={stats}")
 
 def _absolute_fc2_asset(raw: str) -> str:
     value = (raw or "").strip()
