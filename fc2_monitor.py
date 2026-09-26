@@ -1244,6 +1244,7 @@ def run_continuous_metadata_backfill(items) -> None:
     checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
     failed = state.get("fc2_market_failed") if isinstance(state.get("fc2_market_failed"), dict) else {}
     tried = success = not_found = title_updated = rating_updated = review_updated = 0
+    official_blocked = False
 
     for item in batch:
         code = item.get("code") or ""
@@ -1255,6 +1256,7 @@ def run_continuous_metadata_backfill(items) -> None:
         meta = fetch_fc2_market(str(num))
         if meta and meta.get("blocked") == "eKYC":
             state["fc2_market_ekyc_blocked_at"] = now
+            official_blocked = True
             print(f"[Backfill v2] stop blocked_by=eKYC tried={tried}")
             break
         if not meta:
@@ -1304,7 +1306,8 @@ def run_continuous_metadata_backfill(items) -> None:
 
     state["fc2_market_checked"] = checked
     state["fc2_market_failed"] = failed
-    state[CONTINUOUS_BACKFILL_CURSOR_KEY] = next_cursor
+    # Do not skip 200 candidates when FC2 blocked the very first request.
+    state[CONTINUOUS_BACKFILL_CURSOR_KEY] = cursor if official_blocked else next_cursor
 
     remaining_candidates = [
         item for item in items
