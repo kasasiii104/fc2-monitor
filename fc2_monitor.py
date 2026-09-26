@@ -41,7 +41,9 @@ FC2_MARKET_REFRESH_SEC = int(os.environ.get("FC2_MARKET_REFRESH_SEC", str(7 * 86
 FC2CMADB_URL = os.environ.get("FC2CMADB_URL", "https://fc2cmadb.com").rstrip("/")
 FC2CMADB_FETCH_LIMIT = int(os.environ.get("FC2CMADB_FETCH_LIMIT", "24"))
 H_WALKER_URL = os.environ.get("H_WALKER_URL", "https://fc2cm.h-walker.net").rstrip("/")
-H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "6"))
+H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "20"))
+H_WALKER_CURSOR_KEY = "hwalker_next_url"
+H_WALKER_STATS_KEY = "hwalker_crawl_stats"
 H_WALKER_REFRESH_SEC = int(os.environ.get("H_WALKER_REFRESH_SEC", str(6 * 3600)))
 CONTINUOUS_BACKFILL_CURSOR_KEY = "metadata_backfill_v2_cursor"
 CONTINUOUS_BACKFILL_STATS_KEY = "metadata_backfill_v2_stats"
@@ -819,7 +821,7 @@ def fetch_fc2_market(code_num):
         return None
     if "redirect.fc2.com/ekyc_auth" in (info.get("final_url") or ""):
         print(f"[FC2 Market] FC2-PPV-{code_num} blocked_by=eKYC")
-        return None
+        return {"blocked": "eKYC"}
 
     soup = info["soup"]
     text = soup.get_text(" ", strip=True)
@@ -1023,15 +1025,40 @@ def _hwalker_count(text: str):
     return value if 0 <= value < 10000000 else None
 
 
-def scrape_hwalker_market(pages=None) -> dict:
-    """Harvest current FC2 title/rating/review data mirrored from the sales site."""
+def _hwalker_next_url(soup, current_url: str) -> str:
+    """Follow Walker's real pagination link instead of guessing its URL shape."""
+    for a in soup.find_all("a", href=True):
+        label = re.sub(r"\\s+", "", a.get_text(" ", strip=True))
+        if "次の50件" in label or label.startswith("次の"):
+            nxt = urljoin(current_url, a.get("href") or "")
+            if nxt.startswith(H_WALKER_URL):
+                return nxt
+    return ""
+
+
+def scrape_hwalker_market(start_url=None, page_limit=None):
+    """Harvest Walker pages by following the site's actual next-page links."""
     found = {}
-    for page_no in (pages or list(range(1, H_WALKER_PAGES + 1))):
-        url = H_WALKER_URL + "/" if page_no == 1 else f"{H_WALKER_URL}/0/{page_no}/1/0/0/"
+    url = start_url or (H_WALKER_URL + "/")
+    limit = max(1, int(page_limit or H_WALKER_PAGES))
+    visited = set()
+    pages_done = 0
+    next_url = url
+
+    while next_url and pages_done < limit:
+        url = next_url
+        if url in visited:
+            print(f"[FC2 Walker] pagination_cycle url={url}")
+            next_url = ""
+            break
+        visited.add(url)
         info = fetch_page(url)
         if not (info.get("status") == 200 and info.get("soup") is not None):
-            print(f"[FC2 Walker] page={page_no} status={info.get('status')} items=0")
-            continue
+            print(f"[FC2 Walker] page={pages_done + 1} status={info.get('status')} items=0 url={url}")
+            # Keep the cursor on the failed page so a later run can retry it.
+            next_url = url
+            break
+
         soup = info["soup"]
         page_found = 0
         samples = []
@@ -1039,11 +1066,11 @@ def scrape_hwalker_market(pages=None) -> dict:
             links = row.find_all("a", href=True)
             product = None
             num = ""
-            for a in links:
-                href = a.get("href") or ""
-                m = re.search(r"(?:[?&])aid=(\d{5,8})(?:&|$)", href)
+            for link in links:
+                href = link.get("href") or ""
+                m = re.search(r"(?:[?&])aid=(\\d{5,8})(?:&|$)", href)
                 if m and "adult.contents.fc2.com" in href:
-                    product = a
+                    product = link
                     num = m.group(1)
                     break
             if not product or not num:
@@ -1051,20 +1078,20 @@ def scrape_hwalker_market(pages=None) -> dict:
 
             title = clean_title(product.get_text(" ", strip=True) or product.get("title") or "", num)
             if not title:
-                for a in links:
-                    raw = a.get("title") or a.get_text(" ", strip=True)
+                for link in links:
+                    raw = link.get("title") or link.get_text(" ", strip=True)
                     candidate = clean_title(raw, num)
                     if candidate and len(candidate) > 6:
                         title = candidate
                         break
 
             cells = row.find_all(["td", "th"])
-            cell_texts = [re.sub(r"\s+", " ", c.get_text(" ", strip=True)).strip() for c in cells]
+            cell_texts = [re.sub(r"\\s+", " ", c.get_text(" ", strip=True)).strip() for c in cells]
             rating = None
             review_count = None
             rating_idx = -1
             for idx, txt in enumerate(cell_texts):
-                if re.fullmatch(r"[0-5](?:\.\d{1,2})", txt):
+                if re.fullmatch(r"[0-5](?:\\.\\d{1,2})", txt):
                     try:
                         rating = float(txt)
                         rating_idx = idx
@@ -1088,29 +1115,41 @@ def scrape_hwalker_market(pages=None) -> dict:
             page_found += 1
             if len(samples) < 3:
                 samples.append(f"{code}:{rating!r}/{review_count!r}")
+
+        pages_done += 1
+        candidate_next = _hwalker_next_url(soup, url)
         print(
-            f"[FC2 Walker] page={page_no} status={info.get('status')} "
-            f"items={page_found} samples={' '.join(samples)}"
+            f"[FC2 Walker] crawl_page={pages_done} status={info.get('status')} "
+            f"items={page_found} unique_total={len(found)} "
+            f"samples={' '.join(samples)} next={candidate_next}"
         )
-    return found
+        if not candidate_next or candidate_next == url:
+            next_url = ""
+            break
+        next_url = candidate_next
+
+    return found, next_url, pages_done
 
 
 def enrich_hwalker_market(items) -> None:
     state = load_json(FETCH_STATE_FILE, {})
     now = now_ts()
     last = int(state.get("hwalker_last_success") or 0)
-    # Always try on a fresh deployment/run if no data has ever been harvested.
     if last and now - last < H_WALKER_REFRESH_SEC:
         print(f"[FC2 Walker] skip fresh=true age={now-last}s")
         return
 
-    records = scrape_hwalker_market()
+    start_url = state.get(H_WALKER_CURSOR_KEY) or (H_WALKER_URL + "/")
+    records, next_url, pages_done = scrape_hwalker_market(start_url=start_url)
     if not records:
         print("[FC2 Walker] harvested=0 keep_previous=true")
         return
 
+    # End of pagination means one complete pass; restart from the first page
+    # on the next eligible run so ratings/reviews can refresh over time.
+    state[H_WALKER_CURSOR_KEY] = next_url or (H_WALKER_URL + "/")
     state["hwalker_last_success"] = now
-    save_json(FETCH_STATE_FILE, state)
+
     matched = rating_updated = review_updated = title_updated = 0
     for item in items:
         code = item.get("code") or ""
@@ -1128,27 +1167,36 @@ def enrich_hwalker_market(items) -> None:
 
         rating = rec.get("rating")
         if isinstance(rating, (int, float)) and 0 <= rating <= 5:
-            if item.get("fc2_rating") != rating:
-                rating_updated += 1
-            item["fc2_rating"] = float(rating)
-            item["fc2_rating_source"] = "FC2ウォーカー"
-            item["fc2_market_checked_at"] = now
+            # Never downgrade metadata already verified directly from FC2.
+            if item.get("fc2_rating_source") != "FC2公式":
+                if item.get("fc2_rating") != rating:
+                    rating_updated += 1
+                item["fc2_rating"] = float(rating)
+                item["fc2_rating_source"] = "FC2ウォーカー"
+                item["fc2_market_checked_at"] = now
 
         count = rec.get("review_count")
-        if isinstance(count, int) and count >= 0:
+        if isinstance(count, int) and count >= 0 and item.get("fc2_rating_source") != "FC2公式":
             if item.get("fc2_review_count") != count:
                 review_updated += 1
             item["fc2_review_count"] = count
             item["fc2_rating_source"] = "FC2ウォーカー"
             item["fc2_market_checked_at"] = now
 
-    print(
-        f"[FC2 Walker] harvested={len(records)} matched={matched} "
-        f"title_updated={title_updated} rating_updated={rating_updated} "
-        f"review_updated={review_updated}"
-    )
-
-
+    stats = {
+        "last_run": now,
+        "start_url": start_url,
+        "next_url": state[H_WALKER_CURSOR_KEY],
+        "pages": pages_done,
+        "harvested": len(records),
+        "matched": matched,
+        "title_updated": title_updated,
+        "rating_updated": rating_updated,
+        "review_updated": review_updated,
+    }
+    state[H_WALKER_STATS_KEY] = stats
+    save_json(FETCH_STATE_FILE, state)
+    print(f"[FC2 Walker] stats={stats}")
 
 def run_continuous_metadata_backfill(items) -> None:
     """Incrementally revisit legacy items until all candidates have been attempted."""
@@ -1196,6 +1244,7 @@ def run_continuous_metadata_backfill(items) -> None:
     checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
     failed = state.get("fc2_market_failed") if isinstance(state.get("fc2_market_failed"), dict) else {}
     tried = success = not_found = title_updated = rating_updated = review_updated = 0
+    official_blocked = False
 
     for item in batch:
         code = item.get("code") or ""
@@ -1205,6 +1254,11 @@ def run_continuous_metadata_backfill(items) -> None:
         tried += 1
         item["fc2_market_last_attempt"] = now
         meta = fetch_fc2_market(str(num))
+        if meta and meta.get("blocked") == "eKYC":
+            state["fc2_market_ekyc_blocked_at"] = now
+            official_blocked = True
+            print(f"[Backfill v2] stop blocked_by=eKYC tried={tried}")
+            break
         if not meta:
             failed[code] = now
             continue
@@ -1252,7 +1306,8 @@ def run_continuous_metadata_backfill(items) -> None:
 
     state["fc2_market_checked"] = checked
     state["fc2_market_failed"] = failed
-    state[CONTINUOUS_BACKFILL_CURSOR_KEY] = next_cursor
+    # Do not skip 200 candidates when FC2 blocked the very first request.
+    state[CONTINUOUS_BACKFILL_CURSOR_KEY] = cursor if official_blocked else next_cursor
 
     remaining_candidates = [
         item for item in items
@@ -1463,6 +1518,10 @@ def enrich_fc2_market(items):
         num = item.get("code_num") or code.split("-")[-1]
         item["fc2_market_last_attempt"] = now
         meta = fetch_fc2_market(num)
+        if meta and meta.get("blocked") == "eKYC":
+            state["fc2_market_ekyc_blocked_at"] = now
+            print(f"[FC2 Market] stop blocked_by=eKYC tried={tried}")
+            break
         if not meta:
             failed[code] = now
             continue
