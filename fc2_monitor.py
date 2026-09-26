@@ -140,7 +140,12 @@ def fetch_page(url: str) -> dict:
 
 
 def clean_title(text: str, code_num: str) -> str:
-    title = re.sub(r"\s+", " ", (text or "")).strip()
+    title = html.unescape(re.sub(r"\s+", " ", (text or "")).strip())
+    # Never let source URLs/path fragments leak into the visible title.
+    title = re.sub(r"https?://\S+", " ", title, flags=re.I)
+    title = re.sub(r"\bwww\.\S+", " ", title, flags=re.I)
+    title = re.sub(r"(?:^|\s)/(?:ja/)?fc2[-_/ ]?ppv[-_/ ]?\d{6,8}(?:\S*)?", " ", title, flags=re.I)
+    title = re.sub(r"\s+", " ", title).strip()
     title = re.sub(r"^\d{1,2}:\d{2}(?::\d{2})?\s*", "", title)
     title = title.replace(f"FC2-PPV-{code_num}", "").replace(f"FC2PPV {code_num}", "")
     title = title.replace(f"FC2PPV-{code_num}", "").strip(" -|/")
@@ -558,8 +563,11 @@ def scrape_missav_catalog(pages=None):
         for a in soup.find_all("a", href=True):
             href = a.get("href") or ""
             img = a.find("img")
-            raw = " ".join([href, a.get("title") or "", (img.get("alt") if img else "") or "", a.get_text(" ", strip=True)])
-            m = CODE_RE.search(raw) or re.search(r"/fc2-ppv-(\d{6,8})", href, re.I)
+            # Use href only to identify the FC2 code. Do not feed it into the
+            # title candidate, otherwise relative/absolute URLs can leak into
+            # the visible title.
+            raw = " ".join([a.get("title") or "", (img.get("alt") if img else "") or "", a.get_text(" ", strip=True)])
+            m = CODE_RE.search(href + " " + raw) or re.search(r"/fc2-ppv-(\d{6,8})", href, re.I)
             if not m:
                 continue
             num = m.group(1)
@@ -669,29 +677,140 @@ def extract_fc2_market_title(soup, code_num: str) -> str:
     return best
 
 
+def _number_value(raw):
+    if raw is None:
+        return None
+    m = re.search(r"-?\d+(?:\.\d+)?", str(raw).replace(",", ""))
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except ValueError:
+        return None
+
+
+def extract_fc2_market_rating(soup, text: str):
+    """Read FC2 rating from structured data/meta first, then visible text."""
+    # Schema.org / JSON-LD is more stable than translated visible labels.
+    for script in soup.find_all("script"):
+        body = script.string or script.get_text() or ""
+        if "ratingValue" not in body and "aggregateRating" not in body:
+            continue
+        try:
+            data = json.loads(body)
+        except Exception:
+            data = None
+        stack = data if isinstance(data, list) else [data]
+        for node in stack:
+            if not isinstance(node, dict):
+                continue
+            agg = node.get("aggregateRating")
+            if isinstance(agg, dict):
+                value = _number_value(agg.get("ratingValue"))
+                if value is not None and 0 <= value <= 5:
+                    return round(value, 2)
+        m = re.search(r'["\']ratingValue["\']\s*:\s*["\']?([0-5](?:\.\d+)?)', body, re.I)
+        if m:
+            return float(m.group(1))
+
+    for attr in (
+        {"itemprop": "ratingValue"},
+        {"property": "ratingValue"},
+        {"name": "ratingValue"},
+    ):
+        tag = soup.find(attrs=attr)
+        if tag:
+            raw = tag.get("content") or tag.get("value") or tag.get_text(" ", strip=True)
+            value = _number_value(raw)
+            if value is not None and 0 <= value <= 5:
+                return round(value, 2)
+
+    patterns = (
+        r"(?:Average\s*Rating|平均評価|評価)\s*[:：]?\s*([0-5](?:\.\d+)?)\s*(?:/\s*5)?",
+        r"([0-5](?:\.\d+)?)\s*/\s*5",
+        r"5\s*点満点(?:中|で)?\s*([0-5](?:\.\d+)?)",
+    )
+    for pat in patterns:
+        m = re.search(pat, text, re.I)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def extract_fc2_market_review_count(soup, text: str):
+    """Read FC2 review/rating count from structured data/meta or visible text."""
+    for script in soup.find_all("script"):
+        body = script.string or script.get_text() or ""
+        if not re.search(r"reviewCount|ratingCount|aggregateRating", body, re.I):
+            continue
+        try:
+            data = json.loads(body)
+        except Exception:
+            data = None
+        stack = data if isinstance(data, list) else [data]
+        for node in stack:
+            if not isinstance(node, dict):
+                continue
+            agg = node.get("aggregateRating")
+            if isinstance(agg, dict):
+                for key in ("reviewCount", "ratingCount"):
+                    value = _number_value(agg.get(key))
+                    if value is not None and value >= 0:
+                        return int(value)
+        m = re.search(r'["\'](?:reviewCount|ratingCount)["\']\s*:\s*["\']?([\d,]+)', body, re.I)
+        if m:
+            return int(m.group(1).replace(",", ""))
+
+    for prop in ("reviewCount", "ratingCount"):
+        tag = soup.find(attrs={"itemprop": prop}) or soup.find(attrs={"name": prop})
+        if tag:
+            raw = tag.get("content") or tag.get("value") or tag.get_text(" ", strip=True)
+            value = _number_value(raw)
+            if value is not None and value >= 0:
+                return int(value)
+
+    patterns = (
+        r"Product\s*Review\s*[\(（]\s*([\d,]+)\s*[\)）]",
+        r"商品レビュー\s*[\(（]\[]?\s*([\d,]+)\s*(?:件)?\s*[\)）\]]?",
+        r"(?:レビュー|評価)\s*[:：]?\s*([\d,]+)\s*件",
+    )
+    for pat in patterns:
+        m = re.search(pat, text, re.I)
+        if m:
+            return int(m.group(1).replace(",", ""))
+    return None
+
+
 def fetch_fc2_market(code_num):
     url = f"https://adult.contents.fc2.com/article/{code_num}/?lang=ja"
     info = fetch_page(url)
     print(f"[FC2 Market] FC2-PPV-{code_num} status={info.get('status')} cloudflare={info.get('cloudflare')}")
     if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
         return None
+
     soup = info["soup"]
     text = soup.get_text(" ", strip=True)
-    if str(code_num) not in ((info.get("text") or "") + " " + text):
-        return None
-    rating = None
-    count = None
-    for pat in (r"Average Rating\s*([0-5](?:\.\d+)?)", r"平均評価\s*[:：]?\s*([0-5](?:\.\d+)?)"):
-        m = re.search(pat, text, re.I)
-        if m:
-            rating = float(m.group(1)); break
-    for pat in (r"Product Review\s*[\(（]\s*(\d+)\s*[\)）]", r"商品レビュー\s*[\(（]\s*(\d+)\s*[\)）]", r"レビュー\s*(\d+)\s*件"):
-        m = re.search(pat, text, re.I)
-        if m:
-            count = int(m.group(1)); break
+    final_url = info.get("final_url") or url
+    raw_html = info.get("text") or ""
     fc2_title = extract_fc2_market_title(soup, code_num)
+
+    # FC2 can omit the numeric ID from visible text/metadata even while the
+    # requested article URL itself is valid. The old check rejected those
+    # pages and caused "status=200" followed by updated=0.
+    article_path_ok = f"/article/{code_num}" in final_url
+    code_visible = str(code_num) in (raw_html + " " + text)
+    if not article_path_ok and not code_visible:
+        print(f"[FC2 Market] FC2-PPV-{code_num} rejected final_url={final_url}")
+        return None
+
+    rating = extract_fc2_market_rating(soup, text)
+    count = extract_fc2_market_review_count(soup, text)
+    print(
+        f"[FC2 Market data] FC2-PPV-{code_num} "
+        f"title={bool(fc2_title)} rating={rating!r} reviews={count!r}"
+    )
     return {
-        "fc2_market_url": info.get("final_url") or url,
+        "fc2_market_url": final_url,
         "fc2_rating": rating,
         "fc2_review_count": count,
         "fc2_title": fc2_title,
