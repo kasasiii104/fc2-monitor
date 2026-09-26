@@ -605,8 +605,72 @@ def scrape_javdb(pages=None):
     return list(collected.values())
 
 
+
+def clean_fc2_market_title(raw: str, code_num: str) -> str:
+    """Extract the seller's product title from FC2 Content Market's Japanese page."""
+    title = html.unescape(re.sub(r"\s+", " ", (raw or "")).strip())
+    if not title:
+        return ""
+    title = re.sub(
+        rf"^\s*FC2[-_ ]?PPV[-_ ]?{re.escape(str(code_num))}\s*",
+        "",
+        title,
+        flags=re.I,
+    )
+    title = re.sub(
+        r"\s*[\|\-–—]\s*FC2(?:コンテンツマーケット| Content Market).*$",
+        "",
+        title,
+        flags=re.I,
+    )
+    title = re.sub(r"\s*FC2コンテンツマーケット\s*$", "", title, flags=re.I)
+    title = title.strip(" -|–—")
+    # Reject obvious page chrome / non-title headings.
+    if not title or title in {
+        "FC2コンテンツマーケット", "FC2 Content Market",
+        "商品レビュー", "商品説明", "販売者情報",
+    }:
+        return ""
+    return title[:180]
+
+
+def extract_fc2_market_title(soup, code_num: str) -> str:
+    """Prefer FC2's own Japanese product-title metadata/headings."""
+    candidates = []
+    for tag in (
+        soup.find("meta", attrs={"property": "og:title"}),
+        soup.find("meta", attrs={"name": "twitter:title"}),
+    ):
+        if tag and tag.get("content"):
+            candidates.append(tag.get("content"))
+    if soup.title and soup.title.get_text():
+        candidates.append(soup.title.get_text(" ", strip=True))
+    # Product heading is usually near the top. Keep this as a fallback.
+    for tag in soup.find_all(["h1", "h2", "h3"], limit=12):
+        raw = tag.get_text(" ", strip=True)
+        if raw:
+            candidates.append(raw)
+
+    best = ""
+    for raw in candidates:
+        candidate = clean_fc2_market_title(raw, code_num)
+        if not candidate:
+            continue
+        # Avoid headings that are clearly site chrome.
+        if re.search(r"商品レビュー|商品説明|販売者情報|サンプル画像|サンプル動画|対応デバイス", candidate):
+            continue
+        # Prefer a title containing Japanese kana. If none does, keep the first
+        # plausible official title as fc2_title but do not necessarily replace
+        # an existing title with it later.
+        if re.search(r"[ぁ-んァ-ン]", candidate):
+            return candidate
+        if not best and title_score(candidate)[0] > 0:
+            best = candidate
+    return best
+
+
 def fetch_fc2_market(code_num):
-    url = f"https://adult.contents.fc2.com/article/{code_num}/"
+    url = f"https://adult.contents.fc2.com/article/{code_num}/?lang=ja"
     info = fetch_page(url)
     print(f"[FC2 Market] FC2-PPV-{code_num} status={info.get('status')} cloudflare={info.get('cloudflare')}")
     if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
@@ -625,7 +689,13 @@ def fetch_fc2_market(code_num):
         m = re.search(pat, text, re.I)
         if m:
             count = int(m.group(1)); break
-    return {"fc2_market_url": info.get("final_url") or url, "fc2_rating": rating, "fc2_review_count": count}
+    fc2_title = extract_fc2_market_title(soup, code_num)
+    return {
+        "fc2_market_url": info.get("final_url") or url,
+        "fc2_rating": rating,
+        "fc2_review_count": count,
+        "fc2_title": fc2_title,
+    }
 
 
 def enrich_fc2_market(items):
@@ -636,13 +706,20 @@ def enrich_fc2_market(items):
     now = now_ts()
     if not items:
         return
-    ordered = items[cursor % len(items):] + items[:cursor % len(items)]
-    tried = updated = 0
+    rotated = items[cursor % len(items):] + items[:cursor % len(items)]
+    title_targets = [
+        x for x in rotated
+        if not x.get("fc2_title") and needs_jp_title(x.get("title", ""))
+    ]
+    title_target_codes = {x.get("code") for x in title_targets}
+    ordered = title_targets + [x for x in rotated if x.get("code") not in title_target_codes]
+    tried = updated = title_updated = 0
     for item in ordered:
         if tried >= FC2_MARKET_FETCH_LIMIT:
             break
         code = item.get("code") or ""
-        if now - int(checked.get(code) or 0) < FC2_MARKET_REFRESH_SEC:
+        needs_official_title = not item.get("fc2_title") and needs_jp_title(item.get("title", ""))
+        if not needs_official_title and now - int(checked.get(code) or 0) < FC2_MARKET_REFRESH_SEC:
             continue
         if now - int(failed.get(code) or 0) < FAIL_SKIP_SEC:
             continue
@@ -653,6 +730,17 @@ def enrich_fc2_market(items):
             failed[code] = now
             continue
         item["fc2_market_url"] = meta["fc2_market_url"]
+        official_title = (meta.get("fc2_title") or "").strip()
+        if official_title:
+            item["fc2_title"] = official_title
+            # Replace low-quality/non-Japanese titles only when FC2's own title
+            # is clearly Japanese. Existing good Japanese titles are left alone.
+            if needs_jp_title(item.get("title", "")) and re.search(r"[ぁ-んァ-ン]", official_title):
+                if item.get("title") != official_title:
+                    print(f"FC2公式タイトル更新: {code} -> {official_title[:60]}")
+                    item["title"] = official_title
+                    item["title_source"] = "FC2公式"
+                    title_updated += 1
         if meta.get("fc2_rating") is not None:
             item["fc2_rating"] = meta["fc2_rating"]
         if meta.get("fc2_review_count") is not None:
@@ -665,7 +753,7 @@ def enrich_fc2_market(items):
     state["fc2_market_checked"] = checked
     state["fc2_market_failed"] = failed
     save_json(FETCH_STATE_FILE, state)
-    print(f"[FC2 Market] tried={tried} updated={updated}")
+    print(f"[FC2 Market] tried={tried} updated={updated} title_updated={title_updated}")
 
 
 def scrape_supjav(pages=None):
@@ -837,6 +925,8 @@ def public_item(item):
         "missav_rank_total": item.get("missav_rank_total") if isinstance(item.get("missav_rank_total"), int) else None,
         "missav_rank_updated_at": item.get("missav_rank_updated_at") or "",
         "fc2_market_url": item.get("fc2_market_url") or "",
+        "fc2_title": item.get("fc2_title") or "",
+        "title_source": item.get("title_source") or "",
         "fc2_rating": item.get("fc2_rating") if isinstance(item.get("fc2_rating"), (int, float)) else None,
         "fc2_review_count": item.get("fc2_review_count") if isinstance(item.get("fc2_review_count"), int) else None,
         "fc2_market_checked_at": item.get("fc2_market_checked_at") or 0,
@@ -1177,7 +1267,7 @@ function cardHTML(it, rank){
       <span class="prog"><i style="width:${Math.min(100,prog*100)}%"></i></span>
     </button>
     <div class="body">
-      <a class="title open" href="${esc(it.sources.MissAV||it.url||'#')}" target="_blank" rel="noopener">${esc(it.title)}</a>
+      <div class="title">${esc(it.title)}</div>
       <p class="subline">${esc(it.code)}</p>
       <p class="meta">${[viewsLabel(it.views)+(it.views&&it.views_source==='Supjav'?' ・ Supjav':''), relTime(it.first_seen)].filter(Boolean).join(' ・ ')}</p>
       ${rankLine}${fc2pop}${multi}${extra}
@@ -1426,6 +1516,8 @@ def main() -> int:
         item["fc2_rating"] = old.get("fc2_rating")
         item["fc2_review_count"] = old.get("fc2_review_count")
         item["fc2_market_checked_at"] = old.get("fc2_market_checked_at") or 0
+        item["fc2_title"] = old.get("fc2_title") or ""
+        item["title_source"] = old.get("title_source") or item.get("title_source") or ""
         item["duration"] = video.get("duration") or old.get("duration", "")
         if old.get("sources"):
             item["sources"] = {**old.get("sources", {}), **item.get("sources", {})}
