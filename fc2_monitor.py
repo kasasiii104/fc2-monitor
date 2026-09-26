@@ -38,6 +38,9 @@ JAVDB_URL = os.environ.get("JAVDB_URL", "https://javdb.com/search?q=FC2&f=all")
 JAVDB_BACKFILL_PAGES = int(os.environ.get("JAVDB_BACKFILL_PAGES", "6"))
 FC2_MARKET_FETCH_LIMIT = int(os.environ.get("FC2_MARKET_FETCH_LIMIT", "24"))
 FC2_MARKET_REFRESH_SEC = int(os.environ.get("FC2_MARKET_REFRESH_SEC", str(7 * 86400)))
+FC2CMADB_URL = os.environ.get("FC2CMADB_URL", "https://fc2cmadb.com").rstrip("/")
+FC2CMADB_FETCH_LIMIT = int(os.environ.get("FC2CMADB_FETCH_LIMIT", "24"))
+FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
 TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
 VIEW_REFRESH_SEC = int(os.environ.get("VIEW_REFRESH_SEC", str(8 * 3600)))
@@ -265,6 +268,7 @@ def extra_sources(code_num: str) -> dict:
         "Supjav": f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
         "JavDB": f"https://javdb.com/search?q=FC2-PPV-{code_num}&f=all",
         "FC2検索": f"https://adult.contents.fc2.com/search/?q={code_num}",
+        "FC2CMADB": f"{FC2CMADB_URL}/articles/{code_num}",
         "123AV": f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}",
         "JavFC2": f"https://javfc2.xyz/search?q={code_num}",
     }
@@ -787,6 +791,9 @@ def fetch_fc2_market(code_num):
     print(f"[FC2 Market] FC2-PPV-{code_num} status={info.get('status')} cloudflare={info.get('cloudflare')}")
     if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
         return None
+    if "redirect.fc2.com/ekyc_auth" in (info.get("final_url") or ""):
+        print(f"[FC2 Market] FC2-PPV-{code_num} blocked_by=eKYC")
+        return None
 
     soup = info["soup"]
     text = soup.get_text(" ", strip=True)
@@ -817,6 +824,223 @@ def fetch_fc2_market(code_num):
     }
 
 
+
+def sanitize_item_titles(items) -> None:
+    """Remove URLs/path fragments from old and newly scraped visible titles."""
+    for item in items:
+        code = item.get("code") or ""
+        num = item.get("code_num") or code.split("-")[-1]
+        cleaned = clean_title(item.get("title", ""), num)
+        item["title"] = cleaned or code or f"FC2-PPV-{num}"
+
+
+def _fc2cmadb_payload_from_html(text: str):
+    soup = BeautifulSoup(text or "", "html.parser")
+    script = soup.select_one('script[data-page="app"]')
+    if script:
+        raw = script.string or script.get_text() or ""
+        if raw.strip():
+            try:
+                return json.loads(html.unescape(raw))
+            except Exception:
+                pass
+    for node in soup.select("[data-page]"):
+        raw = node.get("data-page")
+        if not raw or raw == "app":
+            continue
+        try:
+            return json.loads(html.unescape(raw))
+        except Exception:
+            continue
+    return None
+
+
+def _fc2cmadb_article(payload):
+    if not isinstance(payload, dict):
+        return None
+    props = payload.get("props")
+    if isinstance(props, dict) and isinstance(props.get("article"), dict):
+        return props.get("article")
+    if isinstance(payload.get("article"), dict):
+        return payload.get("article")
+    return None
+
+
+def _fc2cmadb_title_from_payload(payload, code_num: str) -> str:
+    article = _fc2cmadb_article(payload)
+    if not isinstance(article, dict):
+        return ""
+    raw = article.get("title") or article.get("name") or ""
+    title = clean_title(str(raw), code_num)
+    # The fallback is specifically for Japanese titles. Do not replace a title
+    # with Chinese-only text from the mirror.
+    return title if re.search(r"[ぁ-んァ-ン]", title) else ""
+
+
+def fetch_fc2cmadb_title(code_num: str):
+    url = f"{FC2CMADB_URL}/articles/{code_num}"
+    base_headers = {
+        **HEADERS,
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "Referer": f"{FC2CMADB_URL}/",
+        "Cookie": "ageVerified=true",
+    }
+
+    attempts = [
+        base_headers,
+        {
+            **base_headers,
+            "Accept": "application/json,text/plain,*/*",
+            "X-Inertia": "true",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Inertia-Partial-Component": "Articles/Show",
+            "X-Inertia-Partial-Data": "article",
+        },
+    ]
+
+    last_status = 0
+    for headers in attempts:
+        try:
+            res = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
+            last_status = res.status_code
+            if res.status_code != 200:
+                continue
+            payload = None
+            ctype = (res.headers.get("content-type") or "").lower()
+            if "json" in ctype or (res.text or "").lstrip().startswith("{"):
+                try:
+                    payload = res.json()
+                except Exception:
+                    payload = None
+            if payload is None:
+                payload = _fc2cmadb_payload_from_html(res.text or "")
+            title = _fc2cmadb_title_from_payload(payload, code_num)
+            if title:
+                print(f"[FC2CMADB] FC2-PPV-{code_num} status=200 title=True")
+                return {"title": title, "url": str(res.url or url)}
+        except Exception as e:
+            print(f"[FC2CMADB] FC2-PPV-{code_num} error={type(e).__name__}")
+    print(f"[FC2CMADB] FC2-PPV-{code_num} status={last_status} title=False")
+    return None
+
+
+def refresh_fc2cmadb_titles(items) -> None:
+    state = load_json(FETCH_STATE_FILE, {})
+    failed = state.get("fc2cmadb_failed") if isinstance(state.get("fc2cmadb_failed"), dict) else {}
+    cursor = int(state.get("fc2cmadb_cursor") or 0)
+    now = now_ts()
+    targets = [
+        x for x in items
+        if needs_jp_title(x.get("title", "")) and x.get("title_source") != "FC2公式"
+    ]
+    tried = updated = 0
+    for item in rotate_items(targets, cursor):
+        if tried >= FC2CMADB_FETCH_LIMIT:
+            break
+        code = item.get("code") or ""
+        if now - int(failed.get(code) or 0) < FAIL_SKIP_SEC:
+            continue
+        tried += 1
+        num = item.get("code_num") or code.split("-")[-1]
+        meta = fetch_fc2cmadb_title(num)
+        if not meta:
+            failed[code] = now
+            continue
+        title = meta.get("title") or ""
+        if title and item.get("title") != title:
+            item["title"] = title
+            item["title_source"] = "FC2CMADB"
+            item["fc2cmadb_url"] = meta.get("url") or f"{FC2CMADB_URL}/articles/{num}"
+            item["fc2cmadb_checked_at"] = now
+            item.setdefault("sources", {})["FC2CMADB"] = item["fc2cmadb_url"]
+            updated += 1
+            print(f"FC2CMADBタイトル更新: {code} -> {title[:60]}")
+        failed.pop(code, None)
+
+    state["fc2cmadb_cursor"] = (cursor + max(tried, 1)) % max(len(targets), 1)
+    state["fc2cmadb_failed"] = failed
+    save_json(FETCH_STATE_FILE, state)
+    print(f"[FC2CMADB] tried={tried} title_updated={updated}")
+
+
+def _absolute_fc2_asset(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    if value.startswith("//"):
+        return "https:" + value
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    return urljoin("https://adult.contents.fc2.com/", value)
+
+
+def fetch_fc2_sample_assets(code_num: str):
+    url = f"https://adult.contents.fc2.com/api/v2/videos/{code_num}/sample"
+    headers = {
+        **HEADERS,
+        "Accept": "application/json,text/plain,*/*",
+        "Referer": f"https://adult.contents.fc2.com/article/{code_num}/",
+        "Cookie": "wei6H=1; GDPRCHECK=true",
+    }
+    try:
+        res = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
+    except Exception as e:
+        print(f"[FC2 sample] FC2-PPV-{code_num} error={type(e).__name__}")
+        return None
+
+    final_url = str(res.url or url)
+    if res.status_code != 200 or "redirect.fc2.com/ekyc_auth" in final_url:
+        print(f"[FC2 sample] FC2-PPV-{code_num} status={res.status_code} usable=False")
+        return None
+    try:
+        data = res.json()
+    except Exception:
+        print(f"[FC2 sample] FC2-PPV-{code_num} status=200 json=False")
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    preview = _absolute_fc2_asset(data.get("path") or data.get("sample_path") or "")
+    poster = _absolute_fc2_asset(
+        data.get("poster_image_path") or data.get("poster") or data.get("image") or ""
+    )
+    usable = bool(preview or poster)
+    print(
+        f"[FC2 sample] FC2-PPV-{code_num} status=200 "
+        f"preview={bool(preview)} poster={bool(poster)}"
+    )
+    if not usable:
+        return None
+    return {"preview": preview, "poster": poster}
+
+
+def enrich_fc2_sample_assets(items) -> None:
+    now = now_ts()
+    tried = updated = 0
+    # merged is ordered newest-first, so prioritize recent items. If the
+    # official API fails, the existing fourhoi preview/thumb remain intact.
+    for item in items:
+        if tried >= FC2_SAMPLE_FETCH_LIMIT:
+            break
+        code = item.get("code") or ""
+        num = item.get("code_num") or code.split("-")[-1]
+        if not num.isdigit():
+            continue
+        tried += 1
+        meta = fetch_fc2_sample_assets(num)
+        item["fc2_sample_checked_at"] = now
+        if not meta:
+            continue
+        if meta.get("preview"):
+            item["preview"] = meta["preview"]
+            item["preview_source"] = "FC2公式"
+        if meta.get("poster"):
+            item["thumb"] = meta["poster"]
+            item["thumb_source"] = "FC2公式"
+        updated += 1
+    print(f"[FC2 sample] tried={tried} updated={updated}")
+
+
 def enrich_fc2_market(items):
     state = load_json(FETCH_STATE_FILE, {})
     checked = state.get("fc2_market_checked") if isinstance(state.get("fc2_market_checked"), dict) else {}
@@ -826,10 +1050,7 @@ def enrich_fc2_market(items):
     if not items:
         return
     rotated = items[cursor % len(items):] + items[:cursor % len(items)]
-    title_targets = [
-        x for x in rotated
-        if not x.get("fc2_title") and needs_jp_title(x.get("title", ""))
-    ]
+    title_targets = [x for x in rotated if not x.get("fc2_title")]
     title_target_codes = {x.get("code") for x in title_targets}
     ordered = title_targets + [x for x in rotated if x.get("code") not in title_target_codes]
     tried = updated = title_updated = 0
@@ -837,13 +1058,14 @@ def enrich_fc2_market(items):
         if tried >= FC2_MARKET_FETCH_LIMIT:
             break
         code = item.get("code") or ""
-        needs_official_title = not item.get("fc2_title") and needs_jp_title(item.get("title", ""))
+        needs_official_title = not item.get("fc2_title")
         if not needs_official_title and now - int(checked.get(code) or 0) < FC2_MARKET_REFRESH_SEC:
             continue
         if now - int(failed.get(code) or 0) < FAIL_SKIP_SEC:
             continue
         tried += 1
         num = item.get("code_num") or code.split("-")[-1]
+        item["fc2_market_last_attempt"] = now
         meta = fetch_fc2_market(num)
         if not meta:
             failed[code] = now
@@ -852,19 +1074,19 @@ def enrich_fc2_market(items):
         official_title = (meta.get("fc2_title") or "").strip()
         if official_title:
             item["fc2_title"] = official_title
-            # Replace low-quality/non-Japanese titles only when FC2's own title
-            # is clearly Japanese. Existing good Japanese titles are left alone.
-            if needs_jp_title(item.get("title", "")) and re.search(r"[ぁ-んァ-ン]", official_title):
-                if item.get("title") != official_title:
-                    print(f"FC2公式タイトル更新: {code} -> {official_title[:60]}")
-                    item["title"] = official_title
-                    item["title_source"] = "FC2公式"
-                    title_updated += 1
+            # FC2 official is the highest-priority title source whenever it is
+            # reachable and clearly Japanese.
+            if re.search(r"[ぁ-んァ-ン]", official_title) and item.get("title") != official_title:
+                print(f"FC2公式タイトル更新: {code} -> {official_title[:60]}")
+                item["title"] = official_title
+                item["title_source"] = "FC2公式"
+                title_updated += 1
         if meta.get("fc2_rating") is not None:
             item["fc2_rating"] = meta["fc2_rating"]
         if meta.get("fc2_review_count") is not None:
             item["fc2_review_count"] = meta["fc2_review_count"]
         item["fc2_market_checked_at"] = now
+        item["fc2_market_last_success"] = now
         checked[code] = now
         failed.pop(code, None)
         updated += 1
@@ -1635,7 +1857,11 @@ def main() -> int:
         item["fc2_rating"] = old.get("fc2_rating")
         item["fc2_review_count"] = old.get("fc2_review_count")
         item["fc2_market_checked_at"] = old.get("fc2_market_checked_at") or 0
+        item["fc2_market_last_success"] = old.get("fc2_market_last_success") or 0
+        item["fc2_market_last_attempt"] = old.get("fc2_market_last_attempt") or 0
         item["fc2_title"] = old.get("fc2_title") or ""
+        item["fc2cmadb_url"] = old.get("fc2cmadb_url") or ""
+        item["fc2cmadb_checked_at"] = old.get("fc2cmadb_checked_at") or 0
         item["title_source"] = old.get("title_source") or item.get("title_source") or ""
         item["duration"] = video.get("duration") or old.get("duration", "")
         if old.get("sources"):
@@ -1653,9 +1879,12 @@ def main() -> int:
     if KEEP_ITEMS > 0:
         merged = merged[:KEEP_ITEMS]
 
+    sanitize_item_titles(merged)
+    refresh_fc2cmadb_titles(merged)
     refresh_japanese_titles(merged)
     fill_missing_views(merged)
     enrich_fc2_market(merged)
+    enrich_fc2_sample_assets(merged)
     apply_missav_ranks(merged, scrape_missav_rankings(), stamp)
     update_views_history(merged)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
