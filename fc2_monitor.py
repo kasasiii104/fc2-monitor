@@ -49,6 +49,21 @@ INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").sp
 EXCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("EXCLUDE_KEYWORDS", "").split(",") if x.strip()]
 JST = timezone(timedelta(hours=9))
 DURATION_RE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?$")
+INVALID_TITLE_SNIPPETS = (
+    "お探しの商品が見つかりませんでした",
+    "お探しの商品は見つかりませんでした",
+    "商品が見つかりませんでした",
+    "商品は見つかりませんでした",
+    "product not found",
+    "item not found",
+    "page not found",
+    "404 not found",
+)
+
+
+def is_invalid_title(text: str) -> bool:
+    value = html.unescape(re.sub(r"\s+", " ", (text or ""))).strip().lower()
+    return bool(value) and any(x.lower() in value for x in INVALID_TITLE_SNIPPETS)
 
 
 def now_jst() -> str:
@@ -144,6 +159,8 @@ def fetch_page(url: str) -> dict:
 
 def clean_title(text: str, code_num: str) -> str:
     title = html.unescape(re.sub(r"\s+", " ", (text or "")).strip())
+    if is_invalid_title(title):
+        return ""
     # Never let source URLs/path fragments leak into the visible title.
     title = re.sub(r"https?://\S+", " ", title, flags=re.I)
     title = re.sub(r"\bwww\.\S+", " ", title, flags=re.I)
@@ -638,7 +655,7 @@ def clean_fc2_market_title(raw: str, code_num: str) -> str:
     title = re.sub(r"\s*FC2コンテンツマーケット\s*$", "", title, flags=re.I)
     title = title.strip(" -|–—")
     # Reject obvious page chrome / non-title headings.
-    if not title or title in {
+    if not title or is_invalid_title(title) or title in {
         "FC2コンテンツマーケット", "FC2 Content Market",
         "商品レビュー", "商品説明", "販売者情報",
     }:
@@ -799,6 +816,10 @@ def fetch_fc2_market(code_num):
     text = soup.get_text(" ", strip=True)
     final_url = info.get("final_url") or url
     raw_html = info.get("text") or ""
+    page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    if is_invalid_title(page_title) or is_invalid_title(text[:1200]):
+        print(f"[FC2 Market] FC2-PPV-{code_num} not_found=True")
+        return {"not_found": True}
     fc2_title = extract_fc2_market_title(soup, code_num)
 
     # FC2 can omit the numeric ID from visible text/metadata even while the
@@ -826,12 +847,20 @@ def fetch_fc2_market(code_num):
 
 
 def sanitize_item_titles(items) -> None:
-    """Remove URLs/path fragments from old and newly scraped visible titles."""
+    """Remove URLs/path fragments and purge FC2 soft-404 titles."""
     for item in items:
         code = item.get("code") or ""
         num = item.get("code_num") or code.split("-")[-1]
+        had_invalid = is_invalid_title(item.get("title", "")) or is_invalid_title(item.get("fc2_title", ""))
         cleaned = clean_title(item.get("title", ""), num)
         item["title"] = cleaned or code or f"FC2-PPV-{num}"
+        if is_invalid_title(item.get("fc2_title", "")):
+            item["fc2_title"] = ""
+        if had_invalid:
+            item["fc2_market_not_found"] = True
+            item["fc2_market_url"] = ""
+            if item.get("title_source") == "FC2公式":
+                item["title_source"] = ""
 
 
 def _fc2cmadb_payload_from_html(text: str):
@@ -1059,6 +1088,8 @@ def enrich_fc2_market(items):
             break
         code = item.get("code") or ""
         needs_official_title = not item.get("fc2_title")
+        if item.get("fc2_market_not_found") and now - int(checked.get(code) or 0) < FC2_MARKET_REFRESH_SEC:
+            continue
         if not needs_official_title and now - int(checked.get(code) or 0) < FC2_MARKET_REFRESH_SEC:
             continue
         if now - int(failed.get(code) or 0) < FAIL_SKIP_SEC:
@@ -1070,6 +1101,16 @@ def enrich_fc2_market(items):
         if not meta:
             failed[code] = now
             continue
+        if meta.get("not_found"):
+            item["fc2_market_not_found"] = True
+            item["fc2_market_url"] = ""
+            item["fc2_title"] = ""
+            if item.get("title_source") == "FC2公式":
+                item["title_source"] = ""
+            checked[code] = now
+            failed.pop(code, None)
+            continue
+        item["fc2_market_not_found"] = False
         item["fc2_market_url"] = meta["fc2_market_url"]
         official_title = (meta.get("fc2_title") or "").strip()
         if official_title:
@@ -1265,7 +1306,8 @@ def public_item(item):
         "missav_rank_month": item.get("missav_rank_month") if isinstance(item.get("missav_rank_month"), int) else None,
         "missav_rank_total": item.get("missav_rank_total") if isinstance(item.get("missav_rank_total"), int) else None,
         "missav_rank_updated_at": item.get("missav_rank_updated_at") or "",
-        "fc2_market_url": item.get("fc2_market_url") or "",
+        "fc2_market_url": "" if item.get("fc2_market_not_found") else (item.get("fc2_market_url") or ""),
+        "fc2_market_not_found": bool(item.get("fc2_market_not_found")),
         "fc2_title": item.get("fc2_title") or "",
         "title_source": item.get("title_source") or "",
         "fc2_rating": item.get("fc2_rating") if isinstance(item.get("fc2_rating"), (int, float)) else None,
@@ -1366,7 +1408,10 @@ main { padding:0 0 calc(92px + env(safe-area-inset-bottom)); }
 .panel h3 { margin:12px 0 6px; font-size:13px; color:#aaa; }
 .panel button { margin:0 6px 6px 0; border:0; border-radius:8px; min-height:40px; padding:8px 12px; background:#333; color:#fff; }
 .panel button.on { background:#f1f1f1; color:#111; }
-.menu button { display:block; width:100%; border:0; background:transparent; color:#fff; text-align:left; min-height:48px; padding:12px; font-size:16px; }
+.menu button, .menu a { display:block; width:100%; border:0; background:transparent; color:#fff; text-align:left; min-height:48px; padding:12px; font-size:16px; text-decoration:none; }
+.source-links { display:flex; flex-wrap:wrap; gap:4px 7px; }
+.source-link { color:var(--accent); text-decoration:none; position:relative; z-index:2; }
+.source-link:hover, .source-link:focus { text-decoration:underline; }
 .empty { color:var(--muted); padding:30px 12px; text-align:center; }
 .trend { color:#3ddc84; }
 a { color:inherit; }
@@ -1585,6 +1630,10 @@ function sortItems(arr){
   if(q) copy.sort((a,b)=>(b.code_num===q?1:0)-(a.code_num===q?1:0));
   return copy;
 }
+function sourceLinksHTML(it){
+  const entries = Object.entries(it.sources||{}).filter(([,u])=>u);
+  return entries.map(([n,u])=>`<a class="source-link ext-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer" data-code="${esc(it.code)}">${esc(n)}</a>`).join('<span> / </span>');
+}
 function cardHTML(it, rank){
   const prog = Number(progress[it.code]||0);
   const badge = it.is_new ? '<span class="badge new">NEW</span>' : '';
@@ -1599,6 +1648,10 @@ function cardHTML(it, rank){
   const rankLine = ranks.length ? `<p class="meta trend">MissAV ${ranks.join(' / ')}</p>` : '';
   const fc2pop = (it.fc2_rating!=null || it.fc2_review_count!=null) ? `<p class="meta">FC2公式 ${it.fc2_rating!=null?'★'+it.fc2_rating:''}${it.fc2_review_count!=null?' ・ レビュー '+it.fc2_review_count.toLocaleString()+'件':''}</p>` : '';
   const multi = (it.missav_rank_day && it.missav_rank_day<=10 && (it.trend_24h||0)>0) ? '<p class="meta">複数サイトで人気</p>' : '';
+  const titleEl = it.url
+    ? `<a class="title open ext-link" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" data-code="${esc(it.code)}">${esc(it.title)}</a>`
+    : `<div class="title">${esc(it.title)}</div>`;
+  const sourceLinks = sourceLinksHTML(it);
   return `<article class="card" data-code="${it.code}">
     <button class="thumb-wrap" type="button" data-code="${it.code}" aria-label="プレビュー">
       <img src="${it.thumb}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.opacity=0">
@@ -1608,16 +1661,18 @@ function cardHTML(it, rank){
       <span class="prog"><i style="width:${Math.min(100,prog*100)}%"></i></span>
     </button>
     <div class="body">
-      <div class="title">${esc(it.title)}</div>
+      ${titleEl}
       <p class="subline">${esc(it.code)}</p>
       <p class="meta">${[viewsLabel(it.views)+(it.views&&it.views_source==='Supjav'?' ・ Supjav':''), relTime(it.first_seen)].filter(Boolean).join(' ・ ')}</p>
       ${rankLine}${fc2pop}${multi}${extra}
-      <p class="meta">${esc(it.source_label||'')}</p>
+      ${sourceLinks ? `<p class="meta source-links">${sourceLinks}</p>` : ''}
       <button class="more" type="button" data-more="${esc(it.code)}">⋮</button>
     </div>
   </article>`;
 }
 document.addEventListener('click', e=>{
+  const ext = e.target.closest('a.ext-link');
+  if(ext){ const code=ext.dataset.code || ext.closest('.card')?.dataset.code; if(code) markWatched(code); return; }
   const more = e.target.closest('.more');
   if(more){ e.preventDefault(); e.stopPropagation(); openMenu(more.dataset.more); return; }
   const open = e.target.closest('.open');
@@ -1766,17 +1821,20 @@ function openMenu(code){
     <button data-act="save">${favs.has(code)?'保存を解除':'保存'}</button>
     <button data-act="watched">${watched.has(code)?'視聴済みを解除':'視聴済みにする'}</button>
     <button data-act="unwatch">履歴から削除</button>
-    ${it.fc2_market_url?`<button class="ext" data-url="${esc(it.fc2_market_url)}">FC2公式</button>`:''}
-    ${Object.entries(it.sources||{}).map(([n,u])=>`<button class="ext" data-url="${esc(u)}">${esc(n)}</button>`).join('')}
-    ${Object.entries(it.search_links||{}).filter(([n])=>!(it.sources||{})[n]).map(([n,u])=>`<button class="ext" data-url="${esc(u)}">${esc(n)}検索</button>`).join('')}`;
+    ${it.fc2_market_url?`<a class="ext-link" href="${esc(it.fc2_market_url)}" target="_blank" rel="noopener noreferrer" data-code="${esc(code)}">FC2公式</a>`:''}
+    ${Object.entries(it.sources||{}).filter(([,u])=>u).map(([n,u])=>`<a class="ext-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer" data-code="${esc(code)}">${esc(n)}</a>`).join('')}
+    ${Object.entries(it.search_links||{}).filter(([n,u])=>u && !(it.sources||{})[n]).map(([n,u])=>`<a class="ext-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer" data-code="${esc(code)}">${esc(n)}検索</a>`).join('')}`;
   openSheet(menu);
-  menu.querySelectorAll('button[data-act],button[data-url]').forEach(b=>b.addEventListener('click', ()=>{
-    if(b.dataset.url){ markWatched(code); window.open(b.dataset.url, '_blank'); }
+  menu.querySelectorAll('button[data-act]').forEach(b=>b.addEventListener('click', ()=>{
     if(b.dataset.act==='later'){ later.has(code)?later.delete(code):later.add(code); saveSet('fc2watchlater', later); }
     if(b.dataset.act==='save'){ favs.has(code)?favs.delete(code):favs.add(code); saveSet('fc2favs', favs); }
     if(b.dataset.act==='watched'){ watched.has(code)?unmarkWatched(code):markWatched(code); }
     if(b.dataset.act==='unwatch'){ unmarkWatched(code); }
     menu.classList.remove('on'); document.getElementById('sheetBg').classList.remove('on'); render();
+  }));
+  menu.querySelectorAll('a.ext-link').forEach(a=>a.addEventListener('click', ()=>{
+    markWatched(code);
+    menu.classList.remove('on'); document.getElementById('sheetBg').classList.remove('on');
   }));
 }
 qEl.addEventListener('input', ()=>{ render(); showSuggest(); });
@@ -1841,7 +1899,7 @@ def main() -> int:
         old = existing_map.get(video["code"], {})
         is_new = video["code"] not in known and not first_run
         item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new}
-        if old.get("title") and not is_better_title(item.get("title", ""), old.get("title", "")):
+        if old.get("title") and not is_invalid_title(old.get("title", "")) and not is_better_title(item.get("title", ""), old.get("title", "")):
             item["title"] = old["title"]
         item["views"] = video.get("views") or old.get("views")
         item["views_source"] = video.get("views_source") or old.get("views_source") or ""
@@ -1854,6 +1912,7 @@ def main() -> int:
         item["missav_rank_total"] = old.get("missav_rank_total")
         item["missav_rank_updated_at"] = old.get("missav_rank_updated_at") or ""
         item["fc2_market_url"] = old.get("fc2_market_url") or ""
+        item["fc2_market_not_found"] = bool(old.get("fc2_market_not_found"))
         item["fc2_rating"] = old.get("fc2_rating")
         item["fc2_review_count"] = old.get("fc2_review_count")
         item["fc2_market_checked_at"] = old.get("fc2_market_checked_at") or 0
