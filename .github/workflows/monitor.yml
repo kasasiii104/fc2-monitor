@@ -34,6 +34,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Verify FC2 rating HTML
+        if: github.ref == 'refs/heads/verify-fc2-rating-html-20260926'
+        run: python verify_fc2_rating.py
+
       - name: Run monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
