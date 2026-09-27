@@ -83,8 +83,6 @@
     toastTimer = 0,
     progressTimer = 0;
   let activePreview = null,
-    previewItem = null,
-    previewAttempt = 0,
     returnFocus = null;
   const defaults = {
     page: "home",
@@ -462,7 +460,7 @@
     const keep = new Set(list.slice(start, end).map((it) => it.code));
     for (const [code, node] of current)
       if (!keep.has(code)) {
-        if (activePreview?.code === code) stopHover();
+        if (activePreview?.code === code) stopActivePreview();
         node.remove();
       }
     let previous = null;
@@ -518,6 +516,7 @@
       !filterKeys.some((key) => state[key]);
     $("homeRankings").hidden = !visible;
     if (!visible) {
+      if (activePreview?.shell?.closest("#rankingRail")) stopActivePreview();
       $("rankingRail").replaceChildren();
       homeRankingKey = "";
       return;
@@ -528,6 +527,7 @@
       button.setAttribute("aria-pressed", String(selected));
     });
     if (force || homeRankingKey !== homeRank) {
+      if (activePreview?.shell?.closest("#rankingRail")) stopActivePreview();
       const rows = homeRankingCache[homeRank] || [];
       $("rankingRail").innerHTML = rows.length
         ? rows
@@ -551,7 +551,7 @@
   }
   function refreshCards() {
     // Storage actions only repaint the affected visible window, not the full data feed.
-    stopHover();
+    stopActivePreview();
     $("grid").replaceChildren();
     windowKey = "";
     renderWindow(true);
@@ -629,7 +629,7 @@
   }
   function render(reset = true) {
     if (!ready) return;
-    stopHover();
+    stopActivePreview();
     clearTimeout(hoverTimer);
     if (reset) loaded = PAGE_SIZE;
     windowKey = "";
@@ -735,7 +735,7 @@
     else refreshCards();
   }
   function openDialog(dialog) {
-    stopHover();
+    stopActivePreview();
     hideSuggest();
     returnFocus = document.activeElement;
     if (!dialog.open) dialog.showModal();
@@ -767,7 +767,7 @@
       )
       .join("");
     $("menuDialog").innerHTML =
-      `<div class="menu-title"><span>${esc(code)}</span><button class="icon-button" data-close aria-label="閉じる">${icon("close")}</button></div>${action("later", later.has(code) ? "後で見るから外す" : "後で見る", "clock")}${action("save", saved.has(code) ? "保存を解除" : "保存", "save")}${action("watched", watched.has(code) ? "履歴から削除" : "視聴済みにする", "history")}${action("copy", "番号をコピー", "copy")}${it.preview ? action("preview", "サンプルプレビュー", "play") : ""}${it.fc2_market_url ? externalLink(it.fc2_market_url, icon("link") + "FC2公式", code, "menu-row") : ""}<div class="menu-subheading">掲載サイト</div>${sourceLinks}${searchLinks ? '<div class="menu-subheading">ほかのサイトで探す</div>' + searchLinks : ""}`;
+      `<div class="menu-title"><span>${esc(code)}</span><button class="icon-button" data-close aria-label="閉じる">${icon("close")}</button></div>${action("later", later.has(code) ? "後で見るから外す" : "後で見る", "clock")}${action("save", saved.has(code) ? "保存を解除" : "保存", "save")}${action("watched", watched.has(code) ? "履歴から削除" : "視聴済みにする", "history")}${action("copy", "番号をコピー", "copy")}${it.preview ? action("preview", "サムネイルでプレビュー再生", "play") : ""}${it.fc2_market_url ? externalLink(it.fc2_market_url, icon("link") + "FC2公式", code, "menu-row") : ""}<div class="menu-subheading">掲載サイト</div>${sourceLinks}${searchLinks ? '<div class="menu-subheading">ほかのサイトで探す</div>' + searchLinks : ""}`;
     openDialog($("menuDialog"));
   }
   function saveProgress(it, video) {
@@ -783,15 +783,89 @@
       }, 2000);
     if (progress[it.code] > 0.9 && !watched.has(it.code)) markWatched(it.code);
   }
-  function stopHover() {
+  function clearInlineState(shell) {
+    shell?.querySelector(".inline-preview-state")?.remove();
+  }
+  function showInlineState(shell, message, error = false) {
+    if (!shell?.isConnected) return;
+    clearInlineState(shell);
+    const state = document.createElement("div");
+    state.className = `inline-preview-state${error ? " error" : ""}`;
+    state.setAttribute("role", "status");
+    state.textContent = message;
+    shell.append(state);
+  }
+  function stopActivePreview() {
     clearTimeout(hoverTimer);
     if (!activePreview) return;
-    const { video } = activePreview;
+    const { video, shell } = activePreview;
     video.pause();
     video.removeAttribute("src");
     video.load();
     video.remove();
+    if (shell?.isConnected) clearInlineState(shell);
     activePreview = null;
+  }
+  function stopHover() {
+    clearTimeout(hoverTimer);
+    if (activePreview?.persistent) return;
+    stopActivePreview();
+  }
+  function playInlinePreview(shell, it, persistent = false) {
+    const url = safeURL(it?.preview);
+    if (!it || !url || !shell?.isConnected) {
+      if (persistent) showInlineState(shell, "プレビューがありません", true);
+      return;
+    }
+    stopActivePreview();
+    if (persistent) showInlineState(shell, "読み込み中…");
+    const video = document.createElement("video");
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.preload = persistent ? "metadata" : "none";
+    video.poster = safeURL(it.thumb) || "";
+    video.src = url;
+    video.setAttribute("referrerpolicy", "no-referrer");
+    video.setAttribute("aria-hidden", "true");
+    video.addEventListener("timeupdate", () => saveProgress(it, video));
+    const clearLoading = () => {
+      if (activePreview?.video === video) clearInlineState(shell);
+    };
+    video.addEventListener("canplay", clearLoading, { once: true });
+    video.addEventListener("playing", clearLoading, { once: true });
+    video.addEventListener(
+      "error",
+      () => {
+        if (activePreview?.video !== video) return;
+        const wasPersistent = activePreview.persistent;
+        stopActivePreview();
+        if (wasPersistent) showInlineState(shell, "プレビューを再生できません", true);
+      },
+      { once: true },
+    );
+    shell.append(video);
+    activePreview = { video, code: it.code, shell, persistent };
+    const result = video.play();
+    if (result && typeof result.catch === "function")
+      result.catch(() => {
+        if (activePreview?.video !== video) return;
+        const wasPersistent = activePreview.persistent;
+        stopActivePreview();
+        if (wasPersistent) showInlineState(shell, "プレビューを再生できません", true);
+      });
+  }
+  function toggleInlinePreview(code, shell) {
+    const it = byCode.get(code);
+    if (!it || !safeURL(it.preview)) {
+      showInlineState(shell, "プレビューがありません", true);
+      return;
+    }
+    if (activePreview?.persistent && activePreview.shell === shell) {
+      stopActivePreview();
+      return;
+    }
+    playInlinePreview(shell, it, true);
   }
   function startHover(shell) {
     const it = byCode.get(shell.closest(".video-card")?.dataset.code);
@@ -800,143 +874,13 @@
       !safeURL(it.preview) ||
       !shell.isConnected ||
       navigator.connection?.saveData ||
-      document.hidden
+      document.hidden ||
+      activePreview?.persistent
     )
       return;
     if (activePreview?.code === it.code) return;
-    stopHover();
-    const video = document.createElement("video");
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.preload = "none";
-    video.src = safeURL(it.preview);
-    video.setAttribute("referrerpolicy", "no-referrer");
-    video.setAttribute("aria-hidden", "true");
-    video.addEventListener("timeupdate", () => saveProgress(it, video));
-    video.addEventListener("error", stopHover, { once: true });
-    shell.append(video);
-    activePreview = { video, code: it.code };
-    video.play().catch(stopHover);
+    playInlinePreview(shell, it);
   }
-  function setPreviewState(kind, message = "") {
-    const loading = $("previewLoading"),
-      status = $("previewStatus"),
-      error = $("previewError"),
-      retry = $("previewRetry");
-    loading.hidden = kind !== "loading";
-    if (kind === "loading") loading.textContent = message || "読み込み中…";
-    status.hidden = kind === "error";
-    status.textContent = message;
-    error.hidden = kind !== "error";
-    retry.hidden = kind !== "error";
-  }
-  function clearPreviewHandlers(video) {
-    video.onloadedmetadata = null;
-    video.oncanplay = null;
-    video.onerror = null;
-    video.onstalled = null;
-    video.onwaiting = null;
-    video.onplaying = null;
-  }
-  function failPreview(attempt) {
-    if (
-      attempt !== previewAttempt ||
-      !previewItem ||
-      !$("previewDialog").open
-    )
-      return;
-    setPreviewState("error");
-  }
-  function loadPreview(item, autoplay = true) {
-    const url = safeURL(item?.preview);
-    if (!url) {
-      setPreviewState("error");
-      return;
-    }
-    const video = $("previewPlayer"),
-      attempt = ++previewAttempt;
-    clearPreviewHandlers(video);
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-    video.poster = safeURL(item.thumb) || "";
-    video.preload = "metadata";
-    setPreviewState("loading", "プレビューを読み込んでいます…");
-    let ready = false;
-    const readyToPlay = () => {
-      if (attempt !== previewAttempt || !previewItem || ready) return;
-      ready = true;
-      setPreviewState("ready", "再生できます。再生ボタンを押してください。");
-      if (!autoplay) return;
-      const result = video.play();
-      if (!result || typeof result.catch !== "function") {
-        setPreviewState("playing", "再生中");
-        return;
-      }
-      result
-        .then(() => {
-          if (attempt === previewAttempt && previewItem)
-            setPreviewState("playing", "再生中");
-        })
-        .catch((error) => {
-          if (attempt !== previewAttempt || !previewItem) return;
-          if (error?.name === "NotAllowedError" || error?.name === "AbortError") {
-            setPreviewState("ready", "再生ボタンを押すと開始できます。");
-          } else {
-            failPreview(attempt);
-          }
-        });
-    };
-    video.onloadedmetadata = readyToPlay;
-    video.oncanplay = readyToPlay;
-    video.onerror = () => failPreview(attempt);
-    video.onstalled = () => {
-      if (attempt === previewAttempt && previewItem && !video.error)
-        setPreviewState("loading", "接続を待っています…");
-    };
-    video.onwaiting = () => {
-      if (attempt === previewAttempt && previewItem && !video.error)
-        setPreviewState("loading", "読み込み中…");
-    };
-    video.onplaying = () => {
-      if (attempt === previewAttempt && previewItem)
-        setPreviewState("playing", "再生中");
-    };
-    video.src = url;
-    video.load();
-  }
-  function openPreview(code) {
-    const it = byCode.get(code);
-    if (!it || !safeURL(it.preview)) {
-      toast("プレビューがありません");
-      return;
-    }
-    if ($("menuDialog").open) closeDialog($("menuDialog"));
-    previewItem = it;
-    $("previewTitle").textContent = `${it.code} · サンプルプレビュー`;
-    $("previewLink").href = safeURL(it.url) || "#";
-    $("previewLink").dataset.external = it.code;
-    openDialog($("previewDialog"));
-    loadPreview(it);
-  }
-  $("previewPlayer").addEventListener("timeupdate", () =>
-    saveProgress(previewItem, $("previewPlayer")),
-  );
-  $("previewRetry").addEventListener("click", () => {
-    if (previewItem && $("previewDialog").open) loadPreview(previewItem);
-  });
-  $("previewDialog").addEventListener("close", () => {
-    previewAttempt += 1;
-    const video = $("previewPlayer");
-    clearPreviewHandlers(video);
-    video.pause();
-    video.removeAttribute("src");
-    video.removeAttribute("poster");
-    video.load();
-    setPreviewState("ready", "再生を準備しています…");
-    previewItem = null;
-  });
   function addSearch(query) {
     query = query.trim();
     if (!query) return;
@@ -1161,7 +1105,9 @@
       return;
     }
     if (button.dataset.preview) {
-      openPreview(button.dataset.preview);
+      e.preventDefault();
+      const shell = button.closest(".thumb-shell");
+      if (shell) toggleInlinePreview(button.dataset.preview, shell);
       return;
     }
     if (button.dataset.rank) {
@@ -1219,7 +1165,11 @@
       action = button.dataset.action;
     if (!action || !byCode.has(code)) return;
     if (action === "preview") {
-      openPreview(code);
+      closeDialog($("menuDialog"));
+      const shell = document.querySelector(
+        `.video-card[data-code="${CSS.escape(code)}"] .thumb-shell`,
+      );
+      if (shell) toggleInlinePreview(code, shell);
       return;
     }
     closeDialog($("menuDialog"));
@@ -1303,12 +1253,11 @@
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      stopHover();
-      $("previewPlayer").pause();
+      stopActivePreview();
     }
   });
   window.addEventListener("pagehide", () => {
-    stopHover();
+    stopActivePreview();
     if (progressTimer) {
       clearTimeout(progressTimer);
       writeStore("fc2progress", progress);

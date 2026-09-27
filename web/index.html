@@ -351,51 +351,6 @@
       class="sheet card-menu"
       aria-label="作品メニュー"
     ></dialog>
-    <dialog
-      id="previewDialog"
-      class="sheet preview-dialog"
-      aria-label="サンプルプレビュー"
-    >
-      <div class="dialog-heading">
-        <div>
-          <p class="preview-kicker">サンプルプレビュー</p>
-          <h2 id="previewTitle">プレビュー</h2>
-        </div>
-        <button class="icon-button" data-close aria-label="閉じる">
-          <svg><use href="#i-close" /></svg>
-        </button>
-      </div>
-      <div class="preview-stage">
-        <video
-          id="previewPlayer"
-          controls
-          playsinline
-          preload="metadata"
-          aria-label="サンプルプレビュー"
-        ></video>
-        <div id="previewLoading" class="preview-state" role="status" hidden>
-          読み込み中…
-        </div>
-      </div>
-      <p id="previewStatus" class="preview-status" role="status">
-        再生を準備しています…
-      </p>
-      <p id="previewError" class="preview-status error" role="alert" hidden>
-        プレビューを再生できません。もう一度試すか、作品ページを開いてください。
-      </p>
-      <div class="preview-actions">
-        <button id="previewRetry" class="pill-button" type="button" hidden>
-          もう一度試す
-        </button>
-        <a
-          id="previewLink"
-          class="pill-button primary"
-          target="_blank"
-          rel="noopener noreferrer"
-          >作品ページを開く</a
-        >
-      </div>
-    </dialog>
     <dialog id="infoDialog" class="sheet info-dialog">
       <div class="dialog-heading">
         <h2>更新情報</h2>
