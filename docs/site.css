@@ -9,7 +9,7 @@
   --blue: #3ea6ff;
   --sidebar: 224px;
   --header: 64px;
-  --body-height: 174px;
+  --body-height: 136px;
   --row-gap: 28px;
 }
 * {
@@ -476,7 +476,10 @@ h1 {
   display: block;
   width: 100%;
   height: 100%;
+  padding: 0;
   background: #202020;
+  color: inherit;
+  text-align: left;
 }
 .thumb-link img {
   display: block;
@@ -624,41 +627,6 @@ h1 {
 }
 .source-row a:hover {
   color: white;
-}
-.card-actions {
-  display: flex;
-  align-items: center;
-  min-height: 42px;
-  margin-top: 2px;
-}
-.card-preview-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 7px 13px;
-  border: 1px solid #444;
-  border-radius: 20px;
-  background: #272727;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-.card-preview-button:hover,
-.card-preview-button:focus-visible {
-  background: #3a3a3a;
-  border-color: #666;
-}
-.card-preview-button svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
-  stroke: none;
-}
-.no-preview {
-  color: #777;
-  font-size: 11px;
 }
 .card-more {
   position: absolute;
@@ -1087,7 +1055,7 @@ body.compact {
   :root {
     --sidebar: 0px;
     --header: calc(56px + env(safe-area-inset-top));
-    --body-height: 174px;
+    --body-height: 136px;
     --row-gap: 20px;
   }
   html {
