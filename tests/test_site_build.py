@@ -22,6 +22,11 @@ class SiteBuildTests(unittest.TestCase):
             html = output.read_text()
             self.assertLess(len(html.encode()),20000)
             self.assertNotIn('__ASSET_VERSION__',html)
-            for name in ('site.css','site.js','catalog.json'):
+            for name in ('site.css','site.js','catalog.json','update.json'):
                 self.assertTrue((output.parent/name).is_file())
-            self.assertEqual(len(json.loads((output.parent/'catalog.json').read_text())['items']),1)
+            catalog = json.loads((output.parent/'catalog.json').read_text())
+            update = json.loads((output.parent/'update.json').read_text())
+            self.assertEqual(len(catalog['items']),1)
+            self.assertEqual(update['version'], catalog['version'])
+            self.assertEqual(update['item_count'],1)
+            self.assertLess((output.parent/'update.json').stat().st_size, 300)
