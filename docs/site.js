@@ -84,6 +84,7 @@
     progressTimer = 0;
   let activePreview = null,
     previewItem = null,
+    previewAttempt = 0,
     returnFocus = null;
   const defaults = {
     page: "home",
@@ -396,7 +397,7 @@
         ? '<span class="card-badge new">新着</span>'
         : "";
     const p = Math.min(1, Math.max(0, Number(progress[it.code]) || 0));
-    return `<article class="video-card" data-code="${code}" aria-label="${code}"><div class="thumb-shell"><a class="thumb-link" href="${esc(url || "#")}" ${url ? `target="_blank" rel="noopener noreferrer" data-external="${code}"` : `data-more="${code}"`} aria-label="${esc(it.title)} の作品ページを開く">${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="480" height="270">` : ""}</a><div class="card-badges">${badge}${saved.has(it.code) ? `<span class="card-badge">保存済み</span>` : ""}</div>${it.duration ? `<span class="duration">${esc(it.duration)}</span>` : ""}<button class="quick-later${later.has(it.code) ? " selected" : ""}" data-later="${code}" aria-label="${later.has(it.code) ? "後で見るから外す" : "後で見るに追加"}" title="後で見る">${icon(later.has(it.code) ? "check" : "clock")}</button>${it.preview ? `<button class="preview-button" data-preview="${code}">${icon("play")}プレビュー</button>` : ""}${p ? `<span class="progress-bar" style="width:${p * 100}%"></span>` : ""}</div><div class="card-body">${externalLink(url, esc(it.title), it.code, "card-title") || `<div class="card-title">${esc(it.title)}</div>`}<div class="card-code">${code}${watched.has(it.code) ? '<span class="watched-mark">✓ 視聴済み</span>' : ""}</div><div class="card-meta">${[viewsLabel(it.views), relativeTime(it._ts)].filter(Boolean).join(" · ")}</div><div class="card-meta">${metric || (bestRank(it) ? `MissAV ランキング #${bestRank(it)}` : "評価未取得")}</div><div class="source-row">${sources}</div><button class="icon-button card-more" data-more="${code}" aria-label="${code} のメニュー">${icon("more")}</button></div></article>`;
+    return `<article class="video-card" data-code="${code}" aria-label="${code}"><div class="thumb-shell"><a class="thumb-link" href="${esc(url || "#")}" ${url ? `target="_blank" rel="noopener noreferrer" data-external="${code}"` : `data-more="${code}"`} aria-label="${esc(it.title)} の作品ページを開く">${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="480" height="270">` : ""}</a><div class="card-badges">${badge}${saved.has(it.code) ? `<span class="card-badge">保存済み</span>` : ""}</div>${it.duration ? `<span class="duration">${esc(it.duration)}</span>` : ""}<button class="quick-later${later.has(it.code) ? " selected" : ""}" data-later="${code}" aria-label="${later.has(it.code) ? "後で見るから外す" : "後で見るに追加"}" title="後で見る">${icon(later.has(it.code) ? "check" : "clock")}</button>${p ? `<span class="progress-bar" style="width:${p * 100}%"></span>` : ""}</div><div class="card-body">${externalLink(url, esc(it.title), it.code, "card-title") || `<div class="card-title">${esc(it.title)}</div>`}<div class="card-code">${code}${watched.has(it.code) ? '<span class="watched-mark">✓ 視聴済み</span>' : ""}</div><div class="card-meta">${[viewsLabel(it.views), relativeTime(it._ts)].filter(Boolean).join(" · ")}</div><div class="card-meta">${metric || (bestRank(it) ? `MissAV ランキング #${bestRank(it)}` : "評価未取得")}</div><div class="source-row">${sources}</div><div class="card-actions">${it.preview ? `<button class="card-preview-button" type="button" data-preview="${code}" aria-label="${code} のプレビューを再生">${icon("play")}<span>プレビューを見る</span></button>` : `<span class="no-preview">プレビューなし</span>`}</div><button class="icon-button card-more" data-more="${code}" aria-label="${code} のメニュー">${icon("more")}</button></div></article>`;
   }
   function measure() {
     const grid = $("grid"),
@@ -817,6 +818,93 @@
     activePreview = { video, code: it.code };
     video.play().catch(stopHover);
   }
+  function setPreviewState(kind, message = "") {
+    const loading = $("previewLoading"),
+      status = $("previewStatus"),
+      error = $("previewError"),
+      retry = $("previewRetry");
+    loading.hidden = kind !== "loading";
+    if (kind === "loading") loading.textContent = message || "読み込み中…";
+    status.hidden = kind === "error";
+    status.textContent = message;
+    error.hidden = kind !== "error";
+    retry.hidden = kind !== "error";
+  }
+  function clearPreviewHandlers(video) {
+    video.onloadedmetadata = null;
+    video.oncanplay = null;
+    video.onerror = null;
+    video.onstalled = null;
+    video.onwaiting = null;
+    video.onplaying = null;
+  }
+  function failPreview(attempt) {
+    if (
+      attempt !== previewAttempt ||
+      !previewItem ||
+      !$("previewDialog").open
+    )
+      return;
+    setPreviewState("error");
+  }
+  function loadPreview(item, autoplay = true) {
+    const url = safeURL(item?.preview);
+    if (!url) {
+      setPreviewState("error");
+      return;
+    }
+    const video = $("previewPlayer"),
+      attempt = ++previewAttempt;
+    clearPreviewHandlers(video);
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    video.poster = safeURL(item.thumb) || "";
+    video.preload = "metadata";
+    setPreviewState("loading", "プレビューを読み込んでいます…");
+    let ready = false;
+    const readyToPlay = () => {
+      if (attempt !== previewAttempt || !previewItem || ready) return;
+      ready = true;
+      setPreviewState("ready", "再生できます。再生ボタンを押してください。");
+      if (!autoplay) return;
+      const result = video.play();
+      if (!result || typeof result.catch !== "function") {
+        setPreviewState("playing", "再生中");
+        return;
+      }
+      result
+        .then(() => {
+          if (attempt === previewAttempt && previewItem)
+            setPreviewState("playing", "再生中");
+        })
+        .catch((error) => {
+          if (attempt !== previewAttempt || !previewItem) return;
+          if (error?.name === "NotAllowedError" || error?.name === "AbortError") {
+            setPreviewState("ready", "再生ボタンを押すと開始できます。");
+          } else {
+            failPreview(attempt);
+          }
+        });
+    };
+    video.onloadedmetadata = readyToPlay;
+    video.oncanplay = readyToPlay;
+    video.onerror = () => failPreview(attempt);
+    video.onstalled = () => {
+      if (attempt === previewAttempt && previewItem && !video.error)
+        setPreviewState("loading", "接続を待っています…");
+    };
+    video.onwaiting = () => {
+      if (attempt === previewAttempt && previewItem && !video.error)
+        setPreviewState("loading", "読み込み中…");
+    };
+    video.onplaying = () => {
+      if (attempt === previewAttempt && previewItem)
+        setPreviewState("playing", "再生中");
+    };
+    video.src = url;
+    video.load();
+  }
   function openPreview(code) {
     const it = byCode.get(code);
     if (!it || !safeURL(it.preview)) {
@@ -826,28 +914,26 @@
     if ($("menuDialog").open) closeDialog($("menuDialog"));
     previewItem = it;
     $("previewTitle").textContent = `${it.code} · サンプルプレビュー`;
-    const v = $("previewPlayer");
-    v.poster = safeURL(it.thumb);
-    v.src = safeURL(it.preview);
-    $("previewError").hidden = true;
     $("previewLink").href = safeURL(it.url) || "#";
     $("previewLink").dataset.external = it.code;
     openDialog($("previewDialog"));
-    v.play().catch(() => {
-      /* Controls remain available when autoplay is blocked. */
-    });
+    loadPreview(it);
   }
   $("previewPlayer").addEventListener("timeupdate", () =>
     saveProgress(previewItem, $("previewPlayer")),
   );
-  $("previewPlayer").addEventListener("error", () => {
-    if ($("previewDialog").open) $("previewError").hidden = false;
+  $("previewRetry").addEventListener("click", () => {
+    if (previewItem && $("previewDialog").open) loadPreview(previewItem);
   });
   $("previewDialog").addEventListener("close", () => {
-    const v = $("previewPlayer");
-    v.pause();
-    v.removeAttribute("src");
-    v.load();
+    previewAttempt += 1;
+    const video = $("previewPlayer");
+    clearPreviewHandlers(video);
+    video.pause();
+    video.removeAttribute("src");
+    video.removeAttribute("poster");
+    video.load();
+    setPreviewState("ready", "再生を準備しています…");
     previewItem = null;
   });
   function addSearch(query) {

@@ -9,14 +9,14 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="theme-color" content="#0f0f0f" />
     <title>FC2-PPV — ホーム</title>
-    <link rel="stylesheet" href="site.css?v=ec9a52cb6142" />
+    <link rel="stylesheet" href="site.css?v=272a05c8579a" />
     <link
       rel="preload"
       href="catalog.json?v=2026-09-27+09%3A18%3A13"
       as="fetch"
       crossorigin
     />
-    <script src="site.js?v=ec9a52cb6142" defer></script>
+    <script src="site.js?v=272a05c8579a" defer></script>
   </head>
   <body data-catalog="catalog.json?v=2026-09-27+09%3A18%3A13">
     <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -357,22 +357,44 @@
       aria-label="サンプルプレビュー"
     >
       <div class="dialog-heading">
-        <h2 id="previewTitle">サンプルプレビュー</h2>
+        <div>
+          <p class="preview-kicker">サンプルプレビュー</p>
+          <h2 id="previewTitle">プレビュー</h2>
+        </div>
         <button class="icon-button" data-close aria-label="閉じる">
           <svg><use href="#i-close" /></svg>
         </button>
       </div>
-      <video id="previewPlayer" controls playsinline preload="none"></video>
-      <p id="previewError" hidden>
-        プレビューを読み込めませんでした。作品ページから確認してください。
+      <div class="preview-stage">
+        <video
+          id="previewPlayer"
+          controls
+          playsinline
+          preload="metadata"
+          aria-label="サンプルプレビュー"
+        ></video>
+        <div id="previewLoading" class="preview-state" role="status" hidden>
+          読み込み中…
+        </div>
+      </div>
+      <p id="previewStatus" class="preview-status" role="status">
+        再生を準備しています…
       </p>
-      <a
-        id="previewLink"
-        class="pill-button primary"
-        target="_blank"
-        rel="noopener noreferrer"
-        >作品ページを開く</a
-      >
+      <p id="previewError" class="preview-status error" role="alert" hidden>
+        プレビューを再生できません。もう一度試すか、作品ページを開いてください。
+      </p>
+      <div class="preview-actions">
+        <button id="previewRetry" class="pill-button" type="button" hidden>
+          もう一度試す
+        </button>
+        <a
+          id="previewLink"
+          class="pill-button primary"
+          target="_blank"
+          rel="noopener noreferrer"
+          >作品ページを開く</a
+        >
+      </div>
     </dialog>
     <dialog id="infoDialog" class="sheet info-dialog">
       <div class="dialog-heading">
