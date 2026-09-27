@@ -832,38 +832,7 @@ h1 {
   color: var(--muted);
   margin: 12px 12px 4px;
 }
-.preview-dialog {
-  width: min(880px, calc(100% - 32px));
-  padding: 18px;
-}
-.preview-dialog .dialog-heading {
-  align-items: flex-start;
-}
-.preview-kicker {
-  margin: 0 0 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.preview-dialog h2 {
-  max-width: min(70vw, 680px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.preview-stage {
-  position: relative;
-  overflow: hidden;
-  border-radius: 10px;
-  background: #000;
-}
-.preview-dialog video {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16/9;
-  background: #000;
-  margin: 0;
-}
-.preview-state {
+.inline-preview-state {
   position: absolute;
   inset: 0;
   display: grid;
@@ -873,24 +842,8 @@ h1 {
   font-size: 13px;
   pointer-events: none;
 }
-.preview-status {
-  min-height: 1.6em;
-  margin: 12px 0 14px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.preview-status.error {
+.inline-preview-state.error {
   color: #ffb4ab;
-}
-.preview-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.preview-actions .pill-button {
-  min-height: 42px;
 }
 .info-dialog p {
   line-height: 1.8;
@@ -1268,21 +1221,6 @@ body.compact {
   .dialog-footer {
     bottom: calc(-20px - env(safe-area-inset-bottom));
     padding: 12px 0 env(safe-area-inset-bottom);
-  }
-  .preview-dialog {
-    width: 100%;
-  }
-  .preview-dialog h2 {
-    max-width: 70vw;
-    font-size: 15px;
-  }
-  .preview-actions {
-    justify-content: stretch;
-  }
-  .preview-actions .pill-button {
-    flex: 1 1 0;
-    padding-left: 12px;
-    padding-right: 12px;
   }
   .toast {
     bottom: calc(76px + env(safe-area-inset-bottom));

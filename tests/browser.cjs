@@ -227,32 +227,23 @@ async function nav(page, name) {
     assert.equal(await p.locator(".video-card").count(), 0);
     assert.ok(await p.locator("#emptyState").isVisible());
     await nav(p, "home");
-    assert.ok(
-      (await p.locator(".card-preview-button").count()) === 0,
-      "Card preview button is removed",
-    );
+    assert.equal(await p.locator(".card-preview-button").count(), 0);
+    assert.equal(await p.locator("#previewDialog").count(), 0);
     assert.ok(
       await p.locator(".thumb-link").first().isVisible(),
-      "Thumbnail is the preview action",
+      "Thumbnail is the inline preview action",
     );
     await p.locator(".thumb-link").first().click();
     await p.waitForTimeout(100);
-    assert.ok(await p.locator("#previewDialog").isVisible());
     assert.ok(
-      await p.locator("#previewError").isVisible(),
-      "Unavailable preview has actionable error",
+      await p.locator(".inline-preview-state.error").first().isVisible(),
+      "Unavailable inline preview has actionable error",
     );
-    assert.ok(await p.locator("#previewRetry").isVisible());
     const mediaBeforeRetry = desktop.media;
-    await p.locator("#previewRetry").click();
+    await p.locator(".thumb-link").first().click();
     await p.waitForTimeout(100);
-    assert.ok(desktop.media > mediaBeforeRetry, "Preview retry requests the media again");
-    await p.keyboard.press("Escape");
-    await p.waitForFunction(
-      () =>
-        document.getElementById("previewPlayer").getAttribute("src") === null,
-    );
-    assert.equal(await p.locator("#previewPlayer").getAttribute("src"), null);
+    assert.ok(desktop.media > mediaBeforeRetry, "Inline preview retry requests the media again");
+    assert.equal(await p.locator("#previewPlayer").count(), 0);
     assert.deepEqual(desktop.errors, []);
     assert.equal(desktop.blocked, 0);
     await desktop.context.close();
