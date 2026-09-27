@@ -180,7 +180,7 @@ async function nav(page, name) {
       "Saved state persists",
     );
     const popupPromise = p.waitForEvent("popup");
-    await p.locator(".thumb-link").first().click();
+    await p.locator(".card-title").first().click();
     await (await popupPromise).close();
     await nav(p, "history");
     assert.equal(await p.locator(".video-card").count(), 1);
@@ -228,10 +228,14 @@ async function nav(page, name) {
     assert.ok(await p.locator("#emptyState").isVisible());
     await nav(p, "home");
     assert.ok(
-      await p.locator(".card-preview-button").first().isVisible(),
-      "Preview action is visible without hovering",
+      (await p.locator(".card-preview-button").count()) === 0,
+      "Card preview button is removed",
     );
-    await p.locator(".card-preview-button").first().click();
+    assert.ok(
+      await p.locator(".thumb-link").first().isVisible(),
+      "Thumbnail is the preview action",
+    );
+    await p.locator(".thumb-link").first().click();
     await p.waitForTimeout(100);
     assert.ok(await p.locator("#previewDialog").isVisible());
     assert.ok(
@@ -260,8 +264,12 @@ async function nav(page, name) {
     await waitFeed(m);
     assert.ok(await m.locator(".bottom-nav").isVisible());
     assert.ok(
-      await m.locator(".card-preview-button").first().isVisible(),
-      "Preview action is easy to tap on mobile",
+      (await m.locator(".card-preview-button").count()) === 0,
+      "Card preview button is removed on mobile",
+    );
+    assert.ok(
+      await m.locator(".thumb-link").first().isVisible(),
+      "Thumbnail is easy to tap on mobile",
     );
     assert.equal(await m.locator("#q").isVisible(), false);
     assert.ok(

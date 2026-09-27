@@ -397,7 +397,8 @@
         ? '<span class="card-badge new">新着</span>'
         : "";
     const p = Math.min(1, Math.max(0, Number(progress[it.code]) || 0));
-    return `<article class="video-card" data-code="${code}" aria-label="${code}"><div class="thumb-shell"><a class="thumb-link" href="${esc(url || "#")}" ${url ? `target="_blank" rel="noopener noreferrer" data-external="${code}"` : `data-more="${code}"`} aria-label="${esc(it.title)} の作品ページを開く">${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="480" height="270">` : ""}</a><div class="card-badges">${badge}${saved.has(it.code) ? `<span class="card-badge">保存済み</span>` : ""}</div>${it.duration ? `<span class="duration">${esc(it.duration)}</span>` : ""}<button class="quick-later${later.has(it.code) ? " selected" : ""}" data-later="${code}" aria-label="${later.has(it.code) ? "後で見るから外す" : "後で見るに追加"}" title="後で見る">${icon(later.has(it.code) ? "check" : "clock")}</button>${p ? `<span class="progress-bar" style="width:${p * 100}%"></span>` : ""}</div><div class="card-body">${externalLink(url, esc(it.title), it.code, "card-title") || `<div class="card-title">${esc(it.title)}</div>`}<div class="card-code">${code}${watched.has(it.code) ? '<span class="watched-mark">✓ 視聴済み</span>' : ""}</div><div class="card-meta">${[viewsLabel(it.views), relativeTime(it._ts)].filter(Boolean).join(" · ")}</div><div class="card-meta">${metric || (bestRank(it) ? `MissAV ランキング #${bestRank(it)}` : "評価未取得")}</div><div class="source-row">${sources}</div><div class="card-actions">${it.preview ? `<button class="card-preview-button" type="button" data-preview="${code}" aria-label="${code} のプレビューを再生">${icon("play")}<span>プレビューを見る</span></button>` : `<span class="no-preview">プレビューなし</span>`}</div><button class="icon-button card-more" data-more="${code}" aria-label="${code} のメニュー">${icon("more")}</button></div></article>`;
+    const thumbButton = `<button class="thumb-link" type="button" data-preview="${code}" aria-label="${esc(it.title)} のプレビューを再生">${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="480" height="270">` : ""}</button>`;
+    return `<article class="video-card" data-code="${code}" aria-label="${code}"><div class="thumb-shell">${thumbButton}<div class="card-badges">${badge}${saved.has(it.code) ? `<span class="card-badge">保存済み</span>` : ""}</div>${it.duration ? `<span class="duration">${esc(it.duration)}</span>` : ""}<button class="quick-later${later.has(it.code) ? " selected" : ""}" data-later="${code}" aria-label="${later.has(it.code) ? "後で見るから外す" : "後で見るに追加"}" title="後で見る">${icon(later.has(it.code) ? "check" : "clock")}</button>${p ? `<span class="progress-bar" style="width:${p * 100}%"></span>` : ""}</div><div class="card-body">${externalLink(url, esc(it.title), it.code, "card-title") || `<div class="card-title">${esc(it.title)}</div>`}<div class="card-code">${code}${watched.has(it.code) ? '<span class="watched-mark">✓ 視聴済み</span>' : ""}</div><div class="card-meta">${[viewsLabel(it.views), relativeTime(it._ts)].filter(Boolean).join(" · ")}</div><div class="card-meta">${metric || (bestRank(it) ? `MissAV ランキング #${bestRank(it)}` : "評価未取得")}</div><div class="source-row">${sources}</div><button class="icon-button card-more" data-more="${code}" aria-label="${code} のメニュー">${icon("more")}</button></div></article>`;
   }
   function measure() {
     const grid = $("grid"),
@@ -1268,10 +1269,11 @@
     true,
   );
   $("grid").addEventListener("pointerover", (e) => {
+    const actionButton = e.target.closest("button");
     if (
       e.pointerType !== "mouse" ||
       !matchMedia("(hover:hover)").matches ||
-      e.target.closest("button")
+      (actionButton && !actionButton.classList.contains("thumb-link"))
     )
       return;
     const shell = e.target.closest(".thumb-shell");
