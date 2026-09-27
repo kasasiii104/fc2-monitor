@@ -118,6 +118,7 @@ def save_json(path: Path, payload) -> None:
             temporary = Path(f.name)
             json.dump(payload, f, ensure_ascii=False, indent=2)
             f.write("\n")
+        temporary.chmod(path.stat().st_mode & 0o777 if path.exists() else 0o644)
         temporary.replace(path)
     finally:
         if temporary is not None:
