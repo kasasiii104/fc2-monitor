@@ -227,16 +227,22 @@ async function nav(page, name) {
     assert.equal(await p.locator(".video-card").count(), 0);
     assert.ok(await p.locator("#emptyState").isVisible());
     await nav(p, "home");
-    await p
-      .locator("[data-preview]")
-      .first()
-      .evaluate((el) => el.click());
+    assert.ok(
+      await p.locator(".card-preview-button").first().isVisible(),
+      "Preview action is visible without hovering",
+    );
+    await p.locator(".card-preview-button").first().click();
     await p.waitForTimeout(100);
     assert.ok(await p.locator("#previewDialog").isVisible());
     assert.ok(
       await p.locator("#previewError").isVisible(),
       "Unavailable preview has actionable error",
     );
+    assert.ok(await p.locator("#previewRetry").isVisible());
+    const mediaBeforeRetry = desktop.media;
+    await p.locator("#previewRetry").click();
+    await p.waitForTimeout(100);
+    assert.ok(desktop.media > mediaBeforeRetry, "Preview retry requests the media again");
     await p.keyboard.press("Escape");
     await p.waitForFunction(
       () =>
@@ -253,6 +259,10 @@ async function nav(page, name) {
     const m = mobile.page;
     await waitFeed(m);
     assert.ok(await m.locator(".bottom-nav").isVisible());
+    assert.ok(
+      await m.locator(".card-preview-button").first().isVisible(),
+      "Preview action is easy to tap on mobile",
+    );
     assert.equal(await m.locator("#q").isVisible(), false);
     assert.ok(
       await m.evaluate(
