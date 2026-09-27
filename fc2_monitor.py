@@ -6,9 +6,10 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from urllib.parse import urljoin, quote_plus
+from urllib.parse import urljoin, urlsplit, quote_plus
 
 import requests
 from bs4 import BeautifulSoup
@@ -110,9 +111,17 @@ def load_json(path: Path, default):
 
 def save_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         suffix=".tmp", delete=False) as f:
+            temporary = Path(f.name)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def send_telegram(text: str, photo=None) -> None:
@@ -580,7 +589,7 @@ def scrape_missav(pages=None):
     return list(collected.values())
 
 
-def scrape_missav_catalog(pages=None):
+def scrape_missav_catalog(pages=None, completed_pages=None):
     """MissAV /ja/fc2 catalog. Only usable HTTP-200 pages are parsed."""
     collected = {}
     bases = ["https://missav.ws/ja/fc2", "https://missav.live/ja/fc2", "https://missav.ai/ja/fc2"]
@@ -597,6 +606,7 @@ def scrape_missav_catalog(pages=None):
         if soup is None:
             continue
         before = len(collected)
+        recognized = False
         for a in soup.find_all("a", href=True):
             href = a.get("href") or ""
             img = a.find("img")
@@ -607,6 +617,7 @@ def scrape_missav_catalog(pages=None):
             m = CODE_RE.search(href + " " + raw) or re.search(r"/fc2-ppv-(\d{6,8})", href, re.I)
             if not m:
                 continue
+            recognized = True
             num = m.group(1)
             full = href if href.startswith("http") else urljoin(final, href)
             title = clean_title(raw, num)
@@ -616,10 +627,12 @@ def scrape_missav_catalog(pages=None):
             elif is_better_title(title, cur.get("title", "")):
                 cur["title"], cur["url"] = title, full
         print(f"[MissAV /ja/fc2] page={page_no} +{len(collected)-before} total={len(collected)}")
+        if recognized and completed_pages is not None:
+            completed_pages.add(page_no)
     return list(collected.values())
 
 
-def scrape_javdb(pages=None):
+def scrape_javdb(pages=None, completed_pages=None):
     """Independent JavDB discovery. 403/challenge/non-200 pages are simply skipped."""
     collected = {}
     for page_no in (pages or [1, 2]):
@@ -631,6 +644,7 @@ def scrape_javdb(pages=None):
             continue
         soup = info["soup"]
         before = len(collected)
+        recognized = False
         for a in soup.find_all("a", href=True):
             href = a.get("href") or ""
             parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
@@ -638,6 +652,7 @@ def scrape_javdb(pages=None):
             m = CODE_RE.search(raw)
             if not m:
                 continue
+            recognized = True
             num = m.group(1)
             full = href if href.startswith("http") else urljoin(info.get("final_url") or "https://javdb.com/", href)
             title = clean_title(raw, num)
@@ -647,6 +662,8 @@ def scrape_javdb(pages=None):
             elif is_better_title(title, cur.get("title", "")):
                 cur["title"], cur["url"] = title, full
         print(f"[JavDB] page={page_no} +{len(collected)-before} total={len(collected)}")
+        if recognized and completed_pages is not None:
+            completed_pages.add(page_no)
     return list(collected.values())
 
 
@@ -1446,15 +1463,20 @@ def run_continuous_metadata_backfill(items) -> None:
     print(f"[Backfill v3] stats={stats}")
 
 
-def _absolute_fc2_asset(raw: str) -> str:
-    value = (raw or "").strip()
+def _absolute_fc2_asset(raw) -> str:
+    # Error responses can contain integers/objects in otherwise successful JSON.
+    # Do not stringify them into bogus media URLs or abort the whole crawl.
+    if not isinstance(raw, str):
+        return ""
+    value = raw.strip()
     if not value:
         return ""
-    if value.startswith("//"):
-        return "https:" + value
-    if value.startswith("http://") or value.startswith("https://"):
-        return value
-    return urljoin("https://adult.contents.fc2.com/", value)
+    try:
+        absolute = urljoin("https://adult.contents.fc2.com/", value)
+        parsed = urlsplit(absolute)
+        return absolute if parsed.scheme in ("http", "https") and parsed.hostname else ""
+    except ValueError:
+        return ""
 
 
 def fetch_fc2_sample_assets(code_num: str):
@@ -1483,10 +1505,11 @@ def fetch_fc2_sample_assets(code_num: str):
     if not isinstance(data, dict):
         return None
 
-    preview = _absolute_fc2_asset(data.get("path") or data.get("sample_path") or "")
-    poster = _absolute_fc2_asset(
-        data.get("poster_image_path") or data.get("poster") or data.get("image") or ""
-    )
+    def asset(*keys):
+        return next((value for key in keys if (value := _absolute_fc2_asset(data.get(key)))), "")
+
+    preview = asset("path", "sample_path")
+    poster = asset("poster_image_path", "poster", "image")
     usable = bool(preview or poster)
     print(
         f"[FC2 sample] FC2-PPV-{code_num} status=200 "
@@ -1670,27 +1693,36 @@ def merge_videos(groups):
 
 
 def get_latest_videos():
+    """Propose cursors without persisting them before the catalog is saved."""
     state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3, "javdb_page": 3})
     mp = int(state.get("missav_page", 3))
     jp = int(state.get("javdb_page", 3))
-    missav_pages = [1, 2] + list(range(mp, mp + BACKFILL_PAGES))
-    javdb_pages = [1, 2] + list(range(jp, jp + JAVDB_BACKFILL_PAGES))
+    recovery = dict(state.get("recovery_until") or {})
+    missav_end = max(mp + BACKFILL_PAGES, min(mp + 48, int(recovery.get("missav_page", 0))))
+    javdb_end = max(jp + JAVDB_BACKFILL_PAGES, min(jp + 24, int(recovery.get("javdb_page", 0))))
+    missav_pages = [1, 2] + list(range(mp, missav_end))
+    javdb_pages = [1, 2] + list(range(jp, javdb_end))
+    missav_completed, javdb_completed = set(), set()
     # Supjav is an optional helper; keep its request volume small.
     supjav_pages = [1, 2, 3]
     found, errors = [], []
     try:
         items = scrape_missav(missav_pages)
-        catalog = scrape_missav_catalog(missav_pages)
+        catalog = scrape_missav_catalog(missav_pages, completed_pages=missav_completed)
         print(f"MissAV: search={len(items)} catalog={len(catalog)}")
         found.extend([items, catalog])
-        state["missav_page"] = missav_pages[-1] + 1
+        while mp in missav_completed:
+            mp += 1
+        state["missav_page"] = mp
     except Exception as e:
         errors.append(f"MissAV: {e}")
     try:
-        items = scrape_javdb(javdb_pages)
+        items = scrape_javdb(javdb_pages, completed_pages=javdb_completed)
         print(f"JavDB: {len(items)}件")
         found.append(items)
-        state["javdb_page"] = javdb_pages[-1] + 1
+        while jp in javdb_completed:
+            jp += 1
+        state["javdb_page"] = jp
     except Exception as e:
         errors.append(f"JavDB: {e}")
     try:
@@ -1699,11 +1731,17 @@ def get_latest_videos():
         found.append(items)
     except Exception as e:
         print(f"Supjav補助スキップ: {e}")
-    save_json(CRAWL_FILE, state)
+    for key, end in list(recovery.items()):
+        if int(state.get(key, 0)) >= int(end):
+            recovery.pop(key)
+    if recovery:
+        state["recovery_until"] = recovery
+    else:
+        state.pop("recovery_until", None)
     videos = merge_videos(found)
     if not videos and errors:
         raise RuntimeError(" / ".join(errors))
-    return videos
+    return videos, state
 
 
 def calc_trend(points, current, hours, now):
@@ -1820,11 +1858,18 @@ def render_html(items, updated_at, new_count):
 def write_site(items, updated_at, new_count):
     HTML_FILE.parent.mkdir(parents=True, exist_ok=True)
     # Data and assets are written first; Pages deploys the complete directory atomically.
+    payload = catalog_payload(items, updated_at)
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    payload["version"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
     (HTML_FILE.parent / "catalog.json").write_text(
-        json.dumps(catalog_payload(items, updated_at), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     for name in ("site.css", "site.js"):
         shutil.copyfile(WEB_DIR / name, HTML_FILE.parent / name)
     HTML_FILE.write_text(render_html(items, updated_at, new_count), encoding="utf-8")
+    save_json(HTML_FILE.parent / "update.json", {
+        "version": payload["version"], "updated_at": updated_at,
+        "item_count": len(items), "new_count": new_count,
+    })
 
 
 def rebuild_site():
@@ -1835,16 +1880,27 @@ def rebuild_site():
     return 0
 
 
+def run_optional_step(label, action, *args, **kwargs):
+    """A supplementary source or notification cannot discard discoveries."""
+    try:
+        action(*args, **kwargs)
+        return True
+    except Exception as exc:
+        # Do not include response bodies or URLs (notification URLs contain secrets).
+        print(f"::warning::{label} failed ({type(exc).__name__}); continuing with saved/partial metadata")
+        return False
+
+
 def main() -> int:
     print(f"[{now_jst()}] チェック開始")
     try:
-        latest = get_latest_videos()
+        latest, crawl_state = get_latest_videos()
     except Exception as e:
         print(f"取得失敗: {e}", file=sys.stderr)
-        send_telegram(f"監視エラー: ページ取得に失敗しました\n{e}")
+        run_optional_step("Error notification", send_telegram, "監視エラー: ページ取得に失敗しました")
         return 1
     if not latest:
-        send_telegram("監視エラー: 動画リストを抽出できませんでした。")
+        run_optional_step("Error notification", send_telegram, "監視エラー: 動画リストを抽出できませんでした。")
         return 1
 
     history = load_json(HISTORY_FILE, {"ids": []})
@@ -1909,23 +1965,22 @@ def main() -> int:
 
     sanitize_item_titles(merged)
     # New discoveries get official Japanese title/rating/review immediately.
-    enrich_new_fc2_market(merged)
-    refresh_fc2cmadb_titles(merged)
-    run_continuous_metadata_backfill(merged)
-    enrich_hwalker_market(merged)
-    refresh_japanese_titles(merged)
-    fill_missing_views(merged)
-    enrich_fc2_market(merged)
-    run_thumbnail_backfill(merged)
-    enrich_fc2_sample_assets(merged)
-    apply_missav_ranks(merged, scrape_missav_rankings(), stamp)
-    update_views_history(merged)
+    for action in (enrich_new_fc2_market, refresh_fc2cmadb_titles,
+                   run_continuous_metadata_backfill, enrich_hwalker_market,
+                   refresh_japanese_titles, fill_missing_views, enrich_fc2_market,
+                   run_thumbnail_backfill, enrich_fc2_sample_assets):
+        run_optional_step(action.__name__, action, merged)
+    run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), stamp))
+    run_optional_step("Views history", update_views_history, merged)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     write_site(merged, stamp, len(new_videos))
+    # Commit the discovery position only after both data and public output exist.
+    save_json(CRAWL_FILE, crawl_state)
+    print(f"[Catalog saved] items={len(merged)} new={len(new_videos)} updated_at={stamp}")
 
     if first_run:
-        send_telegram("監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]))
+        run_optional_step("Startup notification", send_telegram, "監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]))
         print("初回保存完了")
         return 0
 
@@ -1948,11 +2003,15 @@ def main() -> int:
             extra.append(f"時間: {video['duration']}")
         if video.get("views"):
             extra.append(f"再生: {video['views']:,}")
-        send_telegram(
+        sent = run_optional_step("New item notification", send_telegram,
             "【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + (" / ".join(extra) + "\n\n" if extra else "\n") + "\n".join(source_lines),
             photo=video.get("thumb"),
         )
-        print(f"通知: {video['code']}")
+        if sent:
+            print(f"通知: {video['code']}")
+        else:
+            # Avoid repeated timeouts/rate limits delaying the Pages deployment.
+            break
     return 0
 
 
