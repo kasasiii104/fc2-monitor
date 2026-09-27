@@ -10,6 +10,7 @@ on:
     paths:
       - "fc2_monitor.py"
       - "requirements.txt"
+      - "web/**"
       - ".github/workflows/monitor.yml"
 
 concurrency:
@@ -26,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -35,12 +38,18 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run monitor
+        if: github.event_name != 'push'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INCLUDE_KEYWORDS: ${{ secrets.INCLUDE_KEYWORDS }}
           EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
         run: python fc2_monitor.py
+
+      # A UI/code push can publish immediately using the saved catalog. Scheduled
+      # runs still crawl every two hours and use the same renderer afterwards.
+      - name: Build site from saved data
+        run: python fc2_monitor.py --build-site
 
       - name: Commit site data
         if: always()
