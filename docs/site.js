@@ -68,6 +68,11 @@
     ready = false,
     failedLoad = false;
   const PAGE_SIZE = 48;
+  const CATALOG_REFRESH_MS = 5 * 60 * 1000;
+  let catalogLoading = false,
+    checkingUpdates = false,
+    catalogVersion = "",
+    lastCatalogCheck = 0;
   const homePeriods = ["day", "week", "month", "total"];
   let homeRank = "day",
     homeRankingKey = "",
@@ -1254,8 +1259,11 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopActivePreview();
+    } else {
+      checkForCatalogUpdate();
     }
   });
+  window.addEventListener("online", () => checkForCatalogUpdate());
   window.addEventListener("pagehide", () => {
     stopActivePreview();
     if (progressTimer) {
@@ -1285,15 +1293,54 @@
     window.scrollTo(0, e.state?.scroll || 0);
   });
   let searchTemplates = {};
-  async function loadCatalog() {
-    failedLoad = false;
-    $("emptyState").hidden = true;
-    $("resultCount").textContent = "読み込み中…";
+  function catalogRefreshBusy() {
+    return !!(activePreview || composing || document.querySelector("dialog[open]") ||
+      document.activeElement?.matches("input,textarea,select"));
+  }
+  async function checkForCatalogUpdate() {
+    if (!ready || catalogLoading || checkingUpdates || document.hidden ||
+        navigator.onLine === false || catalogRefreshBusy() ||
+        Date.now() - lastCatalogCheck < 60000) return;
+    checkingUpdates = true;
+    lastCatalogCheck = Date.now();
     try {
-      const response = await fetch(document.body.dataset.catalog);
+      // Poll a tiny manifest; only download the full catalog when it changes.
+      const response = await fetch(document.body.dataset.updates, { cache: "no-cache" });
+      if (!response.ok) return;
+      const update = await response.json();
+      if (update.version && update.version !== catalogVersion)
+        await loadCatalog(true, update.version);
+    } catch {
+      // A background outage must leave the currently usable feed intact.
+    } finally {
+      checkingUpdates = false;
+    }
+  }
+  async function loadCatalog(background = false, expectedVersion = "") {
+    if (catalogLoading || (background && catalogRefreshBusy())) return;
+    catalogLoading = true;
+    if (!background) {
+      failedLoad = false;
+      $("emptyState").hidden = true;
+      $("resultCount").textContent = "読み込み中…";
+    }
+    try {
+      const url = new URL(document.body.dataset.catalog, document.baseURI);
+      if (expectedVersion) url.searchParams.set("v", expectedVersion);
+      const response = await fetch(url, { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       const payload = await response.json();
       if (!Array.isArray(payload.items)) throw new Error("Invalid catalog");
+      if (expectedVersion && payload.version !== expectedVersion)
+        throw new Error("Catalog deployment in progress");
+      if (background && (document.hidden || catalogRefreshBusy())) return;
+      if (background && payload.version === catalogVersion) return;
+      const position = scrollY;
+      const anchor = background && position > 0
+        ? [...$("grid").children].find((el) => el.getBoundingClientRect().bottom > 64)
+        : null;
+      const anchorCode = anchor?.dataset.code;
+      const anchorTop = anchor?.getBoundingClientRect().top;
       searchTemplates = payload.search_templates || {};
       items = payload.items.map((it) => ({
         ...it,
@@ -1318,9 +1365,25 @@
       );
       homeRankingKey = "";
       byCode = new Map(items.map((it) => [it.code, it]));
+      catalogVersion = payload.version || "";
+      for (const node of document.querySelectorAll("[data-updated-at]"))
+        node.textContent = payload.updated_at || "";
+      $("catalogItemCount").textContent = number(items.length);
+      $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
       ready = true;
-      render();
+      failedLoad = false;
+      if (background) $("grid").replaceChildren();
+      render(!background);
+      if (background) {
+        const replacement = anchorCode && document.querySelector(
+          `#grid .video-card[data-code="${CSS.escape(anchorCode)}"]`,
+        );
+        window.scrollTo(0, replacement
+          ? position + replacement.getBoundingClientRect().top - anchorTop
+          : position);
+      }
     } catch (err) {
+      if (background) return;
       failedLoad = true;
       ready = false;
       $("grid").replaceChildren();
@@ -1328,9 +1391,12 @@
       $("resultCount").textContent = "読み込めませんでした";
       $("emptyState").innerHTML =
         `${icon("info")}<h2>作品データを読み込めませんでした</h2><p>通信状態を確認して、もう一度お試しください。</p><button class="pill-button" data-retry>再読み込み</button>`;
+    } finally {
+      catalogLoading = false;
     }
   }
   restoreURL();
   updateCounts();
   loadCatalog();
+  setInterval(checkForCatalogUpdate, CATALOG_REFRESH_MS);
 })();
