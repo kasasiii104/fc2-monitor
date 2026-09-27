@@ -68,6 +68,10 @@
     ready = false,
     failedLoad = false;
   const PAGE_SIZE = 48;
+  const homePeriods = ["day", "week", "month", "total"];
+  let homeRank = "day",
+    homeRankingKey = "",
+    homeRankingCache = {};
   let loaded = PAGE_SIZE,
     windowKey = "",
     metrics = null,
@@ -352,7 +356,7 @@
       ? `<a href="${esc(safe)}" target="_blank" rel="noopener noreferrer" data-external="${esc(code)}" class="${cls}">${label}</a>`
       : "";
   }
-  function cardHTML(it, index) {
+  function cardHTML(it, index, explicitRank = 0) {
     const code = esc(it.code),
       url = safeURL(it.url),
       thumb = safeURL(it.thumb);
@@ -380,11 +384,12 @@
       .map(([name, u]) => externalLink(u, esc(name), it.code))
       .join(" · ");
     const rank =
-      state.page === "popular" && !["rating", "views"].includes(state.rank)
+      explicitRank ||
+      (state.page === "popular" && !["rating", "views"].includes(state.rank)
         ? rankValue(it)
         : state.page === "popular" || state.page === "rising"
           ? index + 1
-          : 0;
+          : 0);
     const badge = rank
       ? `<span class="card-badge">#${rank}</span>`
       : it.is_new
@@ -496,12 +501,59 @@
         loadMore();
     });
   }
+  function updateRankingArrows() {
+    const rail = $("rankingRail");
+    $("rankingPrev").disabled = rail.scrollLeft < 2;
+    $("rankingNext").disabled =
+      rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 2;
+  }
+  function renderHomeRankings(force = false) {
+    const visible =
+      ready &&
+      state.page === "home" &&
+      !state.q &&
+      state.chip === "all" &&
+      !filterKeys.some((key) => state[key]);
+    $("homeRankings").hidden = !visible;
+    if (!visible) {
+      $("rankingRail").replaceChildren();
+      homeRankingKey = "";
+      return;
+    }
+    document.querySelectorAll("[data-home-rank]").forEach((button) => {
+      const selected = button.dataset.homeRank === homeRank;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    if (force || homeRankingKey !== homeRank) {
+      const rows = homeRankingCache[homeRank] || [];
+      $("rankingRail").innerHTML = rows.length
+        ? rows
+            .map((it, index) =>
+              cardHTML(
+                it,
+                index,
+                Number(it["missav_rank_" + homeRank]),
+              ).replace('class="video-card"', 'class="ranking-card"'),
+            )
+            .join("")
+        : '<p class="ranking-empty">この期間のランキングデータはまだありません。</p>';
+      $("rankingRail").setAttribute(
+        "aria-label",
+        `MissAV ${rankLabels[homeRank]}のランキング`,
+      );
+      $("rankingRail").scrollLeft = 0;
+      homeRankingKey = homeRank;
+    }
+    updateRankingArrows();
+  }
   function refreshCards() {
     // Storage actions only repaint the affected visible window, not the full data feed.
     stopHover();
     $("grid").replaceChildren();
     windowKey = "";
     renderWindow(true);
+    renderHomeRankings(true);
     updateCounts();
   }
   function updateCounts() {
@@ -580,6 +632,7 @@
     if (reset) loaded = PAGE_SIZE;
     windowKey = "";
     list = selectList();
+    renderHomeRankings();
     $("q").value = state.q;
     $("clearSearch").hidden = !state.q;
     $("sortSelect").value = state.sort;
@@ -588,7 +641,9 @@
     );
     $("listTitle").textContent = state.q
       ? `「${state.q}」の検索結果`
-      : pageNames[state.page];
+      : state.page === "popular" && homePeriods.includes(state.rank)
+        ? `MissAV ${rankLabels[state.rank]}ランキング`
+        : pageNames[state.page];
     document.title = `${state.q ? "検索結果" : pageNames[state.page]} — FC2-PPV`;
     $("resultCount").textContent = `${number(list.length)} 作品`;
     const tabs = contextHTML();
@@ -647,11 +702,11 @@
     updateCounts();
     updateFilterButtons();
   }
-  function navigate(page) {
+  function navigate(page, options = {}) {
     if (!pageNames[page]) return;
     clearTimeout(searchTimer);
     hideSuggest();
-    state = { ...defaults, page };
+    state = { ...defaults, ...options, page };
     $("q").value = "";
     document.body.classList.remove("mobile-search", "drawer");
     $("navBackdrop").hidden = true;
@@ -939,6 +994,32 @@
   $("infoButton").addEventListener("click", () => openDialog($("infoDialog")));
   $("resetFilters").addEventListener("click", resetFilters);
   $("loadMore").addEventListener("click", loadMore);
+  $("rankingAll").addEventListener("click", () =>
+    navigate("popular", { rank: homeRank }),
+  );
+  document.querySelectorAll("[data-home-rank]").forEach((button) =>
+    button.addEventListener("click", () => {
+      homeRank = button.dataset.homeRank;
+      renderHomeRankings();
+    }),
+  );
+  $("rankingRail").addEventListener("scroll", updateRankingArrows, {
+    passive: true,
+  });
+  for (const [id, direction] of [
+    ["rankingPrev", -1],
+    ["rankingNext", 1],
+  ]) {
+    $(id).addEventListener("click", () =>
+      $("rankingRail").scrollBy({
+        left: direction * $("rankingRail").clientWidth * 0.8,
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      }),
+    );
+  }
+  new ResizeObserver(updateRankingArrows).observe($("rankingRail"));
   $("sidebarToggle").addEventListener("click", () => {
     if (innerWidth < 1200) {
       const open = document.body.classList.toggle("drawer");
@@ -1186,6 +1267,19 @@
           `${it.code} ${it.title} ${Object.keys(it.sources || {}).join(" ")}`,
         ),
       }));
+      homeRankingCache = Object.fromEntries(
+        homePeriods.map((period) => {
+          const field = "missav_rank_" + period;
+          return [
+            period,
+            items
+              .filter((it) => it[field] > 0)
+              .sort((a, b) => a[field] - b[field])
+              .slice(0, 10),
+          ];
+        }),
+      );
+      homeRankingKey = "";
       byCode = new Map(items.map((it) => [it.code, it]));
       ready = true;
       render();

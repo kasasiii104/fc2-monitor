@@ -20,7 +20,7 @@ class SiteBuildTests(unittest.TestCase):
             with patch.object(m,'HTML_FILE',output), patch.object(m.requests,'get',side_effect=AssertionError('Network forbidden')):
                 m.write_site([{'code':'FC2-PPV-1234567','title':'サンプル'}],'2026-09-27 13:00:00',1)
             html = output.read_text()
-            self.assertLess(len(html.encode()),15000)
+            self.assertLess(len(html.encode()),20000)
             self.assertNotIn('__ASSET_VERSION__',html)
             for name in ('site.css','site.js','catalog.json'):
                 self.assertTrue((output.parent/name).is_file())

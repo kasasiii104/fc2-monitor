@@ -145,22 +145,6 @@ input:focus {
   font-weight: 800;
   letter-spacing: -1px;
 }
-.brand-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 33px;
-  height: 23px;
-  border-radius: 7px;
-  background: #f03;
-  color: white;
-}
-.brand-mark svg {
-  width: 17px;
-  height: 17px;
-  fill: currentColor;
-  stroke: none;
-}
 .brand sup {
   font-size: 9px;
   color: var(--muted);
@@ -1071,10 +1055,6 @@ body.compact {
   .brand {
     font-size: 21px;
   }
-  .brand-mark {
-    width: 30px;
-    height: 22px;
-  }
   .brand sup {
     font-size: 8px;
   }
@@ -1316,5 +1296,113 @@ body.compact {
   .card-meta,
   .card-code {
     font-size: 11px;
+  }
+}
+
+.ranking-section {
+  margin: 0 0 26px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.ranking-heading,
+.ranking-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ranking-heading h2 {
+  margin: 0;
+  font-size: 19px;
+}
+.ranking-heading .text-button {
+  white-space: nowrap;
+  font-size: 13px;
+}
+.ranking-toolbar {
+  margin: 8px 0 14px;
+}
+.ranking-periods {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ranking-controls {
+  display: flex;
+  gap: 2px;
+}
+.ranking-controls button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+}
+.ranking-controls button:disabled {
+  opacity: 0.25;
+}
+.ranking-controls svg {
+  width: 18px;
+  height: 18px;
+}
+.ranking-next svg {
+  transform: rotate(180deg);
+}
+.ranking-rail {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 0 0 8px;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+}
+.ranking-card {
+  flex: 0 0 260px;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+.ranking-card .card-badge:first-child {
+  font-size: 15px;
+  padding: 3px 8px;
+}
+.ranking-empty {
+  color: var(--muted);
+  padding: 22px 0;
+  font-size: 13px;
+}
+@media (max-width: 767px) {
+  .ranking-heading,
+  .ranking-toolbar {
+    padding: 0 12px;
+  }
+  .ranking-heading h2 {
+    font-size: 17px;
+  }
+  .ranking-controls {
+    display: none;
+  }
+  .ranking-rail {
+    padding: 0 12px 8px;
+    gap: 12px;
+  }
+  .ranking-card {
+    flex-basis: 240px;
+  }
+  .ranking-card .thumb-shell {
+    border-radius: 10px;
+  }
+  .ranking-card .card-body {
+    padding-left: 0;
+    padding-right: 32px;
+  }
+  .ranking-card .card-more {
+    right: -7px;
+  }
+  .ranking-card .card-title {
+    font-size: 14px;
+  }
+  .ranking-section {
+    margin-bottom: 16px;
+    padding-bottom: 8px;
   }
 }

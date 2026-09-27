@@ -129,6 +129,14 @@ async function nav(page, name) {
     const p = desktop.page;
     await waitFeed(p);
     await p.mouse.move(0, 0);
+    assert.equal(await p.locator(".brand-mark").count(), 0, "Play logo is removed");
+    assert.ok(await p.locator("#homeRankings").isVisible(), "MissAV ranking rail is visible on home");
+    assert.equal(await p.locator("#rankingRail .ranking-card").count(), 10, "MissAV day ranking has 10 cards");
+    await p.locator('[data-home-rank="week"]').click();
+    assert.ok((await p.locator("#rankingRail").getAttribute("aria-label")).includes("週間"), "Ranking period switches");
+    await p.locator("#rankingAll").click();
+    assert.equal(await p.locator("#listTitle").innerText(), "MissAV 週間ランキング", "Ranking opens as a full list");
+    await nav(p, "home");
     assert.match(await p.locator("#resultCount").innerText(), /7,064/);
     assert.ok((await p.locator(".video-card").count()) < 60);
     assert.equal(desktop.media, 0, "No videos downloaded before interaction");
