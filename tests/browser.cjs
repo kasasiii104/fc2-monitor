@@ -324,6 +324,8 @@ async function nav(page, name) {
     await waitFeed(retry.page);
     assert.deepEqual(retry.errors, []);
     await retry.context.close();
+    await browser.close();
+    browser = await launch();
     const refresh = await setup(browser, { width: 1280, height: 800 }, false, false, true);
     const r = refresh.page;
     await waitFeed(r);
@@ -368,16 +370,22 @@ async function nav(page, name) {
     assert.equal(await r.locator("#q").inputValue(), "8000000");
     assert.equal(await r.locator("#savedCount").innerText(), "1");
 
-    // Do not interrupt an inline preview or download while the page is hidden.
+    // Keep an in-flight preview alive while its media response is pending.
+    // Other tests above cover the separate media-error/retry behavior.
+    await r.route("https://media.example.test/**", () => {});
     await r.locator(".thumb-link").first().click();
+    assert.equal(await r.locator("#grid video").count(), 1);
     const countBeforePreview = refresh.manifestRequests;
     await r.clock.fastForward(5 * 60 * 1000);
+    await r.clock.runFor(50);
     assert.equal(refresh.manifestRequests, countBeforePreview, "Playback defers background refresh");
+    assert.equal(await r.locator("#grid video").count(), 1);
     await r.evaluate(() => {
       Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await r.clock.fastForward(5 * 60 * 1000);
+    await r.clock.runFor(50);
     assert.equal(refresh.manifestRequests, countBeforePreview, "Hidden pages do not poll");
     response = r.waitForResponse((res) => new URL(res.url()).pathname === "/update.json");
     await r.evaluate(() => {
