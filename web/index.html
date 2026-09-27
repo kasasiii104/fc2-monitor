@@ -111,8 +111,6 @@
           href="?page=home"
           data-page="home"
           aria-label="FC2-PPV ホーム"
-          ><span class="brand-mark"
-            ><svg><use href="#i-play" /></svg></span
           ><span>FC2-PPV</span><sup>JP</sup></a
         >
       </div>
@@ -219,6 +217,62 @@
         ><button data-chip="saved" class="chip">保存済み</button>
       </div>
       <section class="feed" aria-label="作品一覧">
+        <section
+          id="homeRankings"
+          class="ranking-section"
+          aria-labelledby="rankingTitle"
+          hidden
+        >
+          <div class="ranking-heading">
+            <h2 id="rankingTitle">MissAVランキング</h2>
+            <button id="rankingAll" class="text-button" type="button">
+              すべて見る ›
+            </button>
+          </div>
+          <div class="ranking-toolbar">
+            <div class="ranking-periods" aria-label="MissAVランキングの期間">
+              <button
+                data-home-rank="day"
+                class="chip active"
+                aria-pressed="true"
+              >
+                今日
+              </button>
+              <button data-home-rank="week" class="chip" aria-pressed="false">
+                週間
+              </button>
+              <button data-home-rank="month" class="chip" aria-pressed="false">
+                月間
+              </button>
+              <button data-home-rank="total" class="chip" aria-pressed="false">
+                全期間
+              </button>
+            </div>
+            <div class="ranking-controls">
+              <button
+                id="rankingPrev"
+                class="icon-button"
+                type="button"
+                aria-label="ランキングを左へ"
+              >
+                <svg><use href="#i-arrow" /></svg>
+              </button>
+              <button
+                id="rankingNext"
+                class="icon-button ranking-next"
+                type="button"
+                aria-label="ランキングを右へ"
+              >
+                <svg><use href="#i-arrow" /></svg>
+              </button>
+            </div>
+          </div>
+          <div
+            id="rankingRail"
+            class="ranking-rail"
+            aria-label="MissAV 今日のランキング"
+          ></div>
+        </section>
         <div class="feed-heading">
           <div>
             <h1 id="listTitle">すべての作品</h1>
