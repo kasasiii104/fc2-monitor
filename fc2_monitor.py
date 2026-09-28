@@ -1583,26 +1583,31 @@ def fetch_fc2_sample_assets(code_num: str):
 
 
 def refresh_fc2_previews(items) -> None:
-    """Refresh expiring FC2 sample URLs independently of thumbnail repair."""
+    """Recheck sample URLs across the catalog independently of thumbnail repair."""
     state = load_json(FETCH_STATE_FILE, {})
-    cursor = int(state.get(PREVIEW_REFRESH_CURSOR_KEY) or 0)
     now = now_ts()
+    def last_check(item):
+        return max(int(item.get("preview_checked_at") or 0), int(item.get("fc2_sample_checked_at") or 0))
+
     candidates = []
     for item in items:
         code = item.get("code") or ""
         num = str(item.get("code_num") or code.split("-")[-1])
         if not code or not num.isdigit():
             continue
-        checked = int(item.get("preview_checked_at") or item.get("fc2_sample_checked_at") or 0)
+        checked = last_check(item)
         missing = not item.get("preview")
-        stale = now - checked >= PREVIEW_REFRESH_SEC
         # Legacy Fourhoi previews are best-effort guesses; replace them with
         # the official sample endpoint as soon as possible.
         legacy = "fourhoi.com/" in str(item.get("preview") or "")
-        if missing or stale or legacy:
+        delay = FAIL_SKIP_SEC if missing or legacy else PREVIEW_REFRESH_SEC
+        if not checked or now - checked >= delay:
             candidates.append(item)
-    ordered = rotate_items(candidates, cursor)
-    batch = ordered[:max(0, PREVIEW_REFRESH_LIMIT)]
+    # The candidate list shrinks after success; a positional cursor skips rows.
+    # Oldest/never attempted first also prevents repeated legacy-URL retries
+    # from starving the rest of the catalog.
+    candidates.sort(key=lambda item: (last_check(item), -int(item.get("code_num") or item["code"].split("-")[-1])))
+    batch = candidates[:max(0, PREVIEW_REFRESH_LIMIT)]
     tried = updated = unavailable = 0
     for item in batch:
         num = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
@@ -1612,11 +1617,8 @@ def refresh_fc2_previews(items) -> None:
         item["fc2_sample_checked_at"] = now
         if not meta or not meta.get("preview"):
             unavailable += 1
-            # Do not keep a known-expiring official URL indefinitely after a
-            # fresh official check says there is no usable preview.
-            if item.get("preview_source") == "FC2公式":
-                item["preview"] = ""
-                item["preview_source"] = ""
+            # A timeout, blocked response or missing field does not prove that
+            # an existing sample was removed. Keep it available for playback.
             continue
         if item.get("preview") != meta["preview"] or item.get("preview_source") != "FC2公式":
             updated += 1
@@ -1625,7 +1627,7 @@ def refresh_fc2_previews(items) -> None:
         if meta.get("poster"):
             item["thumb"] = meta["poster"]
             item["thumb_source"] = "FC2公式"
-    state[PREVIEW_REFRESH_CURSOR_KEY] = (cursor + max(tried, 1)) % max(len(candidates), 1)
+    state.pop(PREVIEW_REFRESH_CURSOR_KEY, None)
     state[PREVIEW_REFRESH_STATS_KEY] = {
         "last_run": now, "candidates": len(candidates), "processed": tried,
         "updated": updated, "unavailable": unavailable,
@@ -2069,6 +2071,7 @@ def main() -> int:
         item["thumb_source"] = old.get("thumb_source") or video.get("thumb_source") or ""
         item["preview"] = old.get("preview") or video.get("preview") or ""
         item["preview_source"] = old.get("preview_source") or video.get("preview_source") or ""
+        item["preview_checked_at"] = old.get("preview_checked_at") or 0
         item["fc2_sample_checked_at"] = old.get("fc2_sample_checked_at") or 0
         item["thumb_backfill_checked_at"] = old.get("thumb_backfill_checked_at") or 0
         if old.get("sources"):
