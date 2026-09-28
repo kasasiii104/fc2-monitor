@@ -341,6 +341,7 @@ async function nav(page, name) {
     nextCatalog.version = "test-version-two";
     nextCatalog.updated_at = "2026-09-27 20:00:00";
     nextCatalog.items[0].title = "更新済みサンプル";
+    nextCatalog.items[0].preview = "https://media.example.test/sample.webm";
     nextCatalog.items[0].missav_rank_day = 1;
     nextCatalog.items.push({ ...nextCatalog.items[0], code: "FC2-PPV-8999999", code_num: "8999999" });
     refresh.publishCatalog(nextCatalog);
@@ -373,8 +374,8 @@ async function nav(page, name) {
     // Real playing media defers catalog polling. Pending media has its own
     // timeout and retry checks in preview.cjs.
     await r.route("https://media.example.test/**", (route) => route.fulfill({
-      status: 200, contentType: "video/mp4",
-      body: Buffer.from(fs.readFileSync(path.join(__dirname, "fixtures/preview.mp4.base64"), "utf8"), "base64"),
+      status: 200, contentType: "video/webm",
+      body: Buffer.from(fs.readFileSync(path.join(__dirname, "fixtures/preview.webm.base64"), "utf8"), "base64"),
     }));
     await r.locator(".thumb-link").first().click();
     await r.waitForFunction(() => document.querySelector("#grid video")?.currentTime > 0.1);

@@ -846,6 +846,7 @@
     };
     const waitForPlayback = () => {
       if (activePreview !== session || session.timeout) return;
+      session.started = false;
       if (session.persistent) showInlineState(shell, "読み込み中…");
       session.timeout = setTimeout(() => fail("読み込みが止まりました。タップで再試行"), PREVIEW_TIMEOUT_MS);
     };
@@ -859,7 +860,6 @@
     };
     video.addEventListener("playing", clearLoading);
     video.addEventListener("waiting", waitForPlayback);
-    video.addEventListener("stalled", waitForPlayback);
     video.addEventListener(
       "error",
       () => fail("動画を読み込めません。タップで再試行"),

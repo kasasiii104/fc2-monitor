@@ -7,23 +7,26 @@ const fs = require("node:fs");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 const root = path.resolve(process.env.FIXTURE_DIR || "test-results/fixture");
-const clip = Buffer.from(fs.readFileSync(path.join(__dirname, "fixtures/preview.mp4.base64"), "utf8"), "base64");
+const clips = Object.fromEntries(["mp4", "webm"].map((format) => [format,
+  Buffer.from(fs.readFileSync(path.join(__dirname, `fixtures/preview.${format}.base64`), "utf8"), "base64"),
+]));
 const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const origin = (server) => `http://127.0.0.1:${server.address().port}`;
 
 (async () => {
-  let mode = "play", mediaRequests = 0;
+  let mode = "play", mediaRequests = 0, format = "mp4";
   const requestModes = [];
   const media = http.createServer((req, res) => {
     mediaRequests++;
     requestModes.push(req.headers["sec-fetch-mode"] || "unknown");
     if (mode === "hang") return;
     if (mode === "missing") { res.writeHead(404); return res.end(); }
+    const clip = clips[format];
     const range = (req.headers.range || "").match(/^bytes=(\d+)-(\d*)$/);
     const start = range ? Number(range[1]) : 0;
     const end = range && range[2] ? Math.min(Number(range[2]), clip.length - 1) : clip.length - 1;
     res.writeHead(range ? 206 : 200, {
-      "Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Cache-Control": "no-store",
+      "Content-Type": `video/${format}`, "Accept-Ranges": "bytes", "Cache-Control": "no-store",
       "Content-Length": end - start + 1,
       ...(range ? { "Content-Range": `bytes ${start}-${end}/${clip.length}` } : {}),
     });
@@ -39,7 +42,7 @@ const origin = (server) => `http://127.0.0.1:${server.address().port}`;
     if (name === "catalog.json") {
       const catalog = JSON.parse(fs.readFileSync(path.join(root, name)));
       for (const item of catalog.items) {
-        item.preview = `${origin(media)}/sample.mp4`;
+        item.preview = `${origin(media)}/sample.${format}`;
         item.thumb = `${origin(app)}/poster.svg`;
       }
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -79,6 +82,16 @@ const origin = (server) => `http://127.0.0.1:${server.address().port}`;
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
       mode = "play";
+      // Open-source CI Chromium can omit H.264. Still test actual decoding,
+      // with MP4 wherever supported and the equivalent VP8 fixture otherwise.
+      const codecs = await page.evaluate(() => {
+        const video = document.createElement("video");
+        return { mp4: video.canPlayType('video/mp4; codecs="avc1.64000a"'),
+                 webm: video.canPlayType('video/webm; codecs="vp8"') };
+      });
+      format = codecs.mp4 ? "mp4" : "webm";
+      assert.ok(codecs[format], "The browser can decode the neutral video fixture");
+      console.log(JSON.stringify({ browser: process.env.PREVIEW_BROWSER || "chromium", mobile, codecs, format }));
       await page.goto(origin(app));
       await page.locator('#grid[aria-busy="false"] .thumb-link').first().waitFor();
       const tap = (locator) => mobile ? locator.tap() : locator.click();
