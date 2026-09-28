@@ -164,6 +164,40 @@ class MonitorRecoveryTests(unittest.TestCase):
         self.assertEqual(m.load_json(m.CRAWL_FILE, {}), {'missav_page': 10})
         self.notify.assert_not_called()
 
+    def test_recrawl_preserves_japanese_title_and_its_actual_source(self):
+        self.prepare_monitor()
+        saved = self.item()
+        saved['title_source'] = 'FC2CMADB'
+        m.save_json(m.DATA_FILE, {'items': [saved]})
+        m.save_json(m.HISTORY_FILE, {'ids': [saved['code']]})
+        incoming = self.item()
+        incoming['title'] = 'サンプル作品の非常に長い別表記 - MissAV | オンラインで無料'
+        m.get_latest_videos.return_value = ([incoming], {'missav_page': 22})
+        self.assertEqual(m.main(), 0)
+        result = m.load_json(m.DATA_FILE, {})['items'][0]
+        self.assertEqual(result['title'], saved['title'])
+        self.assertEqual(result['title_source'], 'FC2CMADB')
+        self.notify.assert_not_called()
+
+    def test_recrawl_recovers_saved_official_title_before_enrichment(self):
+        self.prepare_monitor()
+        saved = self.item()
+        saved.update(title='中文測試作品 - MissAV | オンラインで無料', fc2_title='公式のサンプル')
+        m.save_json(m.DATA_FILE, {'items': [saved]})
+        m.save_json(m.HISTORY_FILE, {'ids': [saved['code']]})
+        incoming = self.item()
+        incoming['title'] = '中文測試作品的詳細名稱 - MissAV | オンラインで無料'
+        m.get_latest_videos.return_value = ([incoming], {'missav_page': 22})
+
+        def check_enrichment(items):
+            self.assertEqual(items[0]['title'], '公式のサンプル')
+            self.assertEqual(items[0]['title_source'], 'FC2公式')
+
+        m.enrich_new_fc2_market.side_effect = check_enrichment
+        self.assertEqual(m.main(), 0)
+        self.assertEqual(m.load_json(m.DATA_FILE, {})['items'][0]['title'], '公式のサンプル')
+        self.notify.assert_not_called()
+
     def test_site_write_failure_does_not_advance_cursor(self):
         self.prepare_monitor()
         with patch.object(m, 'write_site', side_effect=OSError('disk full')), self.assertRaises(OSError):

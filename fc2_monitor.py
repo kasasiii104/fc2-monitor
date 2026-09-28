@@ -183,8 +183,14 @@ def fetch_page(url: str) -> dict:
         }
 
 
-def clean_title(text: str, code_num: str) -> str:
+def title_without_site_suffix(text: str) -> str:
     title = html.unescape(re.sub(r"\s+", " ", (text or "")).strip())
+    # MissAV's Japanese site description is page chrome, not a translated title.
+    return re.sub(r"\s*[-–—|｜]\s*MissAV\b.*$", "", title, flags=re.I).strip()
+
+
+def clean_title(text: str, code_num: str) -> str:
+    title = title_without_site_suffix(text)
     if is_invalid_title(title):
         return ""
     # Never let source URLs/path fragments leak into the visible title.
@@ -199,8 +205,8 @@ def clean_title(text: str, code_num: str) -> str:
 
 
 def title_score(text: str):
-    title = text or ""
-    if not title or DURATION_RE.match(title) or title.startswith("FC2-PPV-"):
+    title = title_without_site_suffix(text)
+    if not title or is_invalid_title(title) or DURATION_RE.match(title) or title.startswith("FC2-PPV-"):
         return (0, 0)
     has_ja = 1 if re.search(r"[ぁ-んァ-ン]", title) else 0
     has_cjk = 1 if re.search(r"[\u4e00-\u9fff]", title) else 0
@@ -514,18 +520,19 @@ def refresh_japanese_titles(items) -> None:
             continue
         tried += 1
         code_num = item.get("code_num") or str(code).split("-")[-1]
-        urls = missav_detail_urls(code_num) + [
-            f"https://supjav.com/ja/?s=FC2PPV+{code_num}",
-            f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}",
+        sources = [("MissAV", url) for url in missav_detail_urls(code_num)] + [
+            ("Supjav", f"https://supjav.com/ja/?s=FC2PPV+{code_num}"),
+            ("123AV", f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}"),
         ]
         found, last_err = "", None
-        for url in urls:
+        for source, url in sources:
             try:
                 soup = fetch_soup(url)
                 found = extract_page_title(soup, code_num)
-                if found and is_better_title(found, item.get("title", "")):
+                if found and not needs_jp_title(found) and is_better_title(found, item.get("title", "")):
                     print(f"タイトル更新: {code} -> {found[:40]}")
                     item["title"] = found
+                    item["title_source"] = source
                     updated += 1
                     fails.pop(code, None)
                     break
@@ -886,21 +893,29 @@ def fetch_fc2_market(code_num):
 
 
 
-def sanitize_item_titles(items) -> None:
-    """Remove URLs/path fragments and purge FC2 soft-404 titles."""
+def sanitize_item_titles(items) -> int:
+    """Clean saved titles and restore known Japanese originals without fetching."""
+    changed = 0
     for item in items:
+        before = item.copy()
         code = item.get("code") or ""
         num = item.get("code_num") or code.split("-")[-1]
         had_invalid = is_invalid_title(item.get("title", "")) or is_invalid_title(item.get("fc2_title", ""))
         cleaned = clean_title(item.get("title", ""), num)
         item["title"] = cleaned or code or f"FC2-PPV-{num}"
-        if is_invalid_title(item.get("fc2_title", "")):
-            item["fc2_title"] = ""
+        official_title = clean_title(item.get("fc2_title", ""), num)
+        if "fc2_title" in item:
+            item["fc2_title"] = official_title
         if had_invalid:
             item["fc2_market_not_found"] = True
             item["fc2_market_url"] = ""
             if item.get("title_source") == "FC2公式":
                 item["title_source"] = ""
+        if official_title and not needs_jp_title(official_title):
+            item["title"] = official_title
+            item["title_source"] = "FC2公式"
+        changed += item != before
+    return changed
 
 
 def _fc2cmadb_payload_from_html(text: str):
@@ -943,7 +958,7 @@ def _fc2cmadb_title_from_payload(payload, code_num: str) -> str:
     title = clean_title(str(raw), code_num)
     # The fallback is specifically for Japanese titles. Do not replace a title
     # with Chinese-only text from the mirror.
-    return title if re.search(r"[ぁ-んァ-ン]", title) else ""
+    return title if not needs_jp_title(title) else ""
 
 
 def fetch_fc2cmadb_title(code_num: str):
@@ -1188,8 +1203,8 @@ def enrich_hwalker_market(items) -> None:
         matched += 1
         item["hwalker_checked_at"] = now
         item["hwalker_url"] = rec.get("source_url") or H_WALKER_URL
-        title = (rec.get("title") or "").strip()
-        if title and title_score(title)[0] > 0 and needs_jp_title(item.get("title", "")):
+        title = clean_title(rec.get("title") or "", item.get("code_num") or code.split("-")[-1])
+        if title and not needs_jp_title(title) and needs_jp_title(item.get("title", "")):
             item["title"] = title
             item["title_source"] = "FC2ウォーカー"
             title_updated += 1
@@ -1304,10 +1319,10 @@ def apply_fc2_market_metadata(item, meta, now):
     counts = {"title_updated": 0, "rating_updated": 0, "review_updated": 0}
     item["fc2_market_not_found"] = False
     item["fc2_market_url"] = meta.get("fc2_market_url") or item.get("fc2_market_url") or ""
-    title = (meta.get("fc2_title") or "").strip()
+    title = clean_title(meta.get("fc2_title") or "", item.get("code_num") or item.get("code", "").split("-")[-1])
     if title:
         item["fc2_title"] = title
-        if re.search(r"[ぁ-んァ-ン]", title):
+        if not needs_jp_title(title):
             counts["title_updated"] = int(item.get("title") != title)
             item["title"] = title
             item["title_source"] = "FC2公式"
@@ -1876,6 +1891,10 @@ def write_site(items, updated_at, new_count):
 def rebuild_site():
     payload = load_json(DATA_FILE, {"items": []})
     items = payload.get("items", [])
+    corrected = sanitize_item_titles(items)
+    if corrected:
+        save_json(DATA_FILE, payload)
+        print(f"[Titles repaired] items={corrected}")
     write_site(items, payload.get("updated_at") or now_jst(), sum(bool(x.get("is_new")) for x in items))
     print(f"Site rebuilt: {len(items)} items")
     return 0
@@ -1916,8 +1935,13 @@ def main() -> int:
         old = existing_map.get(video["code"], {})
         is_new = video["code"] not in known and not first_run
         item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new}
-        if old.get("title") and not is_invalid_title(old.get("title", "")) and not is_better_title(item.get("title", ""), old.get("title", "")):
+        # A longer scraped label must not replace an already acquired Japanese
+        # title. Fresh official metadata can still replace it below.
+        if old.get("title") and not is_invalid_title(old.get("title", "")) and (
+            not needs_jp_title(old["title"]) or not is_better_title(item.get("title", ""), old["title"])
+        ):
             item["title"] = old["title"]
+            item["title_source"] = old.get("title_source") or ""
         item["views"] = video.get("views") or old.get("views")
         item["views_source"] = video.get("views_source") or old.get("views_source") or ""
         item["views_checked_at"] = video.get("views_checked_at") or old.get("views_checked_at") or 0
@@ -1941,7 +1965,7 @@ def main() -> int:
         item["fc2_title"] = old.get("fc2_title") or ""
         item["fc2cmadb_url"] = old.get("fc2cmadb_url") or ""
         item["fc2cmadb_checked_at"] = old.get("fc2cmadb_checked_at") or 0
-        item["title_source"] = old.get("title_source") or item.get("title_source") or ""
+        item["title_source"] = item.get("title_source") or ""
         item["duration"] = video.get("duration") or old.get("duration", "")
         item["thumb"] = old.get("thumb") or video.get("thumb") or ""
         item["thumb_source"] = old.get("thumb_source") or video.get("thumb_source") or ""
