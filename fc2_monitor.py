@@ -55,7 +55,7 @@ BACKFILL_RETRY_BASE_SEC = int(os.environ.get("BACKFILL_RETRY_BASE_SEC", str(12 *
 BACKFILL_RETRY_MAX_SEC = int(os.environ.get("BACKFILL_RETRY_MAX_SEC", str(3 * 86400)))
 BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "500"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
-PREVIEW_REFRESH_LIMIT = int(os.environ.get("PREVIEW_REFRESH_LIMIT", "180"))
+PREVIEW_REFRESH_LIMIT = int(os.environ.get("PREVIEW_REFRESH_LIMIT", "500"))
 PREVIEW_REFRESH_SEC = int(os.environ.get("PREVIEW_REFRESH_SEC", str(18 * 3600)))
 PREVIEW_REFRESH_CURSOR_KEY = "preview_refresh_v1_cursor"
 PREVIEW_REFRESH_STATS_KEY = "preview_refresh_v1_stats"
@@ -211,7 +211,11 @@ def clean_title(text: str, code_num: str) -> str:
 CHINESE_TITLE_HINTS = re.compile(
     r"(?:無碼|无码|中文字幕|中字|中文|視頻|视频|線上|线上|觀看|观看|下載|下载|"
     r"這個|这个|這部|这部|女孩們|女孩们|美女們|美女们|人妻們|人妻们|推薦|推荐|"
-    r"處女|处女|調教|调教|內射|内射|口交|做愛|做爱|自拍|約會|约会)"
+    r"處女|处女|調教|调教|內射|内射|口交|做愛|做爱|自拍|約會|约会|"
+    r"露臉|露脸|歲|岁|剛|刚|藥劑師|药剂师|與|与|東方|东方|大腦|大脑|"
+    r"錯誤|错误|傳教士|传教士|超過|超过|萬|万|長|长|體|体|發|发|"
+    r"為|为|來|来|還|还|會|会|讓|让|從|从|後|后|裡|里|開|开|"
+    r"當|当|兩|两|對|对|時|时|說|说|給|给|過|过|種|种|麼|么)"
 )
 JAPANESE_TITLE_HINTS = re.compile(
     r"(?:限定|素人|人妻|女子|大学|美人|美少女|巨乳|中出し|顔射|潮吹き|"
@@ -228,7 +232,11 @@ def looks_chinese_title(text: str) -> bool:
         return True
     # Simplified/traditional-only characters that are not normally used in
     # Japanese FC2 product titles are strong evidence even without a phrase hit.
-    return bool(re.search(r"[这們们视頻频线观载载处调爱约个为与无码]", title))
+    return bool(re.search(
+        r"[这這們们歲岁剛刚藥药劑剂與与東东腦脑錯错傳传過过萬万體体發发為为"
+        r"來来還还會会讓让從从後后裡里開开當当兩两對对時时說说給给種种麼么"
+        r"視頻频線线觀观看載载處处調调愛爱約约個个無无码]", title
+    ))
 
 def title_score(text: str):
     title = title_without_site_suffix(text)
