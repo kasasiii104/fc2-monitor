@@ -370,10 +370,14 @@ async function nav(page, name) {
     assert.equal(await r.locator("#q").inputValue(), "8000000");
     assert.equal(await r.locator("#savedCount").innerText(), "1");
 
-    // Keep an in-flight preview alive while its media response is pending.
-    // Other tests above cover the separate media-error/retry behavior.
-    await r.route("https://media.example.test/**", () => {});
+    // Real playing media defers catalog polling. Pending media has its own
+    // timeout and retry checks in preview.cjs.
+    await r.route("https://media.example.test/**", (route) => route.fulfill({
+      status: 200, contentType: "video/mp4",
+      body: Buffer.from(fs.readFileSync(path.join(__dirname, "fixtures/preview.mp4.base64"), "utf8"), "base64"),
+    }));
     await r.locator(".thumb-link").first().click();
+    await r.waitForFunction(() => document.querySelector("#grid video")?.currentTime > 0.1);
     assert.equal(await r.locator("#grid video").count(), 1);
     const countBeforePreview = refresh.manifestRequests;
     await r.clock.fastForward(5 * 60 * 1000);
