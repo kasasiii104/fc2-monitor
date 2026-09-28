@@ -59,7 +59,7 @@ THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
 THUMB_BACKFILL_ATTEMPTS_KEY = "thumbnail_backfill_v1_attempted_at"
 THUMB_BACKFILL_STATS_KEY = "thumbnail_backfill_v1_stats"
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
-TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "30"))
+TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "120"))
 VIEW_REFRESH_SEC = int(os.environ.get("VIEW_REFRESH_SEC", str(8 * 3600)))
 FAIL_SKIP_SEC = 12 * 3600
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
@@ -511,8 +511,16 @@ def refresh_japanese_titles(items) -> None:
     now = now_ts()
     updated = tried = 0
     targets = [x for x in items if needs_jp_title(x.get("title", ""))]
-    for item in rotate_items(targets, cursor):
-        if updated >= TITLE_FETCH_LIMIT or tried >= TITLE_FETCH_LIMIT * 3:
+    # New discoveries must not wait behind thousands of historical records.
+    # Then continue the rotating historical backfill so the old catalog
+    # gradually becomes Japanese as well.
+    new_targets = [x for x in targets if x.get("is_new")]
+    historical = [x for x in targets if not x.get("is_new")]
+    ordered = new_targets + rotate_items(historical, cursor)
+    new_budget = len(new_targets)
+    total_budget = new_budget + TITLE_FETCH_LIMIT
+    for item in ordered:
+        if tried >= total_budget:
             break
         code = item.get("code") or ""
         last_fail = int(fails.get(code) or 0)
@@ -546,7 +554,8 @@ def refresh_japanese_titles(items) -> None:
             if last_err:
                 print(f"タイトル取得失敗 {code}: {last_err}")
     state["title_fail"] = fails
-    state["title_cursor"] = (cursor + max(tried, 1)) % max(len(targets), 1)
+    historical_tried = max(0, tried - new_budget)
+    state["title_cursor"] = (cursor + max(historical_tried, 1)) % max(len(historical), 1)
     save_json(FETCH_STATE_FILE, state)
 
 
