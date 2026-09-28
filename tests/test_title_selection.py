@@ -26,7 +26,7 @@ class TitleSelectionTests(unittest.TestCase):
         return {'code': 'FC2-PPV-8000001', 'code_num': '8000001', 'title': title, **extra}
 
     def test_chinese_hints_do_not_count_as_japanese(self):
-        for title in ('无码人妻視頻在線觀看', '这个女孩们推荐作品', '中文字幕處女調教'):
+        for title in ('无码人妻視頻在線觀看', '这个女孩们推荐作品', '中文字幕處女調教', '到11/18 1500分【150cm，巨乳】F罩杯25歲，剛成為藥劑師', '第一次拍照和露臉！陽光般光芒四射的東方美人', 'SNS粉絲數超過30萬！大腦錯誤。背部和傳教士'):
             with self.subTest(title=title):
                 self.assertTrue(m.looks_chinese_title(title))
                 self.assertTrue(m.needs_jp_title(title))
