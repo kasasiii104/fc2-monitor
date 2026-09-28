@@ -828,10 +828,15 @@
     video.muted = true;
     video.loop = true;
     video.playsInline = true;
-    video.preload = persistent ? "metadata" : "none";
+    video.preload = persistent ? "auto" : "metadata";
     video.poster = safeURL(it.thumb) || "";
+    video.crossOrigin = "anonymous";
     video.src = url;
-    video.setAttribute("referrerpolicy", "no-referrer");
+    // FC2 sample hosts can validate the article/site origin. Suppressing the
+    // referrer made otherwise valid official samples fail on some CDN nodes.
+    if (!/\.fc2\.com$/i.test(new URL(url).hostname) && !/\.fc2\.com\b/i.test(new URL(url).hostname)) {
+      video.setAttribute("referrerpolicy", "no-referrer");
+    }
     video.setAttribute("aria-hidden", "true");
     video.addEventListener("timeupdate", () => saveProgress(it, video));
     const clearLoading = () => {
