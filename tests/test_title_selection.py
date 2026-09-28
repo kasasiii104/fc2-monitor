@@ -25,6 +25,14 @@ class TitleSelectionTests(unittest.TestCase):
     def item(self, title='中文測試作品', **extra):
         return {'code': 'FC2-PPV-8000001', 'code_num': '8000001', 'title': title, **extra}
 
+    def test_chinese_hints_do_not_count_as_japanese(self):
+        for title in ('无码人妻視頻在線觀看', '这个女孩们推荐作品', '中文字幕處女調教'):
+            with self.subTest(title=title):
+                self.assertTrue(m.looks_chinese_title(title))
+                self.assertTrue(m.needs_jp_title(title))
+        self.assertFalse(m.looks_chinese_title('人妻限定販売'))
+        self.assertFalse(m.needs_jp_title('人妻限定販売'))
+
     def test_site_description_does_not_count_as_japanese(self):
         for separator in (' - ', ' — ', ' | ', '｜'):
             raw = '中文測試作品' + separator + 'MissAV | オンラインで無料'

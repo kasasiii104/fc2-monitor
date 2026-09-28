@@ -55,6 +55,10 @@ BACKFILL_RETRY_BASE_SEC = int(os.environ.get("BACKFILL_RETRY_BASE_SEC", str(12 *
 BACKFILL_RETRY_MAX_SEC = int(os.environ.get("BACKFILL_RETRY_MAX_SEC", str(3 * 86400)))
 BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "500"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
+PREVIEW_REFRESH_LIMIT = int(os.environ.get("PREVIEW_REFRESH_LIMIT", "180"))
+PREVIEW_REFRESH_SEC = int(os.environ.get("PREVIEW_REFRESH_SEC", str(18 * 3600)))
+PREVIEW_REFRESH_CURSOR_KEY = "preview_refresh_v1_cursor"
+PREVIEW_REFRESH_STATS_KEY = "preview_refresh_v1_stats"
 THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
 THUMB_BACKFILL_ATTEMPTS_KEY = "thumbnail_backfill_v1_attempted_at"
 THUMB_BACKFILL_STATS_KEY = "thumbnail_backfill_v1_stats"
@@ -204,13 +208,38 @@ def clean_title(text: str, code_num: str) -> str:
     return title[:180]
 
 
+CHINESE_TITLE_HINTS = re.compile(
+    r"(?:無碼|无码|中文字幕|中字|中文|視頻|视频|線上|线上|觀看|观看|下載|下载|"
+    r"這個|这个|這部|这部|女孩們|女孩们|美女們|美女们|人妻們|人妻们|推薦|推荐|"
+    r"處女|处女|調教|调教|內射|内射|口交|做愛|做爱|自拍|約會|约会)"
+)
+JAPANESE_TITLE_HINTS = re.compile(
+    r"(?:限定|素人|人妻|女子|大学|美人|美少女|巨乳|中出し|顔射|潮吹き|"
+    r"初撮り|個人撮影|無修正|生ハメ|援交|熟女|痴女|作品|特典|販売)"
+)
+
+def looks_chinese_title(text: str) -> bool:
+    title = title_without_site_suffix(text)
+    if not title:
+        return False
+    if re.search(r"[ぁ-んァ-ヶ]", title):
+        return False
+    if re.search(r"[\u3400-\u9fff]", title) and CHINESE_TITLE_HINTS.search(title):
+        return True
+    # Simplified/traditional-only characters that are not normally used in
+    # Japanese FC2 product titles are strong evidence even without a phrase hit.
+    return bool(re.search(r"[这們们视頻频线观载载处调爱约个为与无码]", title))
+
 def title_score(text: str):
     title = title_without_site_suffix(text)
     if not title or is_invalid_title(title) or DURATION_RE.match(title) or title.startswith("FC2-PPV-"):
         return (0, 0)
-    has_ja = 1 if re.search(r"[ぁ-んァ-ン]", title) else 0
-    has_cjk = 1 if re.search(r"[\u4e00-\u9fff]", title) else 0
-    return (3 if has_ja else (1 if has_cjk else 0), len(title))
+    if looks_chinese_title(title):
+        return (0, len(title))
+    has_kana = bool(re.search(r"[ぁ-んァ-ヶ]", title))
+    has_cjk = bool(re.search(r"[\u3400-\u9fff]", title))
+    japanese_kanji_only = bool(has_cjk and JAPANESE_TITLE_HINTS.search(title))
+    return (3 if (has_kana or japanese_kanji_only) else (1 if has_cjk else 0), len(title))
 
 
 def is_better_title(new: str, old: str) -> bool:
@@ -1545,6 +1574,58 @@ def fetch_fc2_sample_assets(code_num: str):
     return {"preview": preview, "poster": poster}
 
 
+def refresh_fc2_previews(items) -> None:
+    """Refresh expiring FC2 sample URLs independently of thumbnail repair."""
+    state = load_json(FETCH_STATE_FILE, {})
+    cursor = int(state.get(PREVIEW_REFRESH_CURSOR_KEY) or 0)
+    now = now_ts()
+    candidates = []
+    for item in items:
+        code = item.get("code") or ""
+        num = str(item.get("code_num") or code.split("-")[-1])
+        if not code or not num.isdigit():
+            continue
+        checked = int(item.get("preview_checked_at") or item.get("fc2_sample_checked_at") or 0)
+        missing = not item.get("preview")
+        stale = now - checked >= PREVIEW_REFRESH_SEC
+        # Legacy Fourhoi previews are best-effort guesses; replace them with
+        # the official sample endpoint as soon as possible.
+        legacy = "fourhoi.com/" in str(item.get("preview") or "")
+        if missing or stale or legacy:
+            candidates.append(item)
+    ordered = rotate_items(candidates, cursor)
+    batch = ordered[:max(0, PREVIEW_REFRESH_LIMIT)]
+    tried = updated = unavailable = 0
+    for item in batch:
+        num = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
+        tried += 1
+        meta = fetch_fc2_sample_assets(num)
+        item["preview_checked_at"] = now
+        item["fc2_sample_checked_at"] = now
+        if not meta or not meta.get("preview"):
+            unavailable += 1
+            # Do not keep a known-expiring official URL indefinitely after a
+            # fresh official check says there is no usable preview.
+            if item.get("preview_source") == "FC2公式":
+                item["preview"] = ""
+                item["preview_source"] = ""
+            continue
+        if item.get("preview") != meta["preview"] or item.get("preview_source") != "FC2公式":
+            updated += 1
+        item["preview"] = meta["preview"]
+        item["preview_source"] = "FC2公式"
+        if meta.get("poster"):
+            item["thumb"] = meta["poster"]
+            item["thumb_source"] = "FC2公式"
+    state[PREVIEW_REFRESH_CURSOR_KEY] = (cursor + max(tried, 1)) % max(len(candidates), 1)
+    state[PREVIEW_REFRESH_STATS_KEY] = {
+        "last_run": now, "candidates": len(candidates), "processed": tried,
+        "updated": updated, "unavailable": unavailable,
+    }
+    save_json(FETCH_STATE_FILE, state)
+    print(f"[Preview refresh] stats={state[PREVIEW_REFRESH_STATS_KEY]}")
+
+
 def enrich_fc2_sample_assets(items) -> None:
     now = now_ts()
     tried = updated = 0
@@ -2002,7 +2083,7 @@ def main() -> int:
     for action in (enrich_new_fc2_market, refresh_fc2cmadb_titles,
                    run_continuous_metadata_backfill, enrich_hwalker_market,
                    refresh_japanese_titles, fill_missing_views, enrich_fc2_market,
-                   run_thumbnail_backfill, enrich_fc2_sample_assets):
+                   run_thumbnail_backfill, refresh_fc2_previews, enrich_fc2_sample_assets):
         run_optional_step(action.__name__, action, merged)
     run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), stamp))
     run_optional_step("Views history", update_views_history, merged)
