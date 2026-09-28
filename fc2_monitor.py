@@ -57,6 +57,7 @@ BACKFILL_OFFICIAL_LIMIT = int(os.environ.get("BACKFILL_OFFICIAL_LIMIT", "500"))
 FC2_SAMPLE_FETCH_LIMIT = int(os.environ.get("FC2_SAMPLE_FETCH_LIMIT", "24"))
 PREVIEW_REFRESH_LIMIT = int(os.environ.get("PREVIEW_REFRESH_LIMIT", "500"))
 PREVIEW_REFRESH_SEC = int(os.environ.get("PREVIEW_REFRESH_SEC", str(18 * 3600)))
+SAMPLE_RETRY_MAX_SEC = 3 * 86400
 PREVIEW_REFRESH_CURSOR_KEY = "preview_refresh_v1_cursor"
 PREVIEW_REFRESH_STATS_KEY = "preview_refresh_v1_stats"
 THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
@@ -1582,55 +1583,98 @@ def fetch_fc2_sample_assets(code_num: str):
     return {"preview": preview, "poster": poster}
 
 
+def sample_checked_at(item, previous_attempt=0):
+    return max([int(item.get(key) or 0) for key in (
+        "preview_checked_at", "fc2_sample_checked_at", "thumb_backfill_checked_at"
+    )] + [int(previous_attempt or 0)])
+
+
+def has_official_preview(item):
+    return bool(item.get("preview")) and item.get("preview_source") == "FC2公式"
+
+
+def sample_retry_due(item, now, previous_attempt=0):
+    checked = sample_checked_at(item, previous_attempt)
+    if not checked:
+        return True
+    retry_at = int(item.get("fc2_sample_retry_at") or 0)
+    if retry_at:
+        return now >= retry_at and now > checked
+    # Migrate existing checks without treating old records as never attempted.
+    delay = PREVIEW_REFRESH_SEC if has_official_preview(item) else FAIL_SKIP_SEC
+    return now - checked >= delay
+
+
+def sample_backfill_order(item, previous_attempt=0):
+    # New discoveries must not continually overtake older, unchecked records.
+    return (sample_checked_at(item, previous_attempt), item.get("first_seen") or "",
+            -int(item.get("code_num") or item["code"].split("-")[-1]))
+
+
+def apply_fc2_sample_result(item, meta, now):
+    """Share result/cooldown across recent, preview and thumbnail acquisition."""
+    item["fc2_sample_checked_at"] = now
+    if meta and meta.get("preview"):
+        item["preview"] = meta["preview"]
+        item["preview_source"] = "FC2公式"
+        item["fc2_sample_last_success"] = now
+        item["fc2_sample_failures"] = 0
+        item["fc2_sample_retry_at"] = now + PREVIEW_REFRESH_SEC
+    else:
+        failures = max(0, int(item.get("fc2_sample_failures") or 0)) + 1
+        item["fc2_sample_failures"] = failures
+        item["fc2_sample_retry_at"] = now + min(
+            SAMPLE_RETRY_MAX_SEC, FAIL_SKIP_SEC * 2 ** min(failures - 1, 3)
+        )
+        # An unavailable response does not prove a saved sample was removed.
+        # Keep the URL, but do not repeatedly spend repair slots on this item.
+    if meta and meta.get("poster"):
+        item["thumb"] = meta["poster"]
+        item["thumb_source"] = "FC2公式"
+
+
 def refresh_fc2_previews(items) -> None:
     """Recheck sample URLs across the catalog independently of thumbnail repair."""
     state = load_json(FETCH_STATE_FILE, {})
     now = now_ts()
-    def last_check(item):
-        return max(int(item.get("preview_checked_at") or 0), int(item.get("fc2_sample_checked_at") or 0))
-
     candidates = []
     for item in items:
         code = item.get("code") or ""
         num = str(item.get("code_num") or code.split("-")[-1])
         if not code or not num.isdigit():
             continue
-        checked = last_check(item)
-        missing = not item.get("preview")
-        # Legacy Fourhoi previews are best-effort guesses; replace them with
-        # the official sample endpoint as soon as possible.
-        legacy = "fourhoi.com/" in str(item.get("preview") or "")
-        delay = FAIL_SKIP_SEC if missing or legacy else PREVIEW_REFRESH_SEC
-        if not checked or now - checked >= delay:
+        if sample_retry_due(item, now):
             candidates.append(item)
-    # The candidate list shrinks after success; a positional cursor skips rows.
-    # Oldest/never attempted first also prevents repeated legacy-URL retries
-    # from starving the rest of the catalog.
-    candidates.sort(key=lambda item: (last_check(item), -int(item.get("code_num") or item["code"].split("-")[-1])))
-    batch = candidates[:max(0, PREVIEW_REFRESH_LIMIT)]
+    candidates.sort(key=sample_backfill_order)
+    pending = [item for item in candidates if not has_official_preview(item)]
+    confirmed = [item for item in candidates if has_official_preview(item)]
+    limit = max(0, PREVIEW_REFRESH_LIMIT)
+    # Reserve 80% for acquisition until historical coverage catches up, while
+    # retaining a refresh lane for known samples. Either lane can use spare slots.
+    refresh_count = min(len(confirmed), limit // 5)
+    backfill_count = min(len(pending), limit - refresh_count)
+    refresh_count = min(len(confirmed), limit - backfill_count)
+    batch = pending[:backfill_count] + confirmed[:refresh_count]
     tried = updated = unavailable = 0
     for item in batch:
         num = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
         tried += 1
         meta = fetch_fc2_sample_assets(num)
+        before = (item.get("preview"), item.get("preview_source"))
+        apply_fc2_sample_result(item, meta, now)
         item["preview_checked_at"] = now
-        item["fc2_sample_checked_at"] = now
         if not meta or not meta.get("preview"):
             unavailable += 1
-            # A timeout, blocked response or missing field does not prove that
-            # an existing sample was removed. Keep it available for playback.
             continue
-        if item.get("preview") != meta["preview"] or item.get("preview_source") != "FC2公式":
+        if before != (item.get("preview"), item.get("preview_source")):
             updated += 1
-        item["preview"] = meta["preview"]
-        item["preview_source"] = "FC2公式"
-        if meta.get("poster"):
-            item["thumb"] = meta["poster"]
-            item["thumb_source"] = "FC2公式"
     state.pop(PREVIEW_REFRESH_CURSOR_KEY, None)
     state[PREVIEW_REFRESH_STATS_KEY] = {
         "last_run": now, "candidates": len(candidates), "processed": tried,
         "updated": updated, "unavailable": unavailable,
+        "backfill_processed": backfill_count, "refresh_processed": refresh_count,
+        "never_checked_remaining": sum(not sample_checked_at(item) for item in items),
+        "remaining_unconfirmed": sum(not has_official_preview(item) for item in items),
     }
     save_json(FETCH_STATE_FILE, state)
     print(f"[Preview refresh] stats={state[PREVIEW_REFRESH_STATS_KEY]}")
@@ -1639,26 +1683,20 @@ def refresh_fc2_previews(items) -> None:
 def enrich_fc2_sample_assets(items) -> None:
     now = now_ts()
     tried = updated = 0
-    # Keep a small newest-first refresh for recent items. Historical thumbnail
-    # repair is handled separately by the continuous thumbnail backfill.
+    # Keep a small recent-item lane without re-fetching the same samples through
+    # the thumbnail/preview lanes, or refreshing successful URLs every two hours.
     for item in items:
         if tried >= FC2_SAMPLE_FETCH_LIMIT:
             break
         code = item.get("code") or ""
-        num = item.get("code_num") or code.split("-")[-1]
-        if not num.isdigit():
+        num = str(item.get("code_num") or code.split("-")[-1])
+        if not code or not num.isdigit() or not sample_retry_due(item, now):
             continue
         tried += 1
         meta = fetch_fc2_sample_assets(num)
-        item["fc2_sample_checked_at"] = now
+        apply_fc2_sample_result(item, meta, now)
         if not meta:
             continue
-        if meta.get("preview"):
-            item["preview"] = meta["preview"]
-            item["preview_source"] = "FC2公式"
-        if meta.get("poster"):
-            item["thumb"] = meta["poster"]
-            item["thumb_source"] = "FC2公式"
         updated += 1
     print(f"[FC2 sample] tried={tried} updated={updated}")
 
@@ -1673,6 +1711,7 @@ def run_thumbnail_backfill(items) -> None:
     # A Fourhoi cover is only a best-effort default. Prioritize records whose
     # thumbnail has never been confirmed/replaced by the FC2 official poster.
     candidates = []
+    cooldown_skipped = 0
     live_codes = set()
     for item in items:
         code = item.get("code") or ""
@@ -1682,16 +1721,15 @@ def run_thumbnail_backfill(items) -> None:
         live_codes.add(code)
         if item.get("thumb_source") == "FC2公式":
             continue
+        # Thumbnail and preview repair use the same endpoint. A separate
+        # thumbnail cursor used to recheck failures from the preceding run.
+        if not sample_retry_due(item, now, attempts.get(code, 0)):
+            cooldown_skipped += 1
+            continue
         candidates.append(item)
 
-    # Never/least-recently attempted first. Preview-bearing records get
-    # priority because those are the visible "No Image but preview works" cases.
-    candidates.sort(key=lambda item: (
-        0 if item.get("preview") else 1,
-        int(attempts.get(item.get("code") or "", 0) or 0),
-        -int(item.get("code_num") or str(item.get("code", "")).split("-")[-1]),
-    ))
-    batch = candidates[:THUMB_BACKFILL_LIMIT]
+    candidates.sort(key=lambda item: sample_backfill_order(item, attempts.get(item["code"], 0)))
+    batch = candidates[:max(0, THUMB_BACKFILL_LIMIT)]
 
     tried = poster_updated = preview_updated = failed = 0
     for item in batch:
@@ -1700,21 +1738,19 @@ def run_thumbnail_backfill(items) -> None:
         tried += 1
         attempts[code] = now
         meta = fetch_fc2_sample_assets(num)
-        item["fc2_sample_checked_at"] = now
+        old_preview = item.get("preview")
+        old_poster = (item.get("thumb"), item.get("thumb_source"))
+        apply_fc2_sample_result(item, meta, now)
         item["thumb_backfill_checked_at"] = now
         if not meta:
             failed += 1
             continue
         if meta.get("preview"):
-            if item.get("preview") != meta["preview"]:
+            if old_preview != item.get("preview"):
                 preview_updated += 1
-            item["preview"] = meta["preview"]
-            item["preview_source"] = "FC2公式"
         if meta.get("poster"):
-            if item.get("thumb") != meta["poster"] or item.get("thumb_source") != "FC2公式":
+            if old_poster != (item.get("thumb"), item.get("thumb_source")):
                 poster_updated += 1
-            item["thumb"] = meta["poster"]
-            item["thumb_source"] = "FC2公式"
 
     # Keep state bounded to records that still exist in the library.
     attempts = {code: ts for code, ts in attempts.items() if code in live_codes}
@@ -1722,6 +1758,7 @@ def run_thumbnail_backfill(items) -> None:
     stats = {
         "last_run": now,
         "candidates_before": len(candidates),
+        "cooldown_skipped": cooldown_skipped,
         "processed": tried,
         "poster_updated": poster_updated,
         "preview_updated": preview_updated,
@@ -2074,6 +2111,8 @@ def main() -> int:
         item["preview_checked_at"] = old.get("preview_checked_at") or 0
         item["fc2_sample_checked_at"] = old.get("fc2_sample_checked_at") or 0
         item["thumb_backfill_checked_at"] = old.get("thumb_backfill_checked_at") or 0
+        for key in ("fc2_sample_last_success", "fc2_sample_failures", "fc2_sample_retry_at"):
+            item[key] = old.get(key) or 0
         if old.get("sources"):
             item["sources"] = {**old.get("sources", {}), **item.get("sources", {})}
         merged.append(item)
@@ -2094,7 +2133,7 @@ def main() -> int:
     for action in (enrich_new_fc2_market, refresh_fc2cmadb_titles,
                    run_continuous_metadata_backfill, enrich_hwalker_market,
                    refresh_japanese_titles, fill_missing_views, enrich_fc2_market,
-                   run_thumbnail_backfill, refresh_fc2_previews, enrich_fc2_sample_assets):
+                   enrich_fc2_sample_assets, run_thumbnail_backfill, refresh_fc2_previews):
         run_optional_step(action.__name__, action, merged)
     run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), stamp))
     run_optional_step("Views history", update_views_history, merged)
