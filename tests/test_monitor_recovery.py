@@ -123,7 +123,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         self.enterContext(patch.object(m, 'get_latest_videos', return_value=([self.item()], {'missav_page': 22})))
         for name in ('enrich_new_fc2_market', 'refresh_fc2cmadb_titles', 'run_continuous_metadata_backfill',
                      'enrich_hwalker_market', 'refresh_japanese_titles', 'fill_missing_views', 'enrich_fc2_market',
-                     'run_thumbnail_backfill', 'enrich_fc2_sample_assets', 'update_views_history'):
+                     'run_thumbnail_backfill', 'refresh_fc2_previews', 'enrich_fc2_sample_assets', 'update_views_history'):
             self.enterContext(patch.object(m, name, autospec=True, return_value=None))
         self.enterContext(patch.object(m, 'scrape_missav_rankings', return_value={'FC2-PPV-8000001': {'day': 1}}))
         self.notify = self.enterContext(patch.object(m, 'send_telegram', autospec=True))
