@@ -168,6 +168,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         self.prepare_monitor()
         saved = self.item()
         saved['title_source'] = 'FC2CMADB'
+        saved['source_title'] = '中文測試作品'
         saved['preview_checked_at'] = 123456
         saved['fc2_sample_failures'] = 3
         saved['fc2_sample_retry_at'] = 999999
@@ -183,6 +184,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         result = m.load_json(m.DATA_FILE, {})['items'][0]
         self.assertEqual(result['title'], saved['title'])
         self.assertEqual(result['title_source'], 'FC2CMADB')
+        self.assertEqual(result['source_title'], saved['source_title'])
         self.assertEqual(result['preview_checked_at'], 123456)
         self.assertEqual(result['fc2_sample_failures'], 3)
         self.assertEqual(result['fc2_sample_retry_at'], 999999)
