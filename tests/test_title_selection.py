@@ -32,6 +32,16 @@ class TitleSelectionTests(unittest.TestCase):
                 self.assertTrue(m.needs_jp_title(title))
         self.assertFalse(m.looks_chinese_title('人妻限定販売'))
         self.assertFalse(m.needs_jp_title('人妻限定販売'))
+        for title in (
+            '980pt 僅限 3 天！ 【I Cup】「我就是胸？」諮詢巨乳想見人，結果胸',
+            '* 退出某大型FC2銷售群【GW限定特賣】天使般的奇蹟般的一年級生。',
+            '* 數量有限@4739pt → 2930pt 【完整出場】H罩杯巨乳已婚女人',
+            '*限定巨乳【3天限定特賣】Vtuber Yomi*，毛茸茸的天然Gcup',
+            '*請多多支持新人m(__)m【素人奇聞趣事NTR】科羅娜也聚集了',
+        ):
+            with self.subTest(real_production_chinese=title):
+                self.assertTrue(m.looks_chinese_title(title))
+                self.assertTrue(m.needs_jp_title(title))
 
     def test_site_description_does_not_count_as_japanese(self):
         for separator in (' - ', ' — ', ' | ', '｜'):
@@ -137,7 +147,7 @@ class TitleSelectionTests(unittest.TestCase):
         self.assertEqual(saved['updated_at'], payload['updated_at'])
         self.assertEqual(saved['items'][0]['title'], '公式のサンプル')
         self.assertEqual(saved['items'][0]['fc2_market_last_attempt'], 123)
-        self.assertEqual(saved['items'][1]['title'], '中文測試作品')
+        self.assertEqual(saved['items'][1]['title'], 'FC2-PPV-8000002')
         self.assertTrue(m.needs_jp_title(saved['items'][1]['title']))
         self.assertEqual([x['title'] for x in saved['items']], [x['title'] for x in catalog['items']])
         self.assertEqual(update['version'], catalog['version'])
