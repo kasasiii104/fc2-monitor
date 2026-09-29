@@ -14,13 +14,22 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 const origin = (server) => `http://127.0.0.1:${server.address().port}`;
 
 (async () => {
-  let mode = "play", mediaRequests = 0, format = "mp4";
+  let mode = "play", mediaRequests = 0, format = "mp4", catalogMode = "single";
   const requestModes = [];
+  const requestPaths = [];
   const media = http.createServer((req, res) => {
     mediaRequests++;
+    requestPaths.push(req.url);
     requestModes.push(req.headers["sec-fetch-mode"] || "unknown");
     if (mode === "hang") return;
+    if (mode === "hang-primary" && req.url.startsWith("/primary.")) return;
     if (mode === "missing") { res.writeHead(404); return res.end(); }
+    if (mode === "fallback" && req.url.startsWith("/primary.")) {
+      res.writeHead(403); return res.end();
+    }
+    if (mode === "fallback" && req.url.startsWith("/unavailable.")) {
+      res.writeHead(404); return res.end();
+    }
     const clip = clips[format];
     const range = (req.headers.range || "").match(/^bytes=(\d+)-(\d*)$/);
     const start = range ? Number(range[1]) : 0;
@@ -42,7 +51,14 @@ const origin = (server) => `http://127.0.0.1:${server.address().port}`;
     if (name === "catalog.json") {
       const catalog = JSON.parse(fs.readFileSync(path.join(root, name)));
       for (const item of catalog.items) {
-        item.preview = `${origin(media)}/sample.${format}`;
+        item.preview = `${origin(media)}/${catalogMode === "single" ? "sample" : "primary"}.${format}`;
+        item.preview_fallbacks = catalogMode === "single" ? [] : [`${origin(media)}/backup.${format}`];
+        if (catalogMode === "fallback-only") item.preview = "";
+        if (catalogMode === "triple") item.preview_fallbacks = [
+          `${origin(media)}/unavailable.${format}`, `${origin(media)}/backup.${format}`,
+          `${origin(media)}/unused.${format}`];
+        if (catalogMode === "duplicates") item.preview_fallbacks = [item.preview, ...item.preview_fallbacks,
+          ...item.preview_fallbacks, "javascript:alert(1)", null];
         item.thumb = `${origin(app)}/poster.svg`;
       }
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -82,6 +98,7 @@ const origin = (server) => `http://127.0.0.1:${server.address().port}`;
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
       mode = "play";
+      catalogMode = "single";
       // Open-source CI Chromium can omit H.264. Still test actual decoding,
       // with MP4 wherever supported and the equivalent VP8 fixture otherwise.
       const codecs = await page.evaluate(() => {
@@ -152,8 +169,90 @@ const origin = (server) => `http://127.0.0.1:${server.address().port}`;
       await tap(first);
       await page.waitForFunction(() => document.querySelector("#grid video")?.currentTime > 0.1);
       await tap(first);
+
+      const reload = async (catalog, response) => {
+        await page.mouse.move(0, 0);
+        catalogMode = catalog; mode = response; requestPaths.length = 0;
+        await page.reload();
+        await page.locator('#grid[aria-busy="false"] .thumb-link').first().waitFor();
+      };
+      const backupPlaying = () => page.waitForFunction(() => {
+        const v = document.querySelector("#grid video");
+        return v?.currentTime > 0.1 && v.currentSrc.includes("/backup.");
+      });
+      // A rejected primary can use a separately available saved source. No
+      // credential change, proxy or browser security override is involved.
+      await reload("duplicates", "fallback");
+      await tap(first);
+      await backupPlaying();
+      assert.ok(requestPaths.some((p) => p.startsWith("/primary.")));
+      assert.ok(requestPaths.some((p) => p.startsWith("/backup.")));
+      assert.equal(await page.locator("video").count(), 1);
+      assert.equal(await page.locator(".inline-preview-state").count(), 0);
+      await tap(first);
+      requestPaths.length = 0;
+      await tap(first);
+      await backupPlaying();
+      assert.ok(!requestPaths.some((p) => p.startsWith("/primary.")), "A working source is reused on the next tap");
+      await tap(first);
+
+      await reload("triple", "fallback");
+      await tap(first);
+      await backupPlaying();
+      assert.equal(new Set(requestPaths).size, 3);
+      assert.ok(!requestPaths.some((p) => p.startsWith("/unused.")), "Candidates are bounded to three sources");
+      await tap(first);
+
+      await reload("fallback-only", "play");
+      await tap(first);
+      await backupPlaying();
+      await tap(first);
+
+      await reload("fallback", "missing");
+      await tap(first);
+      await page.locator("#grid .inline-preview-state.error").first().waitFor();
+      assert.equal(await page.locator("video").count(), 0, "All failed candidates stop cleanly");
+      assert.equal(new Set(requestPaths).size, 2, "Each distinct source is attempted without a retry loop");
+      mode = "play";
+      await tap(first);
+      await page.waitForFunction(() => document.querySelector("#grid video")?.currentTime > 0.1);
+      await tap(first);
+
+      await reload("fallback", "hang-primary");
+      await tap(first);
+      await page.clock.fastForward(7501);
+      await backupPlaying();
+      await tap(first);
+
+      await reload("fallback", "hang");
+      await tap(first);
+      await page.clock.fastForward(7501);
+      await page.clock.fastForward(7501);
+      await page.locator("#grid .inline-preview-state.error").first().waitFor();
+      assert.equal(await page.locator("video").count(), 0, "Fallbacks share a total 15-second waiting budget");
+
+      // Cancelling a pending attempt must not resurrect a player later.
+      await reload("fallback", "hang-primary");
+      await tap(first);
+      await tap(first);
+      await page.clock.fastForward(15001);
+      assert.equal(await page.locator("video").count(), 0);
+      assert.ok(!requestPaths.some((p) => p.startsWith("/backup.")));
+
+      await reload("fallback", "play");
+      await page.evaluate(() => {
+        const original = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function () {
+          HTMLMediaElement.prototype.play = original;
+          return Promise.reject(new DOMException("Playback not allowed", "NotAllowedError"));
+        };
+      });
+      await first.dispatchEvent("click");
+      await page.locator("#grid .inline-preview-state.error").first().waitFor();
+      assert.ok(!requestPaths.some((p) => p.startsWith("/backup.")), "Browser permission failures are not worked around");
       assert.deepEqual(errors, []);
-      console.log(JSON.stringify({ browser: process.env.PREVIEW_BROWSER || "chromium", mobile, playback: true, retry: true, mediaRequests }));
+      console.log(JSON.stringify({ browser: process.env.PREVIEW_BROWSER || "chromium", mobile,
+        playback: true, retry: true, fallback: true, boundedWait: true, cancellation: true, mediaRequests }));
       await context.close();
       await browser.close();
       browser = null;

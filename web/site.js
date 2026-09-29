@@ -70,6 +70,7 @@
   const PAGE_SIZE = 48;
   const CATALOG_REFRESH_MS = 5 * 60 * 1000;
   const PREVIEW_TIMEOUT_MS = 15000;
+  const previewSourceCache = new Map();
   let catalogLoading = false,
     checkingUpdates = false,
     catalogVersion = "",
@@ -773,7 +774,7 @@
       )
       .join("");
     $("menuDialog").innerHTML =
-      `<div class="menu-title"><span>${esc(code)}</span><button class="icon-button" data-close aria-label="閉じる">${icon("close")}</button></div>${action("later", later.has(code) ? "後で見るから外す" : "後で見る", "clock")}${action("save", saved.has(code) ? "保存を解除" : "保存", "save")}${action("watched", watched.has(code) ? "履歴から削除" : "視聴済みにする", "history")}${action("copy", "番号をコピー", "copy")}${it.preview ? action("preview", "サムネイルでプレビュー再生", "play") : ""}${it.fc2_market_url ? externalLink(it.fc2_market_url, icon("link") + "FC2公式", code, "menu-row") : ""}<div class="menu-subheading">掲載サイト</div>${sourceLinks}${searchLinks ? '<div class="menu-subheading">ほかのサイトで探す</div>' + searchLinks : ""}`;
+      `<div class="menu-title"><span>${esc(code)}</span><button class="icon-button" data-close aria-label="閉じる">${icon("close")}</button></div>${action("later", later.has(code) ? "後で見るから外す" : "後で見る", "clock")}${action("save", saved.has(code) ? "保存を解除" : "保存", "save")}${action("watched", watched.has(code) ? "履歴から削除" : "視聴済みにする", "history")}${action("copy", "番号をコピー", "copy")}${previewSources(it).length ? action("preview", "サムネイルでプレビュー再生", "play") : ""}${it.fc2_market_url ? externalLink(it.fc2_market_url, icon("link") + "FC2公式", code, "menu-row") : ""}<div class="menu-subheading">掲載サイト</div>${sourceLinks}${searchLinks ? '<div class="menu-subheading">ほかのサイトで探す</div>' + searchLinks : ""}`;
     openDialog($("menuDialog"));
   }
   function saveProgress(it, video) {
@@ -801,16 +802,31 @@
     state.textContent = message;
     shell.append(state);
   }
+  function previewSources(it) {
+    const alternatives = Array.isArray(it?.preview_fallbacks) ? it.preview_fallbacks : [];
+    const sources = [...new Set([it?.preview, ...alternatives].map(safeURL).filter((url) => {
+      if (!url) return false;
+      const parsed = new URL(url);
+      return !parsed.username && !parsed.password;
+    }))].slice(0, 3);
+    const remembered = previewSourceCache.get(it?.code);
+    return sources.includes(remembered)
+      ? [remembered, ...sources.filter((url) => url !== remembered)] : sources;
+  }
+  function releasePreviewVideo(video) {
+    if (!video) return;
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    video.remove();
+  }
   function stopActivePreview() {
     clearTimeout(hoverTimer);
     if (!activePreview) return;
     const { video, shell, timeout } = activePreview;
     activePreview = null;
     clearTimeout(timeout);
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-    video.remove();
+    releasePreviewVideo(video);
     if (shell?.isConnected) clearInlineState(shell);
   }
   function stopHover() {
@@ -819,62 +835,92 @@
     stopActivePreview();
   }
   function playInlinePreview(shell, it, persistent = false) {
-    const url = safeURL(it?.preview);
-    if (!it || !url || !shell?.isConnected) {
+    const sources = previewSources(it);
+    if (!it || !sources.length || !shell?.isConnected) {
       if (persistent) showInlineState(shell, "プレビュー未取得", true);
       return;
     }
     stopActivePreview();
-    if (persistent) showInlineState(shell, "読み込み中…");
-    const video = document.createElement("video");
-    video.defaultMuted = true;
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.preload = persistent ? "auto" : "metadata";
-    video.poster = safeURL(it.thumb) || "";
-    // Plain media playback does not need CORS permission (unlike canvas access).
-    // Requiring anonymous CORS rejects otherwise playable CDN responses.
-    video.src = url;
-    video.setAttribute("aria-hidden", "true");
-    const session = { video, code: it.code, shell, persistent, timeout: 0, started: false };
-    const fail = (message) => {
+    const session = { video: null, code: it.code, shell, persistent, timeout: 0,
+      started: false, deadline: Date.now() + PREVIEW_TIMEOUT_MS, index: 0 };
+    const finish = (message) => {
       if (activePreview !== session) return;
       const showError = session.persistent;
       stopActivePreview();
       if (showError) showInlineState(shell, message, true);
     };
-    const waitForPlayback = () => {
-      if (activePreview !== session || session.timeout) return;
-      session.started = false;
-      if (session.persistent) showInlineState(shell, "読み込み中…");
-      session.timeout = setTimeout(() => fail("読み込みが止まりました。タップで再試行"), PREVIEW_TIMEOUT_MS);
-    };
-    video.addEventListener("timeupdate", () => saveProgress(it, video));
-    const clearLoading = () => {
-      if (activePreview !== session) return;
-      session.started = true;
+    const trySource = () => {
+      if (activePreview !== session || !shell.isConnected) return;
+      const previous = session.video;
+      session.video = null;
       clearTimeout(session.timeout);
       session.timeout = 0;
-      clearInlineState(shell);
+      releasePreviewVideo(previous);
+      const url = sources[session.index];
+      const video = document.createElement("video");
+      session.video = video;
+      session.started = false;
+      const current = () => activePreview === session && session.video === video;
+      const fail = (message) => {
+        if (!current()) return;
+        if (previewSourceCache.get(it.code) === url) previewSourceCache.delete(it.code);
+        if (!session.deadline) session.deadline = Date.now() + PREVIEW_TIMEOUT_MS;
+        if (session.index + 1 < sources.length && Date.now() < session.deadline) {
+          session.index++;
+          trySource();
+        } else finish(message);
+      };
+      const waitForPlayback = () => {
+        if (!current() || session.timeout) return;
+        session.started = false;
+        if (!session.deadline) session.deadline = Date.now() + PREVIEW_TIMEOUT_MS;
+        if (session.persistent) showInlineState(shell,
+          session.index ? "別のプレビューを読み込み中…" : "読み込み中…");
+        // All sources share one waiting budget, rather than a 15-second wait
+        // for every URL. A hanging first source must leave time for its backup.
+        const remaining = Math.max(1, session.deadline - Date.now());
+        const delay = Math.max(1, Math.floor(remaining / (sources.length - session.index)));
+        session.timeout = setTimeout(() => fail("読み込みが止まりました。タップで再試行"), delay);
+      };
+      video.defaultMuted = true;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = session.persistent ? "auto" : "metadata";
+      video.poster = safeURL(it.thumb) || "";
+      // Native playback without a proxy or authentication/referrer workarounds.
+      // Requiring anonymous CORS would reject otherwise playable responses.
+      video.src = url;
+      video.setAttribute("aria-hidden", "true");
+      video.addEventListener("timeupdate", () => { if (current()) saveProgress(it, video); });
+      video.addEventListener("playing", () => {
+        if (!current()) return;
+        session.started = true;
+        session.deadline = 0;
+        clearTimeout(session.timeout);
+        session.timeout = 0;
+        clearInlineState(shell);
+        previewSourceCache.delete(it.code);
+        previewSourceCache.set(it.code, url);
+        if (previewSourceCache.size > 200) previewSourceCache.delete(previewSourceCache.keys().next().value);
+      });
+      video.addEventListener("waiting", waitForPlayback);
+      video.addEventListener("error", () => fail("プレビューを読み込めません。タップで再試行"), { once: true });
+      shell.append(video);
+      waitForPlayback();
+      const result = video.play();
+      if (result && typeof result.catch === "function") result.catch((error) => {
+        if (!current()) return;
+        if (error.name === "NotAllowedError") finish("再生が許可されませんでした。タップで再試行");
+        else fail("再生できません。タップで再試行");
+      });
     };
-    video.addEventListener("playing", clearLoading);
-    video.addEventListener("waiting", waitForPlayback);
-    video.addEventListener(
-      "error",
-      () => fail("動画を読み込めません。タップで再試行"),
-      { once: true },
-    );
-    shell.append(video);
     activePreview = session;
-    waitForPlayback();
-    const result = video.play();
-    if (result && typeof result.catch === "function")
-      result.catch(() => fail("再生できません。タップで再試行"));
+    trySource();
   }
   function toggleInlinePreview(code, shell) {
     const it = byCode.get(code);
-    if (!it || !safeURL(it.preview)) {
+    if (!it || !previewSources(it).length) {
       stopActivePreview();
       showInlineState(shell, "プレビュー未取得", true);
       return;
@@ -894,7 +940,7 @@
     const it = byCode.get(shell.closest(".video-card")?.dataset.code);
     if (
       !it ||
-      !safeURL(it.preview) ||
+      !previewSources(it).length ||
       !shell.isConnected ||
       navigator.connection?.saveData ||
       document.hidden ||
