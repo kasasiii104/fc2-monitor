@@ -64,7 +64,7 @@ THUMB_BACKFILL_LIMIT = int(os.environ.get("THUMB_BACKFILL_LIMIT", "200"))
 THUMB_BACKFILL_ATTEMPTS_KEY = "thumbnail_backfill_v1_attempted_at"
 THUMB_BACKFILL_STATS_KEY = "thumbnail_backfill_v1_stats"
 VIEW_FETCH_LIMIT = int(os.environ.get("VIEW_FETCH_LIMIT", "50"))
-TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "120"))
+TITLE_FETCH_LIMIT = int(os.environ.get("TITLE_FETCH_LIMIT", "500"))
 VIEW_REFRESH_SEC = int(os.environ.get("VIEW_REFRESH_SEC", str(8 * 3600)))
 FAIL_SKIP_SEC = 12 * 3600
 INCLUDE_KEYWORDS = [x.strip() for x in os.environ.get("INCLUDE_KEYWORDS", "").split(",") if x.strip()]
@@ -216,7 +216,10 @@ CHINESE_TITLE_HINTS = re.compile(
     r"露臉|露脸|歲|岁|剛|刚|藥劑師|药剂师|與|与|東方|东方|大腦|大脑|"
     r"錯誤|错误|傳教士|传教士|超過|超过|萬|万|長|长|體|体|發|发|"
     r"為|为|來|来|還|还|會|会|讓|让|從|从|後|后|裡|里|開|开|"
-    r"當|当|兩|两|對|对|時|时|說|说|給|给|過|过|種|种|麼|么)"
+    r"當|当|兩|两|對|对|時|时|說|说|給|给|過|过|種|种|麼|么|"
+    r"限價|限价|僅限|仅限|數量|数量|請|请|支持新人|完整出場|完整出场|"
+    r"小姐姐|銷售|销售|群組|群组|諮詢|咨询|結果|结果|嬌小|娇小|"
+    r"毛茸茸|女大學生|女大学生|正統|正统|白皙|未經|未经|審查|审查)"
 )
 JAPANESE_TITLE_HINTS = re.compile(
     r"(?:限定|素人|人妻|女子|大学|美人|美少女|巨乳|中出し|顔射|潮吹き|"
@@ -227,10 +230,13 @@ def looks_chinese_title(text: str) -> bool:
     title = title_without_site_suffix(text)
     if not title:
         return False
-    if re.search(r"[ぁ-んァ-ヶ]", title):
-        return False
+    # Kana is useful Japanese evidence, but Chinese text can contain a
+    # Japanese product/person fragment (e.g. Vtuber names). Strong Chinese
+    # phrases must win before accepting kana.
     if re.search(r"[\u3400-\u9fff]", title) and CHINESE_TITLE_HINTS.search(title):
         return True
+    if re.search(r"[ぁ-んァ-ヶ]", title):
+        return False
     # Simplified/traditional-only characters that are not normally used in
     # Japanese FC2 product titles are strong evidence even without a phrase hit.
     return bool(re.search(
@@ -375,10 +381,8 @@ def extract_page_title(soup, code_num: str) -> str:
         title = clean_title(raw, code_num)
         if title_score(title)[0] >= 3:
             return title
-    for raw in parts:
-        title = clean_title(raw, code_num)
-        if title_score(title)[0] > 0:
-            return title
+    # Do not return a merely CJK-looking fallback. A title repair succeeds
+    # only when the candidate passes the Japanese-title threshold.
     return ""
 
 
@@ -949,7 +953,11 @@ def sanitize_item_titles(items) -> int:
         num = item.get("code_num") or code.split("-")[-1]
         had_invalid = is_invalid_title(item.get("title", "")) or is_invalid_title(item.get("fc2_title", ""))
         cleaned = clean_title(item.get("title", ""), num)
-        item["title"] = cleaned or code or f"FC2-PPV-{num}"
+        # Never publish a known Chinese title as if it were the Japanese
+        # product name. Keep the code as a neutral placeholder until a verified
+        # Japanese title is found; the original remains recoverable from source
+        # pages and will be retried by refresh_japanese_titles().
+        item["title"] = (code or f"FC2-PPV-{num}") if looks_chinese_title(cleaned) else (cleaned or code or f"FC2-PPV-{num}")
         official_title = clean_title(item.get("fc2_title", ""), num)
         if "fc2_title" in item:
             item["fc2_title"] = official_title
