@@ -850,7 +850,8 @@
       if (showError) showInlineState(shell, message, true);
     };
     const trySource = () => {
-      if (activePreview !== session || !shell.isConnected) return;
+      if (activePreview !== session) return;
+      if (!shell.isConnected) { stopActivePreview(); return; }
       const previous = session.video;
       session.video = null;
       clearTimeout(session.timeout);

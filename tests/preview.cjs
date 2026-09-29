@@ -239,6 +239,17 @@ const origin = (server) => `http://127.0.0.1:${server.address().port}`;
       assert.equal(await page.locator("video").count(), 0);
       assert.ok(!requestPaths.some((p) => p.startsWith("/backup.")));
 
+      await reload("fallback", "hang-primary");
+      await tap(first);
+      await first.evaluate((button) => {
+        window.detachedVideo = button.closest(".video-card").querySelector("video");
+        button.closest(".video-card").remove();
+      });
+      await page.clock.fastForward(7501);
+      assert.ok(await page.evaluate(() => !window.detachedVideo.hasAttribute("src")),
+        "Removing a waiting card releases its detached player");
+      assert.ok(!requestPaths.some((p) => p.startsWith("/backup.")));
+
       await reload("fallback", "play");
       await page.evaluate(() => {
         const original = HTMLMediaElement.prototype.play;
