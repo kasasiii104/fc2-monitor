@@ -47,6 +47,8 @@ H_WALKER_URL = os.environ.get("H_WALKER_URL", "https://fc2cm.h-walker.net").rstr
 H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "20"))
 H_WALKER_CURSOR_KEY = "hwalker_next_url"
 H_WALKER_STATS_KEY = "hwalker_crawl_stats"
+H_WALKER_CACHE_KEY = "hwalker_title_cache"
+H_WALKER_CACHE_LIMIT = 20000
 H_WALKER_REFRESH_SEC = int(os.environ.get("H_WALKER_REFRESH_SEC", str(6 * 3600)))
 CONTINUOUS_BACKFILL_CURSOR_KEY = "metadata_backfill_v2_cursor"  # legacy; no longer used for selection
 CONTINUOUS_BACKFILL_STATS_KEY = "metadata_backfill_v3_stats"
@@ -211,15 +213,19 @@ def clean_title(text: str, code_num: str) -> str:
 
 CHINESE_TITLE_HINTS = re.compile(
     r"(?:無碼|无码|中文字幕|中字|中文|視頻|视频|線上|线上|觀看|观看|下載|下载|"
-    r"這個|这个|這部|这部|女孩們|女孩们|美女們|美女们|人妻們|人妻们|推薦|推荐|"
-    r"處女|处女|調教|调教|內射|内射|口交|做愛|做爱|自拍|約會|约会|"
-    r"露臉|露脸|歲|岁|剛|刚|藥劑師|药剂师|與|与|東方|东方|大腦|大脑|"
-    r"錯誤|错误|傳教士|传教士|超過|超过|萬|万|長|长|體|体|發|发|"
-    r"為|为|來|来|還|还|會|会|讓|让|從|从|後|后|裡|里|開|开|"
-    r"當|当|兩|两|對|对|時|时|說|说|給|给|過|过|種|种|麼|么|"
-    r"限價|限价|僅限|仅限|數量|数量|請|请|支持新人|完整出場|完整出场|"
-    r"小姐姐|銷售|销售|群組|群组|諮詢|咨询|結果|结果|嬌小|娇小|"
-    r"毛茸茸|女大學生|女大学生|正統|正统|白皙|未經|未经|審查|审查)"
+    r"這個|这个|這部|这部|女孩們|女孩们|美女們|美女们|人妻們|人妻们|推荐|"
+    r"處女|处女|调教|內射|做愛|做爱|自拍|約會|约会|"
+    r"露臉|露脸|藥劑師|药剂师|大腦|大脑|傳教士|传教士|"
+    r"第一次拍照|限價|限价|僅限|仅限|支持新人|完整出場|完整出场|"
+    r"小姐姐|銷售|销售|群組|群组|諮詢|咨询|嬌小|娇小|"
+    r"毛茸茸|女大學生|未經|未经|審查|审查)"
+)
+# Shared kanji (後, 長, 時, 体, 結果, 数量, ...) are not language evidence.
+# These simplified/traditional forms differ from ordinary Japanese spelling.
+CHINESE_TITLE_CHARS = re.compile(
+    r"[这這們们歲岁药剂與东腦脑错傳传过萬體發发为來还會讓让從从裡"
+    r"开當兩两對对时說说给种麼么视频线觀观载處处调爱约个码價价僅仅"
+    r"请銷销賣卖询經经审學脸臉]"
 )
 JAPANESE_TITLE_HINTS = re.compile(
     r"(?:限定|素人|人妻|女子|大学|美人|美少女|巨乳|中出し|顔射|潮吹き|"
@@ -233,17 +239,9 @@ def looks_chinese_title(text: str) -> bool:
     # Kana is useful Japanese evidence, but Chinese text can contain a
     # Japanese product/person fragment (e.g. Vtuber names). Strong Chinese
     # phrases must win before accepting kana.
-    if re.search(r"[\u3400-\u9fff]", title) and CHINESE_TITLE_HINTS.search(title):
+    if CHINESE_TITLE_HINTS.search(title) or CHINESE_TITLE_CHARS.search(title):
         return True
-    if re.search(r"[ぁ-んァ-ヶ]", title):
-        return False
-    # Simplified/traditional-only characters that are not normally used in
-    # Japanese FC2 product titles are strong evidence even without a phrase hit.
-    return bool(re.search(
-        r"[这這們们歲岁剛刚藥药劑剂與与東东腦脑錯错傳传過过萬万體体發发為为"
-        r"來来還还會会讓让從从後后裡里開开當当兩两對对時时說说給给種种麼么"
-        r"視頻频線线觀观看載载處处調调愛爱約约個个無无码]", title
-    ))
+    return False
 
 def title_score(text: str):
     title = title_without_site_suffix(text)
@@ -383,6 +381,22 @@ def extract_page_title(soup, code_num: str) -> str:
             return title
     # Do not return a merely CJK-looking fallback. A title repair succeeds
     # only when the candidate passes the Japanese-title threshold.
+    return ""
+
+
+def extract_search_title(soup, code_num: str) -> str:
+    """Search-page headings describe the query, not the requested work."""
+    for link in soup.find_all("a", href=True):
+        href = link.get("href") or ""
+        if re.search(r"[?&](?:s|q|keyword)=", href):
+            continue
+        raw = link.get("title") or link.get_text(" ", strip=True)
+        matches = CODE_RE.findall(raw + " " + (link.get("href") or ""))
+        if code_num not in matches or any(num != code_num for num in matches):
+            continue
+        title = clean_title(raw, code_num)
+        if not needs_jp_title(title):
+            return title
     return ""
 
 
@@ -549,38 +563,44 @@ def fill_missing_views(items) -> None:
 def refresh_japanese_titles(items) -> None:
     state = load_json(FETCH_STATE_FILE, {})
     fails = state.get("title_fail") if isinstance(state.get("title_fail"), dict) else {}
-    cursor = int(state.get("title_cursor") or 0)
+    blocked = state.get("title_hosts_blocked") if isinstance(state.get("title_hosts_blocked"), dict) else {}
+    host_errors = {}
     now = now_ts()
-    updated = tried = 0
+    updated = tried = new_tried = historical_tried = requests_made = 0
     targets = [x for x in items if needs_jp_title(x.get("title", ""))]
-    # New discoveries must not wait behind thousands of historical records.
-    # Then continue the rotating historical backfill so the old catalog
-    # gradually becomes Japanese as well.
     new_targets = [x for x in targets if x.get("is_new")]
     historical = [x for x in targets if not x.get("is_new")]
-    ordered = new_targets + rotate_items(historical, cursor)
-    new_budget = len(new_targets)
-    total_budget = new_budget + TITLE_FETCH_LIMIT
+    # A positional cursor skips records whenever repaired titles leave the
+    # queue. Prefer never-tried records, then the oldest failed attempt.
+    historical.sort(key=lambda x: (int(fails.get(x.get("code")) or 0),
+                                    x.get("first_seen") or "", x.get("code") or ""))
+    ordered = new_targets + historical
     for item in ordered:
-        if tried >= total_budget:
-            break
         code = item.get("code") or ""
         last_fail = int(fails.get(code) or 0)
         if last_fail and now - last_fail < FAIL_SKIP_SEC:
             continue
-        tried += 1
+        if not item.get("is_new") and historical_tried >= TITLE_FETCH_LIMIT:
+            break
         code_num = item.get("code_num") or str(code).split("-")[-1]
         sources = [("MissAV", url) for url in missav_detail_urls(code_num)] + [
             ("Supjav", f"https://supjav.com/ja/?s=FC2PPV+{code_num}"),
             ("123AV", f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}"),
         ]
-        found, last_err = "", None
+        attempted = False
         for source, url in sources:
+            host = urlsplit(url).netloc
+            if now - int(blocked.get(host) or 0) < FAIL_SKIP_SEC or host_errors.get(host, 0) >= 3:
+                continue
+            attempted = True
+            requests_made += 1
             try:
                 soup = fetch_soup(url)
-                found = extract_page_title(soup, code_num)
+                host_errors[host] = 0
+                found = (extract_search_title(soup, code_num) if source != "MissAV"
+                         else extract_page_title(soup, code_num))
                 if found and not needs_jp_title(found) and is_better_title(found, item.get("title", "")):
-                    print(f"タイトル更新: {code} -> {found[:40]}")
+                    print(f"[Japanese title] code={code} source={source}")
                     item["title"] = found
                     item["title_source"] = source
                     updated += 1
@@ -590,15 +610,35 @@ def refresh_japanese_titles(items) -> None:
                     fails.pop(code, None)
                     break
             except Exception as e:
-                last_err = e
-        if needs_jp_title(item.get("title", "")):
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status in (403, 429):
+                    blocked[host] = now
+                    print(f"[Japanese titles] host={host} blocked={status}")
+                elif (status and status >= 500) or isinstance(e, (requests.Timeout, requests.ConnectionError)):
+                    host_errors[host] = host_errors.get(host, 0) + 1
+                    if host_errors[host] >= 3:
+                        print(f"[Japanese titles] host={host} unavailable=true stop_for_run=true")
+        if attempted:
+            tried += 1
+            if item.get("is_new"):
+                new_tried += 1
+            else:
+                historical_tried += 1
+        if attempted and needs_jp_title(item.get("title", "")):
             fails[code] = now
-            if last_err:
-                print(f"タイトル取得失敗 {code}: {last_err}")
-    state["title_fail"] = fails
-    historical_tried = max(0, tried - new_budget)
-    state["title_cursor"] = (cursor + max(historical_tried, 1)) % max(len(historical), 1)
+    pending = [x for x in items if needs_jp_title(x.get("title", ""))]
+    pending_codes = {x.get("code") for x in pending}
+    state["title_fail"] = {code: stamp for code, stamp in fails.items() if code in pending_codes}
+    state["title_hosts_blocked"] = blocked
+    state.pop("title_cursor", None)
+    stats = {"last_run": now, "pending_before": len(targets), "pending_after": len(pending),
+             "new_pending": sum(bool(x.get("is_new")) for x in pending),
+             "tried": tried, "new_tried": new_tried, "historical_tried": historical_tried,
+             "requests": requests_made, "title_updated": updated,
+             "untried": sum(not fails.get(x.get("code")) for x in pending)}
+    state["japanese_title_stats"] = stats
     save_json(FETCH_STATE_FILE, state)
+    print(f"[Japanese titles] stats={stats}")
 
 
 def enrich(code_num, title, source, url, duration="", views=None):
@@ -953,10 +993,14 @@ def sanitize_item_titles(items) -> int:
         num = item.get("code_num") or code.split("-")[-1]
         had_invalid = is_invalid_title(item.get("title", "")) or is_invalid_title(item.get("fc2_title", ""))
         cleaned = clean_title(item.get("title", ""), num)
-        # Never publish a known Chinese title as if it were the Japanese
-        # product name. Keep the code as a neutral placeholder until a verified
-        # Japanese title is found; the original remains recoverable from source
-        # pages and will be retried by refresh_japanese_titles().
+        # Keep the source text for recovery even while the visible title is
+        # pending. A language heuristic must never destroy saved metadata.
+        if looks_chinese_title(cleaned):
+            item["source_title"] = cleaned
+        elif not cleaned:
+            recovered = clean_title(item.get("source_title", ""), num)
+            if recovered and not needs_jp_title(recovered):
+                cleaned = recovered
         item["title"] = (code or f"FC2-PPV-{num}") if looks_chinese_title(cleaned) else (cleaned or code or f"FC2-PPV-{num}")
         official_title = clean_title(item.get("fc2_title", ""), num)
         if "fc2_title" in item:
@@ -1127,10 +1171,10 @@ def _hwalker_count(text: str):
 def _hwalker_next_url(soup, current_url: str) -> str:
     """Follow Walker's real pagination link instead of guessing its URL shape."""
     for a in soup.find_all("a", href=True):
-        label = re.sub(r"\\s+", "", a.get_text(" ", strip=True))
+        label = re.sub(r"\s+", "", a.get_text(" ", strip=True))
         if "次の50件" in label or label.startswith("次の"):
             nxt = urljoin(current_url, a.get("href") or "")
-            if nxt.startswith(H_WALKER_URL):
+            if urlsplit(nxt).netloc == urlsplit(H_WALKER_URL).netloc:
                 return nxt
     return ""
 
@@ -1152,7 +1196,7 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
             break
         visited.add(url)
         info = fetch_page(url)
-        if not (info.get("status") == 200 and info.get("soup") is not None):
+        if not (info.get("status") == 200 and not info.get("cloudflare") and info.get("soup") is not None):
             print(f"[FC2 Walker] page={pages_done + 1} status={info.get('status')} items=0 url={url}")
             # Keep the cursor on the failed page so a later run can retry it.
             next_url = url
@@ -1167,10 +1211,10 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
             num = ""
             for link in links:
                 href = link.get("href") or ""
-                m = re.search(r"(?:[?&])aid=(\\d{5,8})(?:&|$)", href)
-                if m and "adult.contents.fc2.com" in href:
+                m = re.search(r"(?:[?&])aid=(\d{5,8})(?:&|$)|/article/(\d{5,8})(?:/|$|[?#])", href)
+                if m and urlsplit(href).hostname == "adult.contents.fc2.com":
                     product = link
-                    num = m.group(1)
+                    num = m.group(1) or m.group(2)
                     break
             if not product or not num:
                 continue
@@ -1185,12 +1229,12 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
                         break
 
             cells = row.find_all(["td", "th"])
-            cell_texts = [re.sub(r"\\s+", " ", c.get_text(" ", strip=True)).strip() for c in cells]
+            cell_texts = [re.sub(r"\s+", " ", c.get_text(" ", strip=True)).strip() for c in cells]
             rating = None
             review_count = None
             rating_idx = -1
             for idx, txt in enumerate(cell_texts):
-                if re.fullmatch(r"[0-5](?:\\.\\d{1,2})", txt):
+                if re.fullmatch(r"[0-5](?:\.\d{1,2})", txt):
                     try:
                         rating = float(txt)
                         rating_idx = idx
@@ -1215,6 +1259,12 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
             if len(samples) < 3:
                 samples.append(f"{code}:{rating!r}/{review_count!r}")
 
+        if not page_found:
+            # A challenge, changed layout or empty response is not a completed
+            # page. Retry this position instead of skipping its records.
+            print(f"[FC2 Walker] unrecognized_page=true url={url}")
+            next_url = url
+            break
         pages_done += 1
         candidate_next = _hwalker_next_url(soup, url)
         print(
@@ -1234,29 +1284,34 @@ def enrich_hwalker_market(items) -> None:
     state = load_json(FETCH_STATE_FILE, {})
     now = now_ts()
     last = int(state.get("hwalker_last_success") or 0)
+    cache = state.get(H_WALKER_CACHE_KEY)
+    cache = cache if isinstance(cache, dict) else {}
+    start_url = state.get(H_WALKER_CURSOR_KEY) or (H_WALKER_URL + "/")
+    records, pages_done = {}, 0
     if last and now - last < H_WALKER_REFRESH_SEC:
         print(f"[FC2 Walker] skip fresh=true age={now-last}s")
-        return
-
-    start_url = state.get(H_WALKER_CURSOR_KEY) or (H_WALKER_URL + "/")
-    records, next_url, pages_done = scrape_hwalker_market(start_url=start_url)
-    if not records:
-        print("[FC2 Walker] harvested=0 keep_previous=true")
-        return
-
-    # End of pagination means one complete pass; restart from the first page
-    # on the next eligible run so ratings/reviews can refresh over time.
-    state[H_WALKER_CURSOR_KEY] = next_url or (H_WALKER_URL + "/")
-    state["hwalker_last_success"] = now
+    else:
+        records, next_url, pages_done = scrape_hwalker_market(start_url=start_url)
+        if records:
+            state[H_WALKER_CURSOR_KEY] = next_url or (H_WALKER_URL + "/")
+            state["hwalker_last_success"] = now
+            for code, record in records.items():
+                cache[code] = {**record, "checked_at": now}
+            cache = dict(sorted(cache.items(), key=lambda kv: kv[1].get("checked_at", 0),
+                                reverse=True)[:H_WALKER_CACHE_LIMIT])
+        else:
+            print("[FC2 Walker] harvested=0 keep_previous=true")
+    state[H_WALKER_CACHE_KEY] = cache
 
     matched = rating_updated = review_updated = title_updated = 0
     for item in items:
         code = item.get("code") or ""
-        rec = records.get(code)
+        rec = cache.get(code)
         if not rec:
             continue
         matched += 1
-        item["hwalker_checked_at"] = now
+        checked_at = int(rec.get("checked_at") or now)
+        item["hwalker_checked_at"] = checked_at
         item["hwalker_url"] = rec.get("source_url") or H_WALKER_URL
         title = clean_title(rec.get("title") or "", item.get("code_num") or code.split("-")[-1])
         if title and not needs_jp_title(title) and needs_jp_title(item.get("title", "")):
@@ -1272,7 +1327,7 @@ def enrich_hwalker_market(items) -> None:
                     rating_updated += 1
                 item["fc2_rating"] = float(rating)
                 item["fc2_rating_source"] = "FC2ウォーカー"
-                item["fc2_market_checked_at"] = now
+                item["fc2_market_checked_at"] = checked_at
 
         count = rec.get("review_count")
         if isinstance(count, int) and count >= 0 and item.get("fc2_rating_source") != "FC2公式":
@@ -1280,14 +1335,15 @@ def enrich_hwalker_market(items) -> None:
                 review_updated += 1
             item["fc2_review_count"] = count
             item["fc2_rating_source"] = "FC2ウォーカー"
-            item["fc2_market_checked_at"] = now
+            item["fc2_market_checked_at"] = checked_at
 
     stats = {
         "last_run": now,
         "start_url": start_url,
-        "next_url": state[H_WALKER_CURSOR_KEY],
+        "next_url": state.get(H_WALKER_CURSOR_KEY) or start_url,
         "pages": pages_done,
         "harvested": len(records),
+        "cached": len(cache),
         "matched": matched,
         "title_updated": title_updated,
         "rating_updated": rating_updated,
@@ -2077,6 +2133,39 @@ def rebuild_site():
     return 0
 
 
+def repair_saved_titles():
+    """Repair the saved catalog without discoveries or notifications."""
+    payload = load_json(DATA_FILE, {"items": []})
+    items = payload.get("items", [])
+    before = {x.get("code"): x.get("title", "") for x in items}
+    recovery_path = os.environ.get("TITLE_RECOVERY_FILE", "")
+    recovery = load_json(Path(recovery_path), {"items": []}) if recovery_path else {}
+    originals = {x.get("code"): x for x in recovery.get("items", [])}
+    restored = 0
+    for item in items:
+        original = originals.get(item.get("code"), {})
+        candidate = clean_title(original.get("title", ""), item.get("code_num") or "")
+        if needs_jp_title(item.get("title", "")) and candidate and not needs_jp_title(candidate):
+            item["title"] = candidate
+            item["title_source"] = original.get("title_source") or ""
+            restored += 1
+    load_fc2_market_state(items)
+    sanitize_item_titles(items)
+    run_optional_step("Japanese title cache", enrich_hwalker_market, items)
+    save_json(DATA_FILE, payload)
+    stats = {"last_run": now_ts(), "restored_from_snapshot": restored,
+             "pending_before": sum(needs_jp_title(title) for title in before.values()),
+             "pending_after": sum(needs_jp_title(x.get("title", "")) for x in items),
+             "japanese_titles_changed": sum(x.get("title") != before.get(x.get("code"))
+                                            and not needs_jp_title(x.get("title", "")) for x in items)}
+    state = load_json(FETCH_STATE_FILE, {})
+    state["japanese_title_repair_stats"] = stats
+    save_json(FETCH_STATE_FILE, state)
+    write_site(items, payload.get("updated_at") or now_jst(), sum(bool(x.get("is_new")) for x in items))
+    print(f"[Japanese title repair] stats={stats}")
+    return 0
+
+
 def run_optional_step(label, action, *args, **kwargs):
     """A supplementary source or notification cannot discard discoveries."""
     try:
@@ -2143,6 +2232,8 @@ def main() -> int:
         item["fc2cmadb_url"] = old.get("fc2cmadb_url") or ""
         item["fc2cmadb_checked_at"] = old.get("fc2cmadb_checked_at") or 0
         item["title_source"] = item.get("title_source") or ""
+        if old.get("source_title"):
+            item["source_title"] = old["source_title"]
         item["duration"] = video.get("duration") or old.get("duration", "")
         item["thumb"] = old.get("thumb") or video.get("thumb") or ""
         item["thumb_source"] = old.get("thumb_source") or video.get("thumb_source") or ""
@@ -2224,4 +2315,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(rebuild_site() if "--build-site" in sys.argv else main())
+    raise SystemExit(rebuild_site() if "--build-site" in sys.argv else
+                     repair_saved_titles() if "--repair-titles" in sys.argv else main())

@@ -46,6 +46,15 @@ jobs:
           EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
         run: python fc2_monitor.py
 
+      - name: Repair saved Japanese titles
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[titles-now]')
+        run: |
+          # Snapshot immediately before the overbroad language filter. Restore
+          # only missing Japanese titles; preserve newer metadata and works.
+          git fetch --depth=1 origin d7012e571cd74ffab62c70a6ec183685092ee95e
+          git show d7012e571cd74ffab62c70a6ec183685092ee95e:docs/data.json > "$RUNNER_TEMP/title-recovery.json"
+          TITLE_RECOVERY_FILE="$RUNNER_TEMP/title-recovery.json" python fc2_monitor.py --repair-titles
+
       # A UI/code push can publish immediately using the saved catalog. Scheduled
       # runs still crawl every two hours and use the same renderer afterwards.
       - name: Build site from saved data
