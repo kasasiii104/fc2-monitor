@@ -2,6 +2,7 @@
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import fc2_monitor as m
 
@@ -28,5 +29,13 @@ for i in range(7064):
                 trend_6h=i if i<20 else None, trend_24h=i*2 if i<40 else None)
     if i==4: item['title'] = '<img src=x onerror="window.injected=true"> & サンプル'
     items.append(item)
-m.write_site(items, now.strftime('%Y-%m-%d %H:%M:%S'),12)
+# Preserve the production fallback shape, but keep every video URL synthetic.
+# Browser tests must never request a real provider, even after primary failure.
+original_sources = m.preview_source_urls
+def neutral_sources(item, additional=()):
+    return [url.replace('https://fourhoi.com/', 'https://media.example.test/')
+            for url in original_sources(item, additional)]
+
+with patch.object(m, 'preview_source_urls', side_effect=neutral_sources):
+    m.write_site(items, now.strftime('%Y-%m-%d %H:%M:%S'),12)
 print(root.resolve())

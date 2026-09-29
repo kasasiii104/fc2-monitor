@@ -172,6 +172,8 @@ class MonitorRecoveryTests(unittest.TestCase):
         saved['fc2_sample_failures'] = 3
         saved['fc2_sample_retry_at'] = 999999
         saved['fc2_sample_last_success'] = 123000
+        saved['preview'] = 'https://example.test/current.mp4'
+        saved['preview_fallbacks'] = ['https://example.test/previous.mp4']
         m.save_json(m.DATA_FILE, {'items': [saved]})
         m.save_json(m.HISTORY_FILE, {'ids': [saved['code']]})
         incoming = self.item()
@@ -185,6 +187,9 @@ class MonitorRecoveryTests(unittest.TestCase):
         self.assertEqual(result['fc2_sample_failures'], 3)
         self.assertEqual(result['fc2_sample_retry_at'], 999999)
         self.assertEqual(result['fc2_sample_last_success'], 123000)
+        self.assertEqual(result['preview'], saved['preview'])
+        self.assertIn('https://example.test/previous.mp4', result['preview_fallbacks'])
+        self.assertIn(incoming['preview'], result['preview_fallbacks'])
         self.notify.assert_not_called()
 
     def test_recrawl_recovers_saved_official_title_before_enrichment(self):

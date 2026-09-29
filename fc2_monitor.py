@@ -1593,6 +1593,33 @@ def has_official_preview(item):
     return bool(item.get("preview")) and item.get("preview_source") == "FC2公式"
 
 
+def preview_source_urls(item, additional=()):
+    """Keep bounded alternatives; a metadata URL is not proof of playback."""
+    saved = item.get("preview_fallbacks")
+    saved = saved if isinstance(saved, list) else []
+    urls = []
+    for raw in [item.get("preview"), *additional, *saved]:
+        if not isinstance(raw, str):
+            continue
+        value = raw.strip()
+        try:
+            parsed = urlsplit(value)
+            valid = parsed.scheme in ("https", "http") and parsed.hostname and not parsed.username and not parsed.password
+        except ValueError:
+            valid = False
+        if valid and value not in urls:
+            urls.append(value)
+    # This is the original provider URL already used by enrich(), not a proxy
+    # or an alternate route around provider authentication. Restore it for old
+    # rows whose official sample overwrote the only saved preview field.
+    number = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
+    if re.fullmatch(r"\d{6,8}", number):
+        legacy = f"https://fourhoi.com/fc2-ppv-{number}/preview.mp4"
+        if legacy not in urls[:3]:
+            urls = urls[:2] + [legacy]
+    return urls[:3]
+
+
 def sample_retry_due(item, now, previous_attempt=0):
     checked = sample_checked_at(item, previous_attempt)
     if not checked:
@@ -1615,7 +1642,10 @@ def apply_fc2_sample_result(item, meta, now):
     """Share result/cooldown across recent, preview and thumbnail acquisition."""
     item["fc2_sample_checked_at"] = now
     if meta and meta.get("preview"):
+        previous = preview_source_urls(item)
         item["preview"] = meta["preview"]
+        item["preview_fallbacks"] = [url for url in preview_source_urls(item, previous)
+                                     if url != item["preview"]]
         item["preview_source"] = "FC2公式"
         item["fc2_sample_last_success"] = now
         item["fc2_sample_failures"] = 0
@@ -1944,13 +1974,15 @@ def public_item(item):
     sources = dict(item.get("sources") or {})
     code_num = item.get("code_num") or str(item.get("code", "")).split("-")[-1]
     search_links = extra_sources(code_num)
+    previews = preview_source_urls(item)
     return {
         "code": item.get("code", ""),
         "code_num": str(code_num),
         "title": item.get("title") or item.get("code", ""),
         "url": item.get("url") or sources.get("MissAV") or search_links.get("MissAV") or "",
         "thumb": item.get("thumb") or "",
-        "preview": item.get("preview") or "",
+        "preview": previews[0] if previews else "",
+        "preview_fallbacks": previews[1:],
         "duration": item.get("duration") or "",
         "duration_sec": duration_seconds(item.get("duration") or ""),
         "views": item.get("views") if isinstance(item.get("views"), int) else 0,
@@ -1986,7 +2018,7 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 def catalog_payload(items, updated_at):
     # Render data only: do not ship crawler state, duplicate titles, or seven
     # repeated search URLs with every card. Templates are expanded on demand.
-    fields = ("code", "code_num", "title", "url", "thumb", "preview", "duration",
+    fields = ("code", "code_num", "title", "url", "thumb", "preview", "preview_fallbacks", "duration",
               "duration_sec", "views", "views_source", "first_seen", "is_new",
               "sources", "trend_6h", "trend_24h", "missav_rank_day", "missav_rank_week",
               "missav_rank_month", "missav_rank_total", "fc2_market_url", "fc2_rating",
@@ -1994,7 +2026,7 @@ def catalog_payload(items, updated_at):
     rows = []
     for item in items:
         public = public_item(item)
-        rows.append({key: public[key] for key in fields if public.get(key) is not None and public.get(key) != "" and public.get(key) is not False})
+        rows.append({key: public[key] for key in fields if public.get(key) is not None and public.get(key) != "" and public.get(key) is not False and public.get(key) != []})
     return {"updated_at": updated_at, "items": rows, "search_templates": extra_sources("{code}")}
 
 
@@ -2108,6 +2140,9 @@ def main() -> int:
         item["thumb_source"] = old.get("thumb_source") or video.get("thumb_source") or ""
         item["preview"] = old.get("preview") or video.get("preview") or ""
         item["preview_source"] = old.get("preview_source") or video.get("preview_source") or ""
+        item["preview_fallbacks"] = old.get("preview_fallbacks") or []
+        item["preview_fallbacks"] = [url for url in preview_source_urls(item, [video.get("preview")])
+                                     if url != item["preview"]]
         item["preview_checked_at"] = old.get("preview_checked_at") or 0
         item["fc2_sample_checked_at"] = old.get("fc2_sample_checked_at") or 0
         item["thumb_backfill_checked_at"] = old.get("thumb_backfill_checked_at") or 0
