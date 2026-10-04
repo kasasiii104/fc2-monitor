@@ -29,6 +29,11 @@
       .toLowerCase()
       .trim();
   const number = (value) => Number(value || 0).toLocaleString("ja-JP");
+  const codeNumber = (value) => {
+    const raw = normalize(value);
+    const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+  };
   function readStore(key, fallback) {
     try {
       const value = JSON.parse(localStorage.getItem(key));
@@ -332,6 +337,14 @@
         return rankValue(a) - rankValue(b) || newest(a, b);
       }
       if (state.sort === "old") return -newest(a, b);
+      if (state.sort === "code_desc" || state.sort === "code_asc") {
+        // Compare the numeric ID, not its text or the discovery timestamp.
+        // Unknown IDs stay at the end in either direction.
+        if (a._codeNumber == null || b._codeNumber == null)
+          return (a._codeNumber == null) - (b._codeNumber == null) || newest(a, b);
+        const delta = a._codeNumber - b._codeNumber;
+        return (state.sort === "code_asc" ? delta : -delta) || newest(a, b);
+      }
       if (state.sort === "rating")
         return (
           (b.fc2_rating ?? -1) - (a.fc2_rating ?? -1) ||
@@ -1410,6 +1423,7 @@
       items = payload.items.map((it) => ({
         ...it,
         code_num: String(it.code_num || it.code?.split("-").pop() || ""),
+        _codeNumber: codeNumber(it.code_num || it.code?.split("-").pop()),
         _ts: parseSeen(it.first_seen),
         _sources: Object.keys(it.sources || {}).length,
         _search: normalize(

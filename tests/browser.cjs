@@ -124,6 +124,59 @@ async function nav(page, name) {
     : ".sidebar";
   await page.locator(`${selector} [data-page="${name}"]`).click();
 }
+async function testNumberSort(browser, viewport) {
+  const test = await setup(browser, viewport);
+  try {
+    const p = test.page;
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, "catalog.json")));
+    const sample = catalog.items[0];
+    const nums = ["1000000", "10000000", "999999", "8000001", "unknown", "8000000"];
+    catalog.items = nums.map((num, i) => ({
+      ...sample, code: `FC2-PPV-${num}`,
+      code_num: i === 2 ? undefined : i === 1 ? Number(num) : num,
+      title: i === 3 ? "別の検索対象" : "番号ソート対象",
+      first_seen: `2026-09-${20 + i} 12:00:00`,
+      fc2_rating: i === 5 ? 3.1 : 4.8,
+      missav_rank_day: i + 1,
+    }));
+    test.publishCatalog(catalog);
+    await p.reload();
+    await waitFeed(p);
+    const codes = () => p.locator("#grid .video-card").evaluateAll(
+      (els) => els.map((el) => el.dataset.code.replace("FC2-PPV-", "")),
+    );
+    assert.equal((await codes())[0], "8000000", "Default stays discovery-date order");
+    const ranking = await p.locator("#rankingRail").innerHTML();
+    await p.locator("#sortSelect").selectOption("code_asc");
+    assert.deepEqual(await codes(), ["999999", "1000000", "8000000", "8000001", "10000000", "unknown"]);
+    await p.locator("#sortSelect").selectOption("code_desc");
+    assert.deepEqual(await codes(), ["10000000", "8000001", "8000000", "1000000", "999999", "unknown"]);
+    assert.equal(await p.locator("#rankingRail").innerHTML(), ranking, "Number sort preserves MissAV ranking");
+    assert.equal(new URL(p.url()).searchParams.get("sort"), "code_desc");
+    await p.reload();
+    await waitFeed(p);
+    assert.equal(await p.locator("#sortSelect").inputValue(), "code_desc");
+    assert.equal((await codes())[0], "10000000", "Number order survives reload");
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Number sort fits mobile and desktop");
+    await p.screenshot({ path: path.join(output, `number-sort-${viewport.width}.png`) });
+    if (viewport.width < 768) await p.locator("#mobileSearch").click();
+    await p.locator("#q").fill("番号ソート対象");
+    await p.locator("#searchForm").evaluate((el) => el.requestSubmit());
+    await p.locator("#sortSelect").selectOption("code_asc");
+    assert.deepEqual(await codes(), ["999999", "1000000", "8000000", "10000000", "unknown"], "Number sort works with search");
+    await p.locator("#filterButton").click();
+    await p.locator('[data-filter="rating"][data-value="4.5"]').click();
+    await p.locator("#filterDialog [data-close]").last().click();
+    assert.deepEqual(await codes(), ["999999", "1000000", "10000000", "unknown"], "Number sort works with filters");
+    await nav(p, "popular");
+    assert.equal((await codes())[0], "1000000", "Popular page still uses rank, not number order");
+    assert.equal(await p.locator("#sortSelect").isDisabled(), true);
+    assert.deepEqual(test.errors, []);
+    assert.equal(test.blocked, 0);
+  } finally {
+    await test.context.close();
+  }
+}
 (async () => {
   const launch = () => chromium.launch({
     headless: true,
@@ -138,6 +191,12 @@ async function nav(page, name) {
   let browser = await launch();
   const report = {};
   try {
+    await testNumberSort(browser, { width: 1440, height: 980 });
+    await browser.close();
+    browser = await launch();
+    await testNumberSort(browser, { width: 390, height: 844 });
+    await browser.close();
+    browser = await launch();
     const desktop = await setup(browser, { width: 1440, height: 980 }, true);
     const p = desktop.page;
     await waitFeed(p);
@@ -405,6 +464,7 @@ async function nav(page, name) {
     report.autoRefresh = { passed: true };
     report.completed = [
       "desktop and mobile navigation",
+      "numeric FC2 order, mixed digit lengths, URL restore, search/filter combinations, and unchanged ranking",
       "search and full-width ID",
       "persistent saved/later/history",
       "popular ranking",
