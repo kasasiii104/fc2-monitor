@@ -9,7 +9,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit, quote_plus
+from urllib.parse import urljoin, urlsplit, quote_plus, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
@@ -37,6 +37,8 @@ MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
 PAGES = int(os.environ.get("PAGES", "8"))
 BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "12"))
+DISCOVERY_RETRY_SEC = 12 * 3600
+SOURCE_RETRY_AT = {}
 JAVDB_URL = os.environ.get("JAVDB_URL", "https://javdb.com/search?q=FC2&f=all")
 JAVDB_BACKFILL_PAGES = int(os.environ.get("JAVDB_BACKFILL_PAGES", "6"))
 FC2_MARKET_FETCH_LIMIT = int(os.environ.get("FC2_MARKET_FETCH_LIMIT", "24"))
@@ -146,13 +148,48 @@ def send_telegram(text: str, photo=None) -> None:
     res.raise_for_status()
 
 
+def discovery_source(url):
+    host = (urlsplit(url).hostname or "").lower()
+    for source, hosts in {"missav": ("missav.ws", "missav.live", "missav.ai"),
+                          "javdb": ("javdb.com",), "supjav": ("supjav.com",)}.items():
+        if any(host == value or host.endswith("." + value) for value in hosts):
+            return source
+    return ""
+
+
+def source_in_cooldown(url):
+    return int(SOURCE_RETRY_AT.get(discovery_source(url)) or 0) > now_ts()
+
+
+def record_source_denial(url, status, challenge=False):
+    source = discovery_source(url)
+    if source and (status in (401, 403, 429) or challenge):
+        SOURCE_RETRY_AT[source] = now_ts() + DISCOVERY_RETRY_SEC
+
+
+def save_discovery_cooldowns():
+    """Persist denials even when collection fails, without advancing cursors."""
+    state = load_json(CRAWL_FILE, {})
+    if (state.get("source_retry_at") or {}) != SOURCE_RETRY_AT:
+        state["source_retry_at"] = dict(SOURCE_RETRY_AT)
+        save_json(CRAWL_FILE, state)
+
+
 def fetch_soup(url: str):
+    if source_in_cooldown(url):
+        response = requests.Response()
+        response.status_code = 403
+        raise requests.HTTPError("source cooldown; no request made", response=response)
     res = requests.get(url, headers=HEADERS, timeout=30)
+    record_source_denial(url, res.status_code)
     res.raise_for_status()
     return BeautifulSoup(res.text, "html.parser")
 
 
 def fetch_page(url: str) -> dict:
+    if source_in_cooldown(url):
+        return {"ok": False, "status": 0, "final_url": url, "soup": None,
+                "size": 0, "title": "", "cloudflare": False, "error": "source_cooldown"}
     try:
         res = requests.get(url, headers=HEADERS, timeout=30, allow_redirects=True)
         text = res.text or ""
@@ -166,12 +203,12 @@ def fetch_page(url: str) -> dict:
         title_l = (title or "").lower()
         real_title = bool(title) and "just a moment" not in title_l
         challenge = (
-            res.status_code in (403, 503)
-            or title_l.startswith("just a moment")
+            title_l.startswith("just a moment")
             or "<title>just a moment" in low[:4000]
         )
         if res.status_code == 200 and real_title and len(text) > 20000:
             challenge = False
+        record_source_denial(url, res.status_code, challenge)
         return {
             "ok": res.status_code == 200 and not challenge and len(text) > 2000,
             "status": res.status_code,
@@ -429,6 +466,8 @@ def harvest_supjav_views(pages=None) -> dict:
         extra = " keeping_previous_views=true" if info.get("cloudflare") or info.get("status") == 403 else ""
         print(f"[Supjav] page={page} status={info.get('status')} title={(info.get('title') or '')[:60]!r} cloudflare={info.get('cloudflare')}{extra}")
         if not info.get("ok") or not info.get("soup"):
+            if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
+                break
             continue
         soup = info["soup"]
         cards = []
@@ -477,6 +516,8 @@ def scrape_missav_fc2_rankings() -> dict:
             usable = page.get("ok") or (page.get("status") == 200 and (page.get("size") or 0) > 20000)
             if not usable or soup is None:
                 print(f"[MissAV FC2 rank {period}] status={page.get('status')} title={(page.get('title') or '')[:50]!r} cloudflare={page.get('cloudflare')}")
+                if page.get("status") in (401, 403, 429) or page.get("cloudflare") or page.get("error") == "source_cooldown":
+                    break
                 continue
             rank = 0
             seen = set()
@@ -659,7 +700,7 @@ def scrape_missav(pages=None):
         info = fetch_page(url)
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
             print(f"MissAV {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
-            continue
+            break
         soup = info["soup"]
         before = len(collected)
         for a in soup.find_all("a", href=True):
@@ -688,11 +729,66 @@ def scrape_missav(pages=None):
     return list(collected.values())
 
 
-def scrape_missav_catalog(pages=None, completed_pages=None):
-    """MissAV /ja/fc2 catalog. Only usable HTTP-200 pages are parsed."""
+def listing_pagination(soup):
+    """Read the publisher's pagination, not an assumed page count."""
+    current, maximum = None, None
+    for node in soup.find_all("input"):
+        value, limit = str(node.get("value") or ""), str(node.get("max") or "")
+        context = node.parent.get_text(" ", strip=True) if node.parent else ""
+        fraction = re.search(r"/\s*([\d,]+)\b", context)
+        if limit.isdigit() and int(limit) > 0:
+            maximum = int(limit)
+        elif fraction and len(context) < 100:
+            maximum = int(fraction.group(1).replace(",", ""))
+        if (limit.isdigit() or fraction or node.get("type") == "number") and value.isdigit():
+            current = int(value)
+    active = soup.select_one('[aria-current="page"]')
+    if active and active.get_text(strip=True).isdigit():
+        current = int(active.get_text(strip=True))
+    last = soup.find("a", rel="last", href=True)
+    if last:
+        raw = parse_qs(urlsplit(last["href"]).query).get("page", [""])[0]
+        if raw.isdigit():
+            maximum = int(raw)
+    # The live publisher uses numbered links and rel=next/prev, with no
+    # numeric input or rel=last. A far-end pair after a gap in the forward
+    # window exposes the limit; a contiguous local window alone does not.
+    numbered, adjacent = set(), set()
+    for link in soup.find_all("a", href=True):
+        raw = parse_qs(urlsplit(link["href"]).query).get("page", [""])[0]
+        if not raw.isdigit() or int(raw) < 1:
+            continue
+        value = int(raw)
+        label = link.get_text(strip=True).replace(",", "")
+        if label.isdigit() and int(label) == value:
+            numbered.add(value)
+        if "next" in (link.get("rel") or []):
+            adjacent.add(value - 1)
+        if "prev" in (link.get("rel") or []):
+            adjacent.add(value + 1)
+    if current is None and len(adjacent) == 1:
+        current = adjacent.pop()
+    if maximum is None and current is not None:
+        forward = sorted(value for value in numbered if value > current)
+        if (len(forward) >= 3 and forward[-1] == forward[-2] + 1
+                and any(right > left + 1 for left, right in zip(forward, forward[1:]))):
+            maximum = forward[-1]
+    return {"current_page": current, "max_page": maximum}
+
+
+def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
+    """Validate page identity and limits before marking any archive page complete."""
+    report = report if report is not None else {}
+    report.setdefault("pages", [])
+    report.setdefault("status", "ok")
     collected = {}
+    fingerprints = set()
+    previous_archive = report.get("last_archive") or {}
     bases = ["https://missav.ws/ja/fc2", "https://missav.live/ja/fc2", "https://missav.ai/ja/fc2"]
     for page_no in (pages or [1, 2]):
+        if report.get("max_page") and page_no > report["max_page"]:
+            report.update(status="page_limit", stopped_page=page_no)
+            break
         soup = None
         final = ""
         for base in bases:
@@ -702,8 +798,35 @@ def scrape_missav_catalog(pages=None, completed_pages=None):
             if info.get("ok") and info.get("status") == 200 and not info.get("cloudflare"):
                 soup, final = info.get("soup"), info.get("final_url") or base
                 break
+            if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
+                report.update(status="access_limited", stopped_page=page_no)
+                break  # Do not switch domains to get around an access denial.
         if soup is None:
-            continue
+            if report["status"] == "ok":
+                report.update(status="fetch_failed", stopped_page=page_no)
+            break
+        pagination = listing_pagination(soup)
+        if pagination.get("max_page"):
+            report["max_page"] = pagination["max_page"]
+        actual = pagination.get("current_page")
+        redirected_page = parse_qs(urlsplit(final).query).get("page", [None])[0]
+        if actual is None and redirected_page and redirected_page.isdigit():
+            actual = int(redirected_page)
+        if (actual is not None and actual != page_no) or (report.get("max_page") and page_no > report["max_page"]):
+            report.update(status="page_mismatch", stopped_page=page_no, actual_page=actual)
+            break
+        fingerprint_codes = sorted(set(m.group(1) for a in soup.find_all("a", href=True)
+            if (m := re.search(r"/fc2-ppv-(\d{6,8})(?:\b|/)", a["href"], re.I))))
+        fingerprint = hashlib.sha256(",".join(fingerprint_codes).encode()).hexdigest()[:16]
+        if fingerprint_codes and fingerprint in fingerprints:
+            report.update(status="repeated_page", stopped_page=page_no)
+            break
+        if (page_no > max(2, PAGES) and page_no > int(previous_archive.get("page") or 0)
+                and previous_archive.get("fingerprint") == fingerprint):
+            report.update(status="repeated_page", stopped_page=page_no)
+            break
+        if fingerprint_codes:
+            fingerprints.add(fingerprint)
         before = len(collected)
         recognized = False
         for a in soup.find_all("a", href=True):
@@ -723,16 +846,24 @@ def scrape_missav_catalog(pages=None, completed_pages=None):
             cur = collected.get(num)
             if not cur:
                 collected[num] = enrich(num, title or f"FC2-PPV-{num}", "MissAV", full)
+                collected[num]["discovery_kind"] = "recent" if page_no <= max(2, PAGES) else "archive"
             elif is_better_title(title, cur.get("title", "")):
                 cur["title"], cur["url"] = title, full
         print(f"[MissAV /ja/fc2] page={page_no} +{len(collected)-before} total={len(collected)}")
         if recognized and completed_pages is not None:
             completed_pages.add(page_no)
+        report["pages"].append({"page": page_no, "current_page": actual, "items": len(fingerprint_codes),
+                                "fingerprint": fingerprint, "added_to_batch": len(collected)-before})
+        if recognized and page_no > max(2, PAGES):
+            report["last_archive"] = {"page": page_no, "fingerprint": fingerprint}
+        if not recognized:
+            report.update(status="unrecognized", stopped_page=page_no)
+            break
     return list(collected.values())
 
 
-def scrape_javdb(pages=None, completed_pages=None):
-    """Independent JavDB discovery. 403/challenge/non-200 pages are simply skipped."""
+def scrape_javdb(pages=None, completed_pages=None, report=None):
+    """Independent discovery; access denials stop the source's current batch."""
     collected = {}
     for page_no in (pages or [1, 2]):
         sep = "&" if "?" in JAVDB_URL else "?"
@@ -740,6 +871,10 @@ def scrape_javdb(pages=None, completed_pages=None):
         info = fetch_page(url)
         print(f"[JavDB] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')} size={info.get('size')}")
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
+            if report is not None:
+                report.update(status="access_limited" if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown" else "fetch_failed", stopped_page=page_no)
+            if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
+                break
             continue
         soup = info["soup"]
         before = len(collected)
@@ -758,6 +893,7 @@ def scrape_javdb(pages=None, completed_pages=None):
             cur = collected.get(num)
             if not cur:
                 collected[num] = enrich(num, title or f"FC2-PPV-{num}", "JavDB", full)
+                collected[num]["discovery_kind"] = "recent" if page_no <= 2 else "archive"
             elif is_better_title(title, cur.get("title", "")):
                 cur["title"], cur["url"] = title, full
         print(f"[JavDB] page={page_no} +{len(collected)-before} total={len(collected)}")
@@ -1886,7 +2022,7 @@ def scrape_supjav(pages=None):
         info = fetch_page(url)
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
             print(f"Supjav {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
-            continue
+            break
         soup = info["soup"]
         before = len(seen)
         for a in soup.find_all("a", href=True):
@@ -1940,44 +2076,64 @@ def merge_videos(groups):
 
 
 def get_latest_videos():
-    """Propose cursors without persisting them before the catalog is saved."""
+    """Propose validated discovery progress; commit it only with the catalog."""
     state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3, "javdb_page": 3})
-    mp = int(state.get("missav_page", 3))
+    SOURCE_RETRY_AT.clear()
+    SOURCE_RETRY_AT.update({key: int(value) for key, value in (state.get("source_retry_at") or {}).items()
+                           if int(value or 0) > now_ts()})
+    recent_count = max(2, PAGES)
+    mp = max(recent_count + 1, int(state.get("missav_page", recent_count + 1)))
     jp = int(state.get("javdb_page", 3))
     recovery = dict(state.get("recovery_until") or {})
     missav_end = max(mp + BACKFILL_PAGES, min(mp + 60, int(recovery.get("missav_page", 0))))
     javdb_end = max(jp + JAVDB_BACKFILL_PAGES, min(jp + 30, int(recovery.get("javdb_page", 0))))
-    missav_pages = [1, 2] + list(range(mp, missav_end))
+    missav_pages = list(range(1, recent_count + 1)) + list(range(mp, missav_end))
     javdb_pages = [1, 2] + list(range(jp, javdb_end))
     missav_completed, javdb_completed = set(), set()
-    # Supjav is an optional helper; keep its request volume small.
-    supjav_pages = [1, 2, 3]
+    previous_missav = (state.get("last_discovery", {}).get("sources", {}).get("missav") or {})
+    reports = {"missav": {"archive_from": mp, "last_archive": previous_missav.get("last_archive") or {}},
+               "javdb": {"archive_from": jp}}
     found, errors = [], []
     try:
-        items = scrape_missav(missav_pages)
-        catalog = scrape_missav_catalog(missav_pages, completed_pages=missav_completed)
-        print(f"MissAV: search={len(items)} catalog={len(catalog)}")
+        # Search and the dedicated catalog have different ordering. Only the
+        # catalog advances the archive cursor; search is a recent supplement.
+        items = scrape_missav(list(range(1, recent_count + 1)))
+        catalog = scrape_missav_catalog(missav_pages, completed_pages=missav_completed,
+                                       report=reports["missav"])
         found.extend([items, catalog])
         while mp in missav_completed:
             mp += 1
+        maximum = reports["missav"].get("max_page")
+        if maximum and mp > maximum:
+            reports["missav"].update(cycle_completed=True, restart_page=recent_count + 1)
+            state["missav_cycle"] = int(state.get("missav_cycle") or 0) + 1
+            state["missav_cycle_completed_at"] = now_jst()
+            reports["missav"].pop("last_archive", None)
+            mp = recent_count + 1
+            recovery.pop("missav_page", None)
         state["missav_page"] = mp
+        reports["missav"].update(search_items=len(items), catalog_items=len(catalog),
+            recent_pages=sum(page <= recent_count for page in missav_completed),
+            archive_pages=sum(page > recent_count for page in missav_completed), next_page=mp)
     except Exception as e:
         errors.append(f"MissAV: {e}")
+        reports["missav"].update(status="error", error=str(e))
     try:
-        items = scrape_javdb(javdb_pages, completed_pages=javdb_completed)
-        print(f"JavDB: {len(items)}件")
+        items = scrape_javdb(javdb_pages, completed_pages=javdb_completed, report=reports["javdb"])
         found.append(items)
         while jp in javdb_completed:
             jp += 1
         state["javdb_page"] = jp
+        reports["javdb"].update(items=len(items), archive_pages=sum(page > 2 for page in javdb_completed), next_page=jp)
     except Exception as e:
         errors.append(f"JavDB: {e}")
+        reports["javdb"].update(status="error", error=str(e))
     try:
-        items = scrape_supjav(supjav_pages)
-        print(f"Supjav: {len(items)}件")
+        items = scrape_supjav([1, 2, 3])
         found.append(items)
+        reports["supjav"] = {"items": len(items), "status": "access_limited" if SOURCE_RETRY_AT.get("supjav", 0) > now_ts() else "checked"}
     except Exception as e:
-        print(f"Supjav補助スキップ: {e}")
+        reports["supjav"] = {"status": "error", "error": str(e)}
     for key, end in list(recovery.items()):
         if int(state.get(key, 0)) >= int(end):
             recovery.pop(key)
@@ -1985,7 +2141,10 @@ def get_latest_videos():
         state["recovery_until"] = recovery
     else:
         state.pop("recovery_until", None)
+    state["source_retry_at"] = dict(SOURCE_RETRY_AT)
     videos = merge_videos(found)
+    state["last_discovery"] = {"checked_at": now_jst(), "found_unique": len(videos), "sources": reports}
+    print("[Discovery] " + json.dumps(state["last_discovery"], ensure_ascii=False))
     if not videos and errors:
         raise RuntimeError(" / ".join(errors))
     return videos, state
@@ -2177,16 +2336,20 @@ def run_optional_step(label, action, *args, **kwargs):
         return False
 
 
-def main() -> int:
+def main(discovery_only=False) -> int:
     print(f"[{now_jst()}] チェック開始")
     try:
         latest, crawl_state = get_latest_videos()
     except Exception as e:
+        save_discovery_cooldowns()
         print(f"取得失敗: {e}", file=sys.stderr)
-        run_optional_step("Error notification", send_telegram, "監視エラー: ページ取得に失敗しました")
+        if not discovery_only:
+            run_optional_step("Error notification", send_telegram, "監視エラー: ページ取得に失敗しました")
         return 1
+    save_discovery_cooldowns()
     if not latest:
-        run_optional_step("Error notification", send_telegram, "監視エラー: 動画リストを抽出できませんでした。")
+        if not discovery_only:
+            run_optional_step("Error notification", send_telegram, "監視エラー: 動画リストを抽出できませんでした。")
         return 1
 
     history = load_json(HISTORY_FILE, {"ids": []})
@@ -2199,7 +2362,7 @@ def main() -> int:
 
     for video in latest:
         old = existing_map.get(video["code"], {})
-        is_new = video["code"] not in known and not first_run
+        is_new = video["code"] not in known and not first_run and video.get("discovery_kind") != "archive"
         item = {**video, "first_seen": old.get("first_seen", stamp), "last_seen": stamp, "is_new": is_new}
         # A longer scraped label must not replace an already acquired Japanese
         # title. Fresh official metadata can still replace it below.
@@ -2264,19 +2427,32 @@ def main() -> int:
 
     sanitize_item_titles(merged)
     # New discoveries get official Japanese title/rating/review immediately.
-    for action in (enrich_new_fc2_market, refresh_fc2cmadb_titles,
+    for action in (() if discovery_only else (enrich_new_fc2_market, refresh_fc2cmadb_titles,
                    run_continuous_metadata_backfill, enrich_hwalker_market,
                    refresh_japanese_titles, fill_missing_views, enrich_fc2_market,
-                   enrich_fc2_sample_assets, run_thumbnail_backfill, refresh_fc2_previews):
+                   enrich_fc2_sample_assets, run_thumbnail_backfill, refresh_fc2_previews)):
         run_optional_step(action.__name__, action, merged)
-    run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), stamp))
-    run_optional_step("Views history", update_views_history, merged)
+    if not discovery_only:
+        run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), stamp))
+        run_optional_step("Views history", update_views_history, merged)
+    additions = [item for item in latest if item["code"] not in existing_map]
+    if "last_discovery" in crawl_state:
+        crawl_state["last_discovery"].update(previous_total=len(existing_map), new_to_catalog=len(additions),
+            recent_added=sum(item.get("discovery_kind") != "archive" for item in additions),
+            archive_added=sum(item.get("discovery_kind") == "archive" for item in additions), total_after=len(merged))
+    if SOURCE_RETRY_AT:
+        crawl_state["source_retry_at"] = dict(SOURCE_RETRY_AT)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     write_site(merged, stamp, len(new_videos))
     # Commit the discovery position only after both data and public output exist.
     save_json(CRAWL_FILE, crawl_state)
     print(f"[Catalog saved] items={len(merged)} new={len(new_videos)} updated_at={stamp}")
+    if "last_discovery" in crawl_state:
+        print("[Discovery saved] " + json.dumps(crawl_state["last_discovery"], ensure_ascii=False))
+    if discovery_only:
+        print("Discovery-only run: metadata enrichment and notifications skipped")
+        return 0
 
     if first_run:
         run_optional_step("Startup notification", send_telegram, "監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]))
@@ -2343,4 +2519,5 @@ def audit_discovery() -> int:
 if __name__ == "__main__":
     raise SystemExit(rebuild_site() if "--build-site" in sys.argv else
                      repair_saved_titles() if "--repair-titles" in sys.argv else
-                     audit_discovery() if "--audit-discovery" in sys.argv else main())
+                     audit_discovery() if "--audit-discovery" in sys.argv else
+                     main(discovery_only="--discovery-only" in sys.argv))

@@ -23,6 +23,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         }.items():
             self.enterContext(patch.object(m, name, root / filename))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+        self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
         self.enterContext(patch.object(m.requests, 'post', side_effect=AssertionError('No notifications in tests')))
 
     def item(self, num='8000001'):
@@ -68,7 +69,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         old = {'missav_page': 10, 'javdb_page': 20}
         m.save_json(m.CRAWL_FILE, old)
 
-        def catalog(pages, completed_pages):
+        def catalog(pages, completed_pages, report=None):
             completed_pages.update([1, 2, 10, 12])  # Page 11 failed.
             return [self.item()]
 
@@ -78,7 +79,8 @@ class MonitorRecoveryTests(unittest.TestCase):
              patch.object(m, 'scrape_supjav', return_value=[]):
             items, proposed = m.get_latest_videos()
         self.assertEqual(len(items), 1)
-        self.assertEqual(proposed, {'missav_page': 11, 'javdb_page': 20})
+        self.assertEqual(proposed['missav_page'], 11)
+        self.assertEqual(proposed['javdb_page'], 20)
         self.assertEqual(m.load_json(m.CRAWL_FILE, {}), old)
 
     def test_recovery_replays_all_48_missed_pages_and_keeps_blocked_source_pending(self):
@@ -86,8 +88,8 @@ class MonitorRecoveryTests(unittest.TestCase):
                'recovery_until': {'missav_page': 1065, 'javdb_page': 153}}
         m.save_json(m.CRAWL_FILE, old)
 
-        def catalog(pages, completed_pages):
-            self.assertEqual(pages, [1, 2] + list(range(1017, 1065)))
+        def catalog(pages, completed_pages, report=None):
+            self.assertEqual(pages, list(range(1, m.PAGES + 1)) + list(range(1017, 1065)))
             completed_pages.update(pages)
             return [self.item()]
 
