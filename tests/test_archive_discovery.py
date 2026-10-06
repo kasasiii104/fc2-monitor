@@ -71,6 +71,28 @@ class ArchiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(completed, set())
         self.assertEqual(report['status'], 'repeated_page')
 
+    def test_new_posts_shifting_the_page_boundary_do_not_stall_archive_discovery(self):
+        fingerprint = lambda code: hashlib.sha256(code.encode()).hexdigest()[:16]
+        report = {'last_archive': {'page': 10, 'fingerprint': fingerprint('8000010'),
+                                   'head_fingerprint': fingerprint('8000001')}}
+        completed = set()
+        # Newly inserted works shift the former last page into the next page.
+        # It is not a clamped/repeated response if the catalog head changed.
+        with patch.object(m, 'fetch_page', side_effect=[self.page(1, code='9000001'), self.page(11, code='8000010')]):
+            m.scrape_missav_catalog([1, 11], completed, report)
+        self.assertEqual(completed, {1, 11})
+        self.assertEqual(report['last_archive']['head_fingerprint'], fingerprint('9000001'))
+
+    def test_unchanged_catalog_head_keeps_cross_run_duplicate_protection(self):
+        fingerprint = lambda code: hashlib.sha256(code.encode()).hexdigest()[:16]
+        report = {'last_archive': {'page': 10, 'fingerprint': fingerprint('8000010'),
+                                   'head_fingerprint': fingerprint('8000001')}}
+        completed = set()
+        with patch.object(m, 'fetch_page', side_effect=[self.page(1), self.page(11, code='8000010')]):
+            m.scrape_missav_catalog([1, 11], completed, report)
+        self.assertEqual(completed, {1})
+        self.assertEqual(report['status'], 'repeated_page')
+
     def test_wrong_page_returned_after_redirect_is_not_success(self):
         completed, report = set(), {}
         with patch.object(m, 'fetch_page', return_value=self.page(42, current=1)):

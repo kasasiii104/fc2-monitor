@@ -784,6 +784,7 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
     collected = {}
     fingerprints = set()
     previous_archive = report.get("last_archive") or {}
+    head_fingerprint = None
     bases = ["https://missav.ws/ja/fc2", "https://missav.live/ja/fc2", "https://missav.ai/ja/fc2"]
     for page_no in (pages or [1, 2]):
         if report.get("max_page") and page_no > report["max_page"]:
@@ -818,11 +819,15 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
         fingerprint_codes = sorted(set(m.group(1) for a in soup.find_all("a", href=True)
             if (m := re.search(r"/fc2-ppv-(\d{6,8})(?:\b|/)", a["href"], re.I))))
         fingerprint = hashlib.sha256(",".join(fingerprint_codes).encode()).hexdigest()[:16]
+        if page_no == 1:
+            head_fingerprint = fingerprint
         if fingerprint_codes and fingerprint in fingerprints:
             report.update(status="repeated_page", stopped_page=page_no)
             break
         if (page_no > max(2, PAGES) and page_no > int(previous_archive.get("page") or 0)
-                and previous_archive.get("fingerprint") == fingerprint):
+                and previous_archive.get("fingerprint") == fingerprint
+                and (not head_fingerprint or not previous_archive.get("head_fingerprint")
+                     or previous_archive["head_fingerprint"] == head_fingerprint)):
             report.update(status="repeated_page", stopped_page=page_no)
             break
         if fingerprint_codes:
@@ -855,7 +860,8 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
         report["pages"].append({"page": page_no, "current_page": actual, "items": len(fingerprint_codes),
                                 "fingerprint": fingerprint, "added_to_batch": len(collected)-before})
         if recognized and page_no > max(2, PAGES):
-            report["last_archive"] = {"page": page_no, "fingerprint": fingerprint}
+            report["last_archive"] = {"page": page_no, "fingerprint": fingerprint,
+                                      "head_fingerprint": head_fingerprint}
         if not recognized:
             report.update(status="unrecognized", stopped_page=page_no)
             break
@@ -2091,7 +2097,11 @@ def get_latest_videos():
     javdb_pages = [1, 2] + list(range(jp, javdb_end))
     missav_completed, javdb_completed = set(), set()
     previous_missav = (state.get("last_discovery", {}).get("sources", {}).get("missav") or {})
-    reports = {"missav": {"archive_from": mp, "last_archive": previous_missav.get("last_archive") or {}},
+    previous_archive = dict(previous_missav.get("last_archive") or {})
+    if previous_archive and not previous_archive.get("head_fingerprint"):
+        previous_archive["head_fingerprint"] = next((page.get("fingerprint") for page in
+            previous_missav.get("pages", []) if page.get("page") == 1), None)
+    reports = {"missav": {"archive_from": mp, "last_archive": previous_archive},
                "javdb": {"archive_from": jp}}
     found, errors = [], []
     try:

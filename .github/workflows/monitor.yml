@@ -25,6 +25,8 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    outputs:
+      pages_artifact: ${{ steps.pages_artifact.outputs.name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,8 +85,13 @@ jobs:
             git push
           fi
 
+      - name: Select unique Pages artifact for this attempt
+        id: pages_artifact
+        run: echo "name=github-pages-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-pages-artifact@v3
         with:
+          name: ${{ steps.pages_artifact.outputs.name }}
           path: docs
 
   pages:
@@ -97,3 +104,5 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.check.outputs.pages_artifact }}
