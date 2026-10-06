@@ -1,8 +1,108 @@
 {
-  "missav_page": 2239,
+  "missav_page": 9,
   "supjav_page": 765,
   "javdb_page": 129,
   "recovery_until": {
     "javdb_page": 159
+  },
+  "missav_cycle": 1,
+  "missav_cycle_completed_at": "2026-10-06 13:38:19",
+  "source_retry_at": {
+    "javdb": 1791304699,
+    "supjav": 1791304699
+  },
+  "last_discovery": {
+    "checked_at": "2026-10-06 13:38:19",
+    "found_unique": 125,
+    "sources": {
+      "missav": {
+        "archive_from": 2239,
+        "pages": [
+          {
+            "page": 1,
+            "current_page": 1,
+            "items": 12,
+            "fingerprint": "6b80e426c6b718b6",
+            "added_to_batch": 12
+          },
+          {
+            "page": 2,
+            "current_page": 2,
+            "items": 12,
+            "fingerprint": "c5d1114fd2626c81",
+            "added_to_batch": 12
+          },
+          {
+            "page": 3,
+            "current_page": 3,
+            "items": 12,
+            "fingerprint": "75c1cd68f0666aa7",
+            "added_to_batch": 12
+          },
+          {
+            "page": 4,
+            "current_page": 4,
+            "items": 12,
+            "fingerprint": "5312d3eb795b63a0",
+            "added_to_batch": 12
+          },
+          {
+            "page": 5,
+            "current_page": 5,
+            "items": 12,
+            "fingerprint": "3da08d38e2f8adfb",
+            "added_to_batch": 12
+          },
+          {
+            "page": 6,
+            "current_page": 6,
+            "items": 12,
+            "fingerprint": "ebcc680645964ae4",
+            "added_to_batch": 12
+          },
+          {
+            "page": 7,
+            "current_page": 7,
+            "items": 12,
+            "fingerprint": "cbe527a5af54ee84",
+            "added_to_batch": 12
+          },
+          {
+            "page": 8,
+            "current_page": 8,
+            "items": 12,
+            "fingerprint": "477653c1a11744ca",
+            "added_to_batch": 12
+          }
+        ],
+        "status": "page_limit",
+        "max_page": 2000,
+        "stopped_page": 2239,
+        "cycle_completed": true,
+        "restart_page": 9,
+        "search_items": 91,
+        "catalog_items": 96,
+        "recent_pages": 8,
+        "archive_pages": 0,
+        "next_page": 9
+      },
+      "javdb": {
+        "archive_from": 129,
+        "status": "access_limited",
+        "stopped_page": 1,
+        "items": 0,
+        "archive_pages": 0,
+        "next_page": 129
+      },
+      "supjav": {
+        "items": 0,
+        "status": "access_limited"
+      }
+    },
+    "previous_total": 18641,
+    "new_to_catalog": 3,
+    "recent_added": 3,
+    "archive_added": 0,
+    "total_after": 18644
   }
 }
