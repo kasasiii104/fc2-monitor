@@ -2314,6 +2314,33 @@ def main() -> int:
     return 0
 
 
+def audit_discovery() -> int:
+    """Read-only pagination diagnostics; never fetch video files or send notices."""
+    state = load_json(CRAWL_FILE, {})
+    base = "https://missav.ws/ja/fc2"
+    for page in dict.fromkeys([1, 2, int(state.get("missav_page") or 3)]):
+        url = base if page == 1 else f"{base}?page={page}"
+        info = fetch_page(url)
+        soup = info.get("soup")
+        if not info.get("ok") or soup is None:
+            print(json.dumps({"pagination_audit": page, "status": info.get("status"),
+                              "challenge": info.get("cloudflare"), "size": info.get("size")}), flush=True)
+            break
+        codes = sorted(set(re.findall(r"/fc2-ppv-(\d{6,8})(?:\b|/)", str(soup), flags=re.I)))
+        inputs = [{k: node.get(k) for k in ("type", "name", "value", "min", "max", "x-model")}
+                  for node in soup.find_all("input")
+                  if node.get("type") == "number" or node.get("x-model") or node.get("max")]
+        pagination = [{"href": a.get("href"), "rel": a.get("rel")}
+                      for a in soup.find_all("a", href=True) if re.search(r"[?&]page=", a["href"])]
+        contexts = [node.parent.get_text(" ", strip=True)[:100]
+                    for node in soup.find_all("input") if node.get("type") == "number" or node.get("x-model")]
+        print(json.dumps({"pagination_audit": page, "status": info.get("status"), "final_url": info.get("final_url"),
+                          "codes_count": len(codes), "fingerprint": hashlib.sha256(",".join(codes).encode()).hexdigest()[:16],
+                          "inputs": inputs, "pagination": pagination, "contexts": contexts}, ensure_ascii=False), flush=True)
+    return 0
+
+
 if __name__ == "__main__":
     raise SystemExit(rebuild_site() if "--build-site" in sys.argv else
-                     repair_saved_titles() if "--repair-titles" in sys.argv else main())
+                     repair_saved_titles() if "--repair-titles" in sys.argv else
+                     audit_discovery() if "--audit-discovery" in sys.argv else main())

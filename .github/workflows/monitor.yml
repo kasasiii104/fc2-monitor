@@ -55,6 +55,10 @@ jobs:
           git show d7012e571cd74ffab62c70a6ec183685092ee95e:docs/data.json > "$RUNNER_TEMP/title-recovery.json"
           TITLE_RECOVERY_FILE="$RUNNER_TEMP/title-recovery.json" python fc2_monitor.py --repair-titles
 
+      - name: Audit discovery pagination without notifications
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[audit-discovery]')
+        run: python -u fc2_monitor.py --audit-discovery
+
       # A UI/code push can publish immediately using the saved catalog. Scheduled
       # runs still crawl every two hours and use the same renderer afterwards.
       - name: Build site from saved data
