@@ -1,5 +1,5 @@
 {
-  "missav_page": 333,
+  "missav_page": 345,
   "supjav_page": 765,
   "javdb_page": 129,
   "recovery_until": {
@@ -8,18 +8,18 @@
   "missav_cycle": 1,
   "missav_cycle_completed_at": "2026-10-06 13:38:19",
   "source_retry_at": {
-    "javdb": 1791440161,
-    "supjav": 1791440161
+    "javdb": 1791483507,
+    "supjav": 1791483507
   },
   "last_discovery": {
-    "checked_at": "2026-10-08 13:14:07",
-    "found_unique": 248,
+    "checked_at": "2026-10-08 15:18:27",
+    "found_unique": 256,
     "sources": {
       "missav": {
-        "archive_from": 321,
+        "archive_from": 333,
         "last_archive": {
-          "page": 332,
-          "fingerprint": "9bb26d0bf196fbea",
+          "page": 344,
+          "fingerprint": "52e99cf60be284e3",
           "head_fingerprint": "943409e0783ab79e"
         },
         "pages": [
@@ -80,97 +80,97 @@
             "added_to_batch": 5
           },
           {
-            "page": 321,
-            "current_page": 321,
+            "page": 333,
+            "current_page": 333,
             "items": 12,
-            "fingerprint": "28f75cf66ad840bb",
+            "fingerprint": "a5448b4d13fa6af5",
             "added_to_batch": 12
           },
           {
-            "page": 322,
-            "current_page": 322,
+            "page": 334,
+            "current_page": 334,
             "items": 12,
-            "fingerprint": "3d375ab225291ec0",
+            "fingerprint": "d8f163253e1d8e1d",
             "added_to_batch": 12
           },
           {
-            "page": 323,
-            "current_page": 323,
+            "page": 335,
+            "current_page": 335,
             "items": 12,
-            "fingerprint": "8bd15728108b5b68",
-            "added_to_batch": 9
-          },
-          {
-            "page": 324,
-            "current_page": 324,
-            "items": 12,
-            "fingerprint": "d86aa963d49a2576",
+            "fingerprint": "14bf7f00ddb0d556",
             "added_to_batch": 12
           },
           {
-            "page": 325,
-            "current_page": 325,
+            "page": 336,
+            "current_page": 336,
             "items": 12,
-            "fingerprint": "cb22457acae48c25",
-            "added_to_batch": 9
-          },
-          {
-            "page": 326,
-            "current_page": 326,
-            "items": 12,
-            "fingerprint": "9f07c4daea7c484c",
+            "fingerprint": "93f23659082a75d1",
             "added_to_batch": 12
           },
           {
-            "page": 327,
-            "current_page": 327,
+            "page": 337,
+            "current_page": 337,
             "items": 12,
-            "fingerprint": "7d7f6cd361a82689",
+            "fingerprint": "14c7cfc8f9755ca3",
+            "added_to_batch": 12
+          },
+          {
+            "page": 338,
+            "current_page": 338,
+            "items": 12,
+            "fingerprint": "59c317de96c2f1f8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 339,
+            "current_page": 339,
+            "items": 12,
+            "fingerprint": "2acaa52a6bc322db",
             "added_to_batch": 7
           },
           {
-            "page": 328,
-            "current_page": 328,
+            "page": 340,
+            "current_page": 340,
             "items": 12,
-            "fingerprint": "f62b090345e19127",
+            "fingerprint": "08bef42ad6622157",
             "added_to_batch": 12
           },
           {
-            "page": 329,
-            "current_page": 329,
+            "page": 341,
+            "current_page": 341,
             "items": 12,
-            "fingerprint": "094df832aa7e4874",
+            "fingerprint": "d7ee14f1e27cd4aa",
             "added_to_batch": 10
           },
           {
-            "page": 330,
-            "current_page": 330,
+            "page": 342,
+            "current_page": 342,
             "items": 12,
-            "fingerprint": "b1a16535f5a37716",
+            "fingerprint": "1aeb969bde9307b1",
             "added_to_batch": 12
           },
           {
-            "page": 331,
-            "current_page": 331,
+            "page": 343,
+            "current_page": 343,
             "items": 12,
-            "fingerprint": "9f322d1fe3cc05a2",
-            "added_to_batch": 9
+            "fingerprint": "d060bd9e72e682de",
+            "added_to_batch": 12
           },
           {
-            "page": 332,
-            "current_page": 332,
+            "page": 344,
+            "current_page": 344,
             "items": 12,
-            "fingerprint": "9bb26d0bf196fbea",
-            "added_to_batch": 12
+            "fingerprint": "52e99cf60be284e3",
+            "added_to_batch": 11
           }
         ],
         "status": "ok",
         "max_page": 2000,
-        "search_items": 89,
-        "catalog_items": 217,
+        "search_items": 92,
+        "catalog_items": 225,
         "recent_pages": 8,
         "archive_pages": 12,
-        "next_page": 333
+        "next_page": 345
       },
       "javdb": {
         "archive_from": 129,
@@ -185,10 +185,10 @@
         "status": "access_limited"
       }
     },
-    "previous_total": 19094,
-    "new_to_catalog": 27,
+    "previous_total": 19121,
+    "new_to_catalog": 17,
     "recent_added": 0,
-    "archive_added": 27,
-    "total_after": 19121
+    "archive_added": 17,
+    "total_after": 19138
   }
 }
