@@ -184,6 +184,17 @@ class UpdatePipelineTests(unittest.TestCase):
         self.assertIsNone(m.public_item(self.item(8000001))['views'])
         self.assertEqual(m.public_item(dict(self.item(8000001), views=0, views_source='Supjav'))['views'], 0)
 
+    def test_discovery_merges_measured_zero_without_related_work_counts(self):
+        page = self.page('<article><a href="/ja/123.html">FC2-PPV-8000001</a><span>0 views</span>'
+                         '<aside class="related"><a href="/ja/456.html">FC2-PPV-8000002</a><span>999 views</span></aside></article>')
+        with patch.object(m, 'fetch_page', return_value=page):
+            rows = m.scrape_supjav([1])
+        zero = next(x for x in rows if x['code'] == 'FC2-PPV-8000001')
+        self.assertEqual((zero['views'], zero['views_source']), (0, 'Supjav'))
+        original = m.enrich('8000001', 'テスト作品', 'MissAV', 'https://example.test/item')
+        merged = m.merge_videos([[original], [zero]])
+        self.assertEqual((merged[0]['views'], merged[0]['views_source']), (0, 'Supjav'))
+
     def test_metadata_only_repair_preserves_catalog_and_archive_cursor_without_notifications(self):
         items = [dict(self.item(8000001), thumb='https://example.test/a.jpg', is_new=True), self.item(8000002)]
         crawl = {'missav_page': 357, 'javdb_page': 17,

@@ -540,6 +540,20 @@ def scrape_missav_fc2_rankings() -> dict:
                 continue
             if (discovery_source(final.geturl()) != "missav" or final.path.rstrip("/") != "/ja/fc2"
                     or parse_qs(final.query).get("sort") != [sort]):
+                # Log routing/sort evidence only, never titles or response HTML.
+                sort_links = []
+                for link in page["soup"].find_all("a", href=True):
+                    try:
+                        target = urlsplit(urljoin(url, link["href"]))
+                    except ValueError:
+                        continue
+                    values = parse_qs(target.query).get("sort")
+                    if values:
+                        entry = {"path": target.path, "sort": values, "class": link.get("class", [])}
+                        if entry not in sort_links:
+                            sort_links.append(entry)
+                print("[Ranking response] " + json.dumps({"period": period, "host": final.hostname,
+                    "path": final.path, "sort": parse_qs(final.query).get("sort"), "sort_links": sort_links[:12]}, ensure_ascii=False))
                 outcome = {"status": "invalid_response", "reason": "sort_redirect"}
                 continue
             codes = []
@@ -2208,9 +2222,9 @@ def scrape_supjav(pages=None):
             seen.add(code_num)
             full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
             around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
-            views = parse_supjav_card_views(a.parent) or (extract_supjav_views(a.parent, around) if a.parent else parse_views(around))
+            views = supjav_work_views(soup, code_num)
             row = enrich(code_num, clean_title(a.get("title") or a.get_text(" ", strip=True), code_num), "Supjav", full_url, parse_duration(around), views)
-            if views:
+            if views is not None:
                 row["views_source"] = "Supjav"
             items.append(row)
         print(f"Supjav {page}ページ: {len(seen) - before}件追加 / 合計{len(seen)}")
@@ -2235,7 +2249,7 @@ def merge_videos(groups):
                     merged[code]["title"] = item["title"]
                 if item.get("duration") and not merged[code].get("duration"):
                     merged[code]["duration"] = item["duration"]
-                if item.get("views") and not merged[code].get("views"):
+                if isinstance(item.get("views"), int) and not isinstance(merged[code].get("views"), int):
                     merged[code]["views"] = item["views"]
                     if item.get("views_source"):
                         merged[code]["views_source"] = item["views_source"]
