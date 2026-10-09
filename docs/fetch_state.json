@@ -366366,5 +366366,45 @@
     "title_updated": 0,
     "untried": 0
   },
-  "fc2_market_ekyc_blocked_at": 1791512008
+  "fc2_market_ekyc_blocked_at": 1791512008,
+  "missav_rankings_v2": {
+    "day": {
+      "status": "invalid_response",
+      "checked_at": "2026-10-09 11:56:13",
+      "reason": "sort_redirect",
+      "next_retry_at": 0
+    },
+    "week": {
+      "status": "invalid_response",
+      "checked_at": "2026-10-09 11:56:13",
+      "reason": "sort_redirect",
+      "next_retry_at": 0
+    },
+    "month": {
+      "status": "invalid_response",
+      "checked_at": "2026-10-09 11:56:13",
+      "reason": "sort_redirect",
+      "next_retry_at": 0
+    },
+    "total": {
+      "status": "invalid_response",
+      "checked_at": "2026-10-09 11:56:13",
+      "reason": "sort_redirect",
+      "next_retry_at": 0
+    }
+  },
+  "views_refresh_v2_attempts": {},
+  "views_refresh_v2_stats": {
+    "checked_at": "2026-10-09 11:56:14",
+    "status": "access_limited",
+    "requests": 0,
+    "tried": 0,
+    "updated": 0,
+    "failed": 0,
+    "next_retry_at": 1791527083,
+    "known_views": 0,
+    "pending": 20045,
+    "never_checked": 20045,
+    "last_success_at": null
+  }
 }

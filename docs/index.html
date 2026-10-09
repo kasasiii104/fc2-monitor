@@ -9,16 +9,16 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="theme-color" content="#0f0f0f" />
     <title>FC2-PPV — ホーム</title>
-    <link rel="stylesheet" href="site.css?v=b36fe0d378f2" />
+    <link rel="stylesheet" href="site.css?v=f75086c5e320" />
     <link
       rel="preload"
-      href="catalog.json?v=2026-10-09+11%3A13%3A26"
+      href="catalog.json?v=2026-10-09+11%3A56%3A14"
       as="fetch"
       crossorigin
     />
-    <script src="site.js?v=b36fe0d378f2" defer></script>
+    <script src="site.js?v=f75086c5e320" defer></script>
   </head>
-  <body data-catalog="catalog.json?v=2026-10-09+11%3A13%3A26" data-updates="update.json">
+  <body data-catalog="catalog.json?v=2026-10-09+11%3A56%3A14" data-updates="update.json">
     <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <symbol id="i-menu" viewBox="0 0 24 24">
@@ -198,9 +198,9 @@
         </button>
       </nav>
       <div class="sidebar-foot">
-        <span class="status-dot"></span> 2時間ごとに更新<br /><span
+        <span class="status-dot"></span> 2時間ごとに取得を確認<br /><span
           class="updated-label"
-          >最終更新 <time data-updated-at>2026-10-09 11:13:26</time></span
+          >最終更新 <time data-updated-at>2026-10-09 11:56:14</time></span
         >
       </div>
     </aside>
@@ -217,6 +217,7 @@
         ><button data-chip="saved" class="chip">保存済み</button>
       </div>
       <section class="feed" aria-label="作品一覧">
+        <button id="syncOverview" class="sync-overview" type="button" aria-controls="infoDialog">更新状況を確認</button>
         <section
           id="homeRankings"
           class="ranking-section"
@@ -272,6 +273,7 @@
             class="ranking-rail"
             aria-label="MissAV 今日のランキング"
           ></div>
+          <p id="rankingStatus" class="context-note ranking-status"></p>
         </section>
         <div class="feed-heading">
           <div>
@@ -360,8 +362,10 @@
           <svg><use href="#i-close" /></svg>
         </button>
       </div>
-      <p>最終更新 <strong data-updated-at>2026-10-09 11:13:26</strong></p>
+      <p>最終更新 <strong data-updated-at>2026-10-09 11:56:14</strong></p>
       <p>全 <span id="catalogItemCount">20,045</span> 作品・今回の新着 <span id="catalogNewCount">2</span> 作品</p>
+      <div id="syncDetails" class="sync-details"></div>
+      <p class="context-note">再試行予定は待機が解除される目安です。その後の定期実行で確認します。取得元の本人確認・アクセス制限は回避しません。</p>
       <p class="context-note">
         保存・後で見る・履歴は、このブラウザに保存されます。
       </p>

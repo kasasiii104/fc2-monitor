@@ -344,6 +344,28 @@ input:focus {
   font-size: 10px;
   color: #777;
 }
+.sync-overview {
+  display: block;
+  max-width: 100%;
+  margin: 0 0 18px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.sync-overview:hover { color: var(--text); }
+body[data-sync-health="partial"] .status-dot { background: #e5b96a; }
+body[data-sync-health="partial"] .sync-overview { color: #dec397; }
+.sync-details dl { margin: 20px 0; }
+.sync-details dl > div { padding: 10px 0; border-top: 1px solid var(--line); }
+.sync-details dt { font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+.sync-details dd { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.ranking-status { font-size: 11px; margin-top: 8px; }
 main {
   margin: var(--header) 0 0 var(--sidebar);
   min-width: 0;
