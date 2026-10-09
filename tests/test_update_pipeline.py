@@ -101,6 +101,20 @@ class UpdatePipelineTests(unittest.TestCase):
         self.assertTrue(all(x['status'] == 'access_limited' for x in result['periods'].values()))
         self.assertGreater(m.SOURCE_RETRY_AT['missav'], m.now_ts())
 
+    def test_publisher_dynamic_route_is_accepted_only_when_locale_and_sort_match(self):
+        def source(url):
+            return self.page('<a href="/dm597/ja/fc2-ppv-8000001">テスト</a>', url.replace('/ja/', '/dm597/ja/'))
+        with patch.object(m, 'fetch_page', side_effect=source) as fetch:
+            result = m.scrape_missav_rankings()
+        self.assertEqual(fetch.call_count, 4)
+        self.assertTrue(all(x['status'] == 'ok' and x['codes'] == ['FC2-PPV-8000001'] for x in result['periods'].values()))
+        for final in ('https://missav.ws/dm597/en/fc2?sort=today_views',
+                      'https://missav.ws/dm597/ja/fc2?sort=published_at',
+                      'https://missav.ws/other/ja/fc2?sort=today_views'):
+            with patch.object(m, 'fetch_page', return_value=self.page('<a href="/ja/fc2-ppv-8000001">テスト</a>', final)):
+                result = m.scrape_missav_rankings()
+            self.assertNotEqual(result['periods']['day']['status'], 'ok')
+
     def test_saved_snapshot_overrides_legacy_duplicates_during_offline_build(self):
         items = [self.item(8000001), self.item(8000002)]
         m.apply_missav_ranks(items, {'FC2-PPV-8000002': {'day': 1}}, 'first')

@@ -515,6 +515,12 @@ def page_access_limited(info):
                 or info.get("error") == "source_cooldown")
 
 
+def missav_route_path(path):
+    # The publisher redirects normal catalog URLs through /dmNNN/ while
+    # retaining the requested locale and sort. Do not accept arbitrary prefixes.
+    return re.sub(r"^/dm\d+(?=/)", "", path, count=1)
+
+
 def scrape_missav_fc2_rankings() -> dict:
     """Return one independently verified snapshot/outcome per period."""
     hosts = ["https://missav.ws", "https://missav.live", "https://missav.ai"]
@@ -538,22 +544,11 @@ def scrape_missav_fc2_rankings() -> dict:
             except ValueError:
                 outcome = {"status": "invalid_response", "reason": "invalid_destination"}
                 continue
-            if (discovery_source(final.geturl()) != "missav" or final.path.rstrip("/") != "/ja/fc2"
+            if (discovery_source(final.geturl()) != "missav" or missav_route_path(final.path).rstrip("/") != "/ja/fc2"
                     or parse_qs(final.query).get("sort") != [sort]):
                 # Log routing/sort evidence only, never titles or response HTML.
-                sort_links = []
-                for link in page["soup"].find_all("a", href=True):
-                    try:
-                        target = urlsplit(urljoin(url, link["href"]))
-                    except ValueError:
-                        continue
-                    values = parse_qs(target.query).get("sort")
-                    if values:
-                        entry = {"path": target.path, "sort": values, "class": link.get("class", [])}
-                        if entry not in sort_links:
-                            sort_links.append(entry)
                 print("[Ranking response] " + json.dumps({"period": period, "host": final.hostname,
-                    "path": final.path, "sort": parse_qs(final.query).get("sort"), "sort_links": sort_links[:12]}, ensure_ascii=False))
+                    "path": final.path, "sort": parse_qs(final.query).get("sort")}, ensure_ascii=False))
                 outcome = {"status": "invalid_response", "reason": "sort_redirect"}
                 continue
             codes = []
@@ -562,7 +557,7 @@ def scrape_missav_fc2_rankings() -> dict:
                     target = urlsplit(urljoin(url, link["href"]))
                 except ValueError:
                     continue
-                match = re.fullmatch(r"/(?:ja/)?fc2-ppv-(\d{6,8})/?", target.path, re.I)
+                match = re.fullmatch(r"/(?:ja/)?fc2-ppv-(\d{6,8})/?", missav_route_path(target.path), re.I)
                 if not match or discovery_source(target.geturl()) != "missav":
                     continue
                 code = f"FC2-PPV-{match.group(1)}"
