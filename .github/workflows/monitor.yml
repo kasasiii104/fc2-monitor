@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Verify update and parser regressions
+        run: python -m unittest discover -s tests -q
+
       - name: Run monitor
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]')
         env:
@@ -64,6 +67,10 @@ jobs:
       - name: Repair archive discovery without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
         run: python -u fc2_monitor.py --discovery-only
+
+      - name: Repair rankings and refresh views without notifications
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[updates-now]')
+        run: python -u fc2_monitor.py --refresh-updates
 
       # A UI/code push can publish immediately using the saved catalog. Scheduled
       # runs still crawl every two hours and use the same renderer afterwards.

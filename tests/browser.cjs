@@ -201,10 +201,20 @@ async function testNumberSort(browser, viewport) {
     const p = desktop.page;
     await waitFeed(p);
     await p.mouse.move(0, 0);
+    assert.match(await p.locator("#syncOverview").innerText(), /新着 \+0 · 過去 \+11/);
+    await p.locator("#syncOverview").click();
+    assert.ok(await p.locator("#infoDialog").isVisible());
+    assert.match(await p.locator("#syncDetails").innerText(), /本人確認が必要・待機中/);
+    assert.match(await p.locator("#syncDetails").innerText(), /再試行目安/);
+    assert.match(await p.locator("#syncDetails").innerText(), /次回 357ページ目から/);
+    await p.locator("#infoDialog [data-close]").click();
+    assert.match(await p.locator('#grid [data-code="FC2-PPV-8000000"] .card-meta').first().innerText(), /0回視聴/);
+    assert.doesNotMatch(await p.locator('#grid [data-code="FC2-PPV-8000001"] .card-meta').first().innerText(), /回視聴/);
     assert.equal(await p.locator(".brand-mark").count(), 0, "Play logo is removed");
     assert.ok(await p.locator("#homeRankings").isVisible(), "MissAV ranking rail is visible on home");
     assert.equal(await p.locator("#rankingRail .ranking-card").count(), 10, "MissAV day ranking has 10 cards");
     await p.locator('[data-home-rank="week"]').click();
+    assert.match(await p.locator("#rankingStatus").innerText(), /取得失敗.*前回の順位を表示/);
     assert.ok((await p.locator("#rankingRail").getAttribute("aria-label")).includes("週間"), "Ranking period switches");
     await p.locator("#rankingAll").click();
     assert.equal(await p.locator("#listTitle").innerText(), "MissAV 週間ランキング", "Ranking opens as a full list");
@@ -325,6 +335,10 @@ async function testNumberSort(browser, viewport) {
     const mobile = await setup(browser, { width: 390, height: 844 });
     const m = mobile.page;
     await waitFeed(m);
+    await m.locator("#syncOverview").click();
+    assert.match(await m.locator("#syncDetails").innerText(), /過去 11件追加/);
+    assert.ok(await m.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Update details fit mobile");
+    await m.locator("#infoDialog [data-close]").click();
     assert.ok(await m.locator(".bottom-nav").isVisible());
     assert.ok(
       (await m.locator(".card-preview-button").count()) === 0,
@@ -401,14 +415,21 @@ async function testNumberSort(browser, viewport) {
     nextCatalog.updated_at = "2026-09-27 20:00:00";
     nextCatalog.items[0].title = "更新済みサンプル";
     nextCatalog.items[0].preview = "https://media.example.test/sample.webm";
+    for (const item of nextCatalog.items) delete item.missav_rank_day;
     nextCatalog.items[0].missav_rank_day = 1;
-    nextCatalog.items.push({ ...nextCatalog.items[0], code: "FC2-PPV-8999999", code_num: "8999999" });
+    nextCatalog.items.push({ ...nextCatalog.items[0], code: "FC2-PPV-8999999", code_num: "8999999", missav_rank_day: 2 });
+    nextCatalog.update_status.discovery.archive_added = 14;
+    nextCatalog.update_status.rankings.day = {status: "ok", count: 2, listed_count: 2, last_success_at: nextCatalog.updated_at};
     refresh.publishCatalog(nextCatalog);
     await r.clock.fastForward(5 * 60 * 1000);
     await r.waitForFunction(() => document.querySelector("[data-updated-at]").textContent === "2026-09-27 20:00:00");
     assert.match(await r.locator("#resultCount").innerText(), /7,065/);
     assert.equal(await r.locator('#grid [data-code="FC2-PPV-8000000"] .card-title').innerText(), "更新済みサンプル");
     assert.ok(await r.locator("#homeRankings").isVisible(), "Ranking remains available after automatic refresh");
+    assert.equal(await r.locator("#rankingRail .ranking-card").count(), 2, "Old ranks disappear after a new snapshot");
+    assert.equal(await r.locator('#rankingRail [data-code="FC2-PPV-8000049"]').count(), 0, "Previous winner is removed");
+    assert.match(await r.locator("#syncOverview").innerText(), /過去 \+14/);
+    assert.match(await r.locator("#rankingStatus").innerText(), /取得 2件／掲載 2件/);
 
     // Keep search, saved items, and a usable feed when a background download fails.
     await r.locator("#q").fill("8000000");

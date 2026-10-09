@@ -80,6 +80,7 @@
     checkingUpdates = false,
     catalogVersion = "",
     lastCatalogCheck = 0;
+  let updateStatus = {}, catalogUpdatedAt = "";
   const homePeriods = ["day", "week", "month", "total"];
   let homeRank = "day",
     homeRankingKey = "",
@@ -233,11 +234,10 @@
     return new Date(ts).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
   }
   function viewsLabel(v) {
+    if (!Number.isInteger(v) || v < 0) return "";
     return v >= 10000
       ? `${Math.round(v / 1000) / 10}万回視聴`
-      : v > 0
-        ? `${number(v)}回視聴`
-        : "";
+      : `${number(v)}回視聴`;
   }
   function newItem(it, now) {
     return it.is_new || (it._ts > 0 && now - it._ts <= 48 * 3600000);
@@ -312,7 +312,7 @@
       if (state.page === "rising" && trend(it) <= 0) return false;
       if (state.page === "popular") {
         if (state.rank === "rating") return it.fc2_rating != null;
-        if (state.rank === "views") return it.views > 0;
+        if (state.rank === "views") return Number.isInteger(it.views) && it.views >= 0;
         return rankValue(it) > 0;
       }
       return true;
@@ -527,6 +527,52 @@
     $("rankingNext").disabled =
       rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 2;
   }
+  function statusLabel(report = {}) {
+    return ({ok:"取得済み", checked:"確認済み", ready:"定期確認待ち", page_limit:"巡回完了",
+      access_limited:report.reason === "eKYC" ? "本人確認が必要・待機中" : "アクセス制限・待機中",
+      retry_due:"再試行待ち", partial:"一部取得失敗", fetch_failed:"取得失敗",
+      invalid_response:"取得形式を確認できず", no_measurements:"再生数を確認できず",
+      idle:"今回の確認対象なし", unverified:"順位の再取得待ち", unknown:"未確認"})[report.status] || "取得待ち";
+  }
+  function retryText(report = {}) {
+    return Number(report.next_retry_at) > 0
+      ? " · 再試行目安 " + new Date(Number(report.next_retry_at) * 1000).toLocaleString("ja-JP", {timeZone:"Asia/Tokyo"}) + "（日本時間）" : "";
+  }
+  function rankingSummary(period) {
+    const report = updateStatus.rankings?.[period];
+    if (!report) return "ランキングの確認日時は未取得です。";
+    const fresh = report.status === "ok", time = report.last_success_at;
+    return rankLabels[period] + "：" + statusLabel(report)
+      + (time ? " · " + (fresh ? "確認" : "前回の順位を表示") + " " + time + "（日本時間）" : " · 未確認の旧順位は表示しません")
+      + (report.count != null ? " · 取得 " + number(report.count) + "件／掲載 " + number(report.listed_count || 0) + "件" : "")
+      + retryText(report);
+  }
+  function renderUpdateStatus() {
+    const d = updateStatus.discovery || {};
+    const stages = [...Object.values(updateStatus.sources || {}), ...Object.values(updateStatus.rankings || {}),
+      updateStatus.official || {}, updateStatus.views || {}];
+    const delayed = stages.some(x => x.status && !["ok","checked","ready","page_limit","idle"].includes(x.status));
+    const stale = catalogUpdatedAt && Date.now() - parseSeen(catalogUpdatedAt) > 6 * 3600000;
+    document.body.dataset.syncHealth = delayed || stale ? "partial" : "ok";
+    $("syncOverview").textContent = d.checked_at
+      ? "直近の取得：新着 +" + number(d.recent_added || 0) + " · 過去 +" + number(d.archive_added || 0)
+        + (stale ? " · 更新に遅れ" : delayed ? " · 一部取得待ち" : "") + " ›"
+      : "更新状況を確認 ›";
+    const official = updateStatus.official || {}, views = updateStatus.views || {};
+    const rows = [
+      ["作品の取得", d.checked_at ? d.checked_at + "（日本時間） · 新着 " + number(d.recent_added || 0) + "件／過去 " + number(d.archive_added || 0) + "件追加" : "未確認"],
+      ["過去作品の巡回", d.next_archive_page ? "次回 " + number(d.next_archive_page) + "ページ目から" : "未確認"],
+      ...Object.entries(updateStatus.sources || {}).map(([name, report]) => [
+        ({missav:"MissAV", javdb:"JavDB", supjav:"Supjav"})[name] || name, statusLabel(report) + retryText(report)]),
+      ...homePeriods.map(period => ["MissAV " + rankLabels[period], rankingSummary(period)]),
+      ["FC2公式の情報補完", statusLabel(official) + " · 補完待ち " + number(official.pending || 0) + "件" + retryText(official)],
+      ["代替情報の補完", "FC2ウォーカー · 直近の評価更新 " + number(updateStatus.fallback?.rating_updated || 0) + "件"],
+      ["再生数", statusLabel(views) + " · 今回 " + number(views.tried || 0) + "作品を確認／" + number(views.updated || 0) + "件取得"
+        + (views.known_views != null ? " · 取得済み " + number(views.known_views) + "件" : "") + retryText(views)],
+      ["再生数の過去巡回", "未確認 " + number(views.never_checked || 0) + "件 · 再確認対象 " + number(views.pending || 0) + "件"],
+    ];
+    $("syncDetails").innerHTML = "<dl>" + rows.map(([label, value]) => "<div><dt>" + esc(label) + "</dt><dd>" + esc(value) + "</dd></div>").join("") + "</dl>";
+  }
   function renderHomeRankings(force = false) {
     const visible =
       ready &&
@@ -541,6 +587,7 @@
       homeRankingKey = "";
       return;
     }
+    $("rankingStatus").textContent = rankingSummary(homeRank);
     document.querySelectorAll("[data-home-rank]").forEach((button) => {
       const selected = button.dataset.homeRank === homeRank;
       button.classList.toggle("active", selected);
@@ -671,7 +718,7 @@
     const tabs = contextHTML();
     $("contextTabs").innerHTML = tabs;
     $("contextTabs").hidden = !tabs;
-    const note =
+    let note =
       state.page === "popular"
         ? state.rank === "rating"
           ? "評価の取得元は各カードに表示しています。同評価はレビュー数の多い順です。"
@@ -681,6 +728,9 @@
         : state.page === "rising"
           ? "再生数の増加を確認できた作品を表示します。"
           : "";
+    if (state.page === "popular" && homePeriods.includes(state.rank)) note = rankingSummary(state.rank);
+    if ((state.page === "popular" && state.rank === "views") || state.page === "rising")
+      note += " " + statusLabel(updateStatus.views || {}) + "。" + retryText(updateStatus.views);
     $("contextNote").textContent = note;
     $("contextNote").hidden = !note;
     document.querySelectorAll("[data-page]").forEach((el) => {
@@ -1106,6 +1156,7 @@
     openDialog($("filterDialog")),
   );
   $("infoButton").addEventListener("click", () => openDialog($("infoDialog")));
+  $("syncOverview").addEventListener("click", () => openDialog($("infoDialog")));
   $("resetFilters").addEventListener("click", resetFilters);
   $("loadMore").addEventListener("click", loadMore);
   $("rankingAll").addEventListener("click", () =>
@@ -1376,6 +1427,7 @@
       document.activeElement?.matches("input,textarea,select"));
   }
   async function checkForCatalogUpdate() {
+    if (ready) renderUpdateStatus();
     if (!ready || catalogLoading || checkingUpdates || document.hidden ||
         navigator.onLine === false || catalogRefreshBusy() ||
         Date.now() - lastCatalogCheck < 60000) return;
@@ -1420,6 +1472,8 @@
       const anchorCode = anchor?.dataset.code;
       const anchorTop = anchor?.getBoundingClientRect().top;
       searchTemplates = payload.search_templates || {};
+      updateStatus = payload.update_status || {};
+      catalogUpdatedAt = payload.updated_at || "";
       items = payload.items.map((it) => ({
         ...it,
         code_num: String(it.code_num || it.code?.split("-").pop() || ""),
@@ -1449,6 +1503,7 @@
         node.textContent = payload.updated_at || "";
       $("catalogItemCount").textContent = number(items.length);
       $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
+      renderUpdateStatus();
       ready = true;
       failedLoad = false;
       if (background) $("grid").replaceChildren();

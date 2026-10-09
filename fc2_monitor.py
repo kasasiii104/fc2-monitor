@@ -329,7 +329,7 @@ def parse_compact_count(raw: str):
     elif unit == "m":
         value *= 1000000
     value = int(value)
-    return value if 0 < value < 100000000 else None
+    return value if 0 <= value < 100000000 else None
 
 
 VIEW_TEXT_PATTERNS = [
@@ -357,7 +357,7 @@ def parse_views(text: str):
         raw = match.group(1)
         unit = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
         value = parse_compact_count(raw + (unit or ""))
-        if value:
+        if value is not None:
             return value
     return None
 
@@ -504,101 +504,266 @@ def harvest_supjav_views(pages=None) -> dict:
     return found
 
 
+RANK_PERIODS = {"day": "today_views", "week": "weekly_views", "month": "monthly_views", "total": "views"}
+RANK_STATE_KEY = "missav_rankings_v2"
+VIEW_ATTEMPTS_KEY = "views_refresh_v2_attempts"
+VIEW_STATS_KEY = "views_refresh_v2_stats"
+
+
+def page_access_limited(info):
+    return bool(info.get("status") in (401, 403, 429) or info.get("cloudflare")
+                or info.get("error") == "source_cooldown")
+
+
 def scrape_missav_fc2_rankings() -> dict:
-    periods = {"day": "today_views", "week": "weekly_views", "month": "monthly_views", "total": "views"}
+    """Return one independently verified snapshot/outcome per period."""
     hosts = ["https://missav.ws", "https://missav.live", "https://missav.ai"]
-    result = {}
-    for period, sort in periods.items():
-        got = False
+    periods = {}
+    for period, sort in RANK_PERIODS.items():
+        outcome = {"status": "fetch_failed", "reason": "unavailable"}
         for host in hosts:
-            page = fetch_page(f"{host}/ja/fc2?sort={sort}")
-            soup = page.get("soup")
-            usable = page.get("ok") or (page.get("status") == 200 and (page.get("size") or 0) > 20000)
-            if not usable or soup is None:
-                print(f"[MissAV FC2 rank {period}] status={page.get('status')} title={(page.get('title') or '')[:50]!r} cloudflare={page.get('cloudflare')}")
-                if page.get("status") in (401, 403, 429) or page.get("cloudflare") or page.get("error") == "source_cooldown":
-                    break
+            url = f"{host}/ja/fc2?sort={sort}"
+            if source_in_cooldown(url):
+                outcome = {"status": "access_limited", "reason": "source_cooldown"}
+                break
+            page = fetch_page(url)
+            if page_access_limited(page):
+                record_source_denial(url, page.get("status"), page.get("cloudflare", False))
+                outcome = {"status": "access_limited", "reason": "access_denied"}
+                break
+            if not page.get("ok") or page.get("soup") is None or page.get("status") != 200:
                 continue
-            rank = 0
-            seen = set()
-            tops = []
-            for a in soup.find_all("a", href=True):
-                href = a.get("href") or ""
-                text = a.get_text(" ", strip=True)
-                blob = href + " " + text + " " + (a.get("title") or "")
-                if any(x in href.lower() for x in ("/search", "/login", "/genres", "/makers", "/actresses", "language", "locale")):
+            try:
+                final = urlsplit(page.get("final_url") or url)
+            except ValueError:
+                outcome = {"status": "invalid_response", "reason": "invalid_destination"}
+                continue
+            if (discovery_source(final.geturl()) != "missav" or final.path.rstrip("/") != "/ja/fc2"
+                    or parse_qs(final.query).get("sort") != [sort]):
+                outcome = {"status": "invalid_response", "reason": "sort_redirect"}
+                continue
+            codes = []
+            for link in page["soup"].find_all("a", href=True):
+                try:
+                    target = urlsplit(urljoin(url, link["href"]))
+                except ValueError:
                     continue
-                if "繁體" in text or "简体" in text or text in ("日本語", "English", "繁體中文"):
-                    continue
-                match = re.search(r"fc2[-_ ]?ppv[-_ ]?(\d{6,8})", blob, flags=re.I)
-                if not match:
+                match = re.fullmatch(r"/(?:ja/)?fc2-ppv-(\d{6,8})/?", target.path, re.I)
+                if not match or discovery_source(target.geturl()) != "missav":
                     continue
                 code = f"FC2-PPV-{match.group(1)}"
-                if code in seen:
-                    continue
-                seen.add(code)
-                rank += 1
-                result.setdefault(code, {})[period] = rank
-                if rank <= 5:
-                    tops.append(f"#{rank} {code}")
-            print(f"[MissAV FC2 rank {period}] status={page.get('status')} fc2_found={rank} " + " ".join(tops[:3]))
-            if rank:
-                got = True
+                if code not in codes:
+                    codes.append(code)
+            if codes:
+                outcome = {"status": "ok", "codes": codes}
                 break
-        if not got:
-            print(f"[MissAV FC2 rank {period}] failed")
-    return result
+            outcome = {"status": "invalid_response", "reason": "no_ranked_works"}
+        if outcome["status"] == "access_limited":
+            outcome["next_retry_at"] = int(SOURCE_RETRY_AT.get("missav") or 0)
+        periods[period] = outcome
+        print(f"[MissAV FC2 rank {period}] status={outcome['status']} count={len(outcome.get('codes', []))}")
+    return {"version": 2, "periods": periods}
 
 
 def scrape_missav_rankings() -> dict:
     return scrape_missav_fc2_rankings()
 
 
+def valid_rank_codes(codes):
+    return (isinstance(codes, list) and 0 < len(codes) <= 500
+            and all(isinstance(code, str) and re.fullmatch(r"FC2-PPV-\d{6,8}", code) for code in codes)
+            and len(set(codes)) == len(codes))
+
+
+def reconcile_saved_ranks(items, state):
+    """The period snapshot, not stale per-item annotations, is authoritative."""
+    snapshots = state.get(RANK_STATE_KEY)
+    if not isinstance(snapshots, dict):
+        return 0  # Legacy input is retained until its first explicit audit.
+    changed = 0
+    for period in RANK_PERIODS:
+        rec = snapshots.get(period) if isinstance(snapshots.get(period), dict) else {}
+        codes = rec.get("codes", []) if rec.get("last_success_at") else []
+        if not valid_rank_codes(codes):
+            codes = []
+        order = {code: i + 1 for i, code in enumerate(codes)}
+        field = "missav_rank_" + period
+        for item in items:
+            rank = order.get(item.get("code"))
+            if item.get(field) != rank:
+                changed += 1
+            item[field] = rank
+    for item in items:
+        item.pop("missav_rank_updated_at", None)
+    return changed
+
+
 def apply_missav_ranks(items, ranks, stamp):
     state = load_json(FETCH_STATE_FILE, {})
-    if not ranks:
-        print("[MissAV rank] keep previous ranks")
-        return
-    state["missav_rank_last_success"] = stamp
-    save_json(FETCH_STATE_FILE, state)
+    snapshots = state.get(RANK_STATE_KEY)
+    if not isinstance(snapshots, dict):
+        snapshots = state[RANK_STATE_KEY] = {}
+    periods = ranks.get("periods") if ranks.get("version") == 2 else None
+    if periods is None:
+        # Compatibility for older offline callers/tests; absent periods failed.
+        periods = {}
+        for period in RANK_PERIODS:
+            entries = [(value.get(period), code) for code, value in ranks.items()
+                       if isinstance(value, dict) and isinstance(value.get(period), int) and value[period] > 0]
+            entries.sort()
+            valid = entries and [rank for rank, _ in entries] == list(range(1, len(entries) + 1))
+            periods[period] = {"status": "ok", "codes": [code for _, code in entries]} if valid else {"status": "fetch_failed"}
+    if not isinstance(periods, dict):
+        periods = {}
     known = {item.get("code") for item in items}
-    for item in items:
-        rec = ranks.get(item.get("code") or "") or {}
-        if not rec:
-            continue
-        if rec.get("day"):
-            item["missav_rank_day"] = rec.get("day")
-        if rec.get("week"):
-            item["missav_rank_week"] = rec.get("week")
-        if rec.get("month"):
-            item["missav_rank_month"] = rec.get("month")
-        if rec.get("total"):
-            item["missav_rank_total"] = rec.get("total")
-        item["missav_rank_updated_at"] = stamp
-    # Do not create unchecked items from ranking pages. Rankings only annotate known items.
+    for period in RANK_PERIODS:
+        result = periods.get(period) if isinstance(periods.get(period), dict) else {"status": "fetch_failed"}
+        previous = snapshots.get(period) if isinstance(snapshots.get(period), dict) else {}
+        codes = result.get("codes") or []
+        valid = result.get("status") == "ok" and valid_rank_codes(codes)
+        if valid:
+            snapshots[period] = {"status": "ok", "checked_at": stamp, "last_success_at": stamp,
+                                 "codes": codes, "count": len(codes),
+                                 "listed_count": sum(code in known for code in codes)}
+            state["missav_rank_last_success"] = stamp
+        else:
+            snapshots[period] = {**previous, "status": (result.get("status") or "fetch_failed") if result.get("status") != "ok" else "invalid_response",
+                                 "checked_at": stamp, "reason": result.get("reason") or "unverified_response",
+                                 "next_retry_at": result.get("next_retry_at") or 0}
+    reconcile_saved_ranks(items, state)
+    save_json(FETCH_STATE_FILE, state)
 
+
+def supjav_work_views(soup, code_num):
+    """Read only a card/article identified as this exact work, never related views."""
+    if soup is None:
+        return None
+    candidates = soup.select("article, .post, .item, .video-item, .card, .entry")
+    # Some themes use a heading inside a div rather than an article element.
+    for heading in soup.find_all(["h1", "h2", "h3"]):
+        if set(CODE_RE.findall(heading.get_text(" ", strip=True))) == {str(code_num)}:
+            candidates.append(heading.parent)
+    for node in candidates:
+        # Remove related sections from a copy, leaving the original soup reusable.
+        scoped = BeautifulSoup(str(node), "html.parser")
+        for other in scoped.select("aside, .related, .related-posts, .related-videos, .comments, #comments, nav, script, style"):
+            other.decompose()
+        text = scoped.get_text(" ", strip=True)
+        identifiers = set(CODE_RE.findall(text + " " + " ".join(a.get("href", "") for a in scoped.find_all("a"))))
+        if identifiers != {str(code_num)}:
+            continue
+        value = parse_supjav_card_views(scoped)
+        if value is not None:
+            return value
+    return None
+
+
+def supjav_detail_url(item):
+    url = (item.get("sources") or {}).get("Supjav") or ""
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme == "https" and parsed.hostname in ("supjav.com", "www.supjav.com")
+                and not parsed.username and not parsed.password and not parsed.query
+                and re.fullmatch(r"/(?:ja/)?\d+\.html/?", parsed.path)):
+            return url
+    except ValueError:
+        pass
+    number = str(item.get("code_num") or item.get("code", "").split("-")[-1])
+    return f"https://supjav.com/ja/?s=FC2PPV+{number}" if re.fullmatch(r"\d{6,8}", number) else ""
 
 
 def fill_missing_views(items) -> None:
-    harvested = harvest_supjav_views([1, 2, 3])
-    now = now_ts()
-    fetched = 0
+    """Refresh historical works fairly, with actual per-work attempts and cooldowns."""
+    state = load_json(FETCH_STATE_FILE, {})
+    attempts = state.setdefault(VIEW_ATTEMPTS_KEY, {})
+    now, updated = now_ts(), set()
+    stats = {"checked_at": now_jst(), "status": "ok", "requests": 0, "tried": 0,
+             "updated": 0, "failed": 0, "next_retry_at": 0}
     for item in items:
         item["views_updated"] = False
-        code = item.get("code") or ""
-        new_views = harvested.get(code)
-        if isinstance(new_views, int):
-            item["views"] = new_views
-            item["views_source"] = "Supjav"
-            item["last_views_fetch"] = now
-            item["views_checked_at"] = now
+
+    def request(url):
+        if source_in_cooldown(url):
+            stats["status"] = "access_limited"
+            return None
+        stats["requests"] += 1
+        info = fetch_page(url)
+        if page_access_limited(info):
+            record_source_denial(url, info.get("status"), info.get("cloudflare", False))
+            stats["status"] = "access_limited"
+            return None
+        try:
+            final_source = discovery_source(info.get("final_url") or url)
+        except ValueError:
+            final_source = ""
+        if (not info.get("ok") or info.get("soup") is None
+                or final_source != "supjav"):
+            stats["failed"] += 1
+            return None
+        return info["soup"]
+
+    def record_success(item, value):
+        code = item["code"]
+        item.update(views=value, views_source="Supjav", last_views_fetch=now,
+                    views_checked_at=now, last_views_attempt=now, views_updated=True)
+        attempts[code] = {"last_attempt": now, "last_success": now, "failures": 0,
+                          "next_retry_at": now + VIEW_REFRESH_SEC}
+        updated.add(code)
+
+    if source_in_cooldown(SUPJAV_URL):
+        stats["status"] = "access_limited"
+    else:
+        by_code = {x["code"]: x for x in items}
+        for page in (1, 2, 3):
+            url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
+            soup = request(url)
+            if soup is not None:
+                codes = set(CODE_RE.findall(soup.get_text(" ", strip=True)))
+                for num in codes:
+                    item = by_code.get("FC2-PPV-" + num)
+                    value = supjav_work_views(soup, num) if item else None
+                    if value is not None:
+                        record_success(item, value)
+            if stats["status"] == "access_limited":
+                break
+        # Do not inherit last_views_attempt: older code incorrectly set it on every
+        # catalog entry even when it had not requested that work.
+        queue = sorted((x for x in items if x["code"] not in updated
+                        and now >= int((attempts.get(x["code"]) or {}).get("next_retry_at") or 0)),
+                       key=lambda x: (int((attempts.get(x["code"]) or {}).get("last_attempt") or 0),
+                                      not bool(x.get("is_new")), x.get("first_seen") or "", x["code"]))
+        for item in queue:
+            if stats["status"] == "access_limited" or stats["tried"] >= VIEW_FETCH_LIMIT or stats["failed"] >= 3:
+                break
+            url = supjav_detail_url(item)
+            if not url:
+                continue
+            rec = attempts.get(item["code"]) or {}
             item["last_views_attempt"] = now
-            item["views_updated"] = True
-            fetched += 1
-            print(f"再生数: {code} = {new_views} (Supjav)")
-        else:
-            item["last_views_attempt"] = now
-    print(f"[Supjav] updated={fetched} harvested={len(harvested)}")
+            stats["tried"] += 1
+            soup = request(url)
+            value = supjav_work_views(soup, item.get("code_num") or item["code"].split("-")[-1])
+            if value is not None:
+                record_success(item, value)
+            else:
+                failures = int(rec.get("failures") or 0) + 1
+                delay = DISCOVERY_RETRY_SEC if stats["status"] == "access_limited" else min(3 * 86400, FAIL_SKIP_SEC * 2 ** min(failures - 1, 3))
+                attempts[item["code"]] = {**rec, "last_attempt": now, "failures": failures,
+                                         "next_retry_at": now + delay}
+    stats["updated"] = len(updated)
+    stats["known_views"] = sum(isinstance(x.get("views"), int) and x.get("views_source") == "Supjav" for x in items)
+    stats["pending"] = sum(now >= int((attempts.get(x["code"]) or {}).get("next_retry_at") or 0) for x in items)
+    stats["never_checked"] = sum(x["code"] not in attempts for x in items)
+    stats["last_success_at"] = now_jst() if updated else (state.get(VIEW_STATS_KEY) or {}).get("last_success_at")
+    if stats["status"] == "access_limited":
+        stats["next_retry_at"] = int(SOURCE_RETRY_AT.get("supjav") or 0)
+    elif stats["failed"]:
+        stats["status"] = "partial" if updated else "fetch_failed"
+    elif not updated:
+        stats["status"] = "no_measurements" if stats["requests"] else "idle"
+    state[VIEW_STATS_KEY] = stats
+    save_json(FETCH_STATE_FILE, state)
+    print("[Views refresh] " + json.dumps(stats, ensure_ascii=False))
 
 
 def refresh_japanese_titles(items) -> None:
@@ -2192,7 +2357,7 @@ def update_views_history(items) -> None:
             if not points or points[-1].get("v") != views or now - int(points[-1].get("t") or 0) > 3 * 3600:
                 points.append({"t": now, "v": views})
             points = points[-40:]
-        can_trend = item.get("views_source") == "Supjav" and isinstance(views, int) and len(points) >= 2
+        can_trend = item.get("views_updated") and item.get("views_source") == "Supjav" and isinstance(views, int) and len(points) >= 2
         item["trend_6h"] = calc_trend(points[:-1], views, 6, now) if can_trend else None
         item["trend_24h"] = calc_trend(points[:-1], views, 24, now) if can_trend else None
         store[code] = {"points": points, "trend_6h": item["trend_6h"], "trend_24h": item["trend_24h"]}
@@ -2218,7 +2383,7 @@ def public_item(item):
         "preview_fallbacks": previews[1:],
         "duration": item.get("duration") or "",
         "duration_sec": duration_seconds(item.get("duration") or ""),
-        "views": item.get("views") if isinstance(item.get("views"), int) else 0,
+        "views": item.get("views") if isinstance(item.get("views"), int) else None,
         "views_source": item.get("views_source") or "",
         "first_seen": item.get("first_seen") or "",
         "last_seen": item.get("last_seen") or "",
@@ -2248,7 +2413,51 @@ def public_item(item):
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
-def catalog_payload(items, updated_at):
+def build_update_status(items, crawl=None, state=None):
+    """Small public health summary; never publish attempt maps or response bodies."""
+    crawl = load_json(CRAWL_FILE, {}) if crawl is None else crawl
+    state = load_json(FETCH_STATE_FILE, {}) if state is None else state
+    discovery = crawl.get("last_discovery") or {}
+    retries = {**(crawl.get("source_retry_at") or {}), **SOURCE_RETRY_AT}
+    sources = {}
+    for name in ("missav", "javdb", "supjav"):
+        report = (discovery.get("sources") or {}).get(name) or {}
+        retry = int(retries.get(name) or 0)
+        status = report.get("status") or "unknown"
+        if retry > now_ts():
+            status = "access_limited"
+        elif retry and status == "access_limited":
+            status = "retry_due"
+        sources[name] = {"status": status, "next_retry_at": retry,
+                         "checked_at": discovery.get("checked_at") or ""}
+    official_block = int(state.get("fc2_market_ekyc_blocked_at") or 0)
+    reason = next((rec.get("reason") for rec in (state.get(BACKFILL_ATTEMPTS_KEY) or {}).values()
+                   if rec.get("status") == "blocked" and rec.get("last_attempt") == official_block), "")
+    official = {"status": ("access_limited" if fc2_market_blocked(state, now_ts()) else "retry_due") if official_block else "ready",
+                "reason": "eKYC" if reason == "eKYC" else "access_denied" if official_block else "",
+                "next_retry_at": official_block + FAIL_SKIP_SEC if official_block else 0,
+                "pending": (state.get(CONTINUOUS_BACKFILL_STATS_KEY) or {}).get("remaining_candidates", 0)}
+    ranks = {}
+    for period in RANK_PERIODS:
+        rec = (state.get(RANK_STATE_KEY) or {}).get(period) or {}
+        ranks[period] = {key: rec[key] for key in ("status", "checked_at", "last_success_at", "count", "listed_count", "next_retry_at") if key in rec}
+        ranks[period].setdefault("status", "unverified")
+    views = state.get(VIEW_STATS_KEY) or {}
+    views = {key: views[key] for key in ("status", "checked_at", "last_success_at", "tried", "updated", "known_views",
+                                        "pending", "never_checked", "next_retry_at") if key in views}
+    views.setdefault("status", "unknown")
+    walker = state.get(H_WALKER_STATS_KEY) or {}
+    return {"version": 1,
+            "discovery": {"checked_at": discovery.get("checked_at") or "",
+                          "recent_added": int(discovery.get("recent_added") or 0),
+                          "archive_added": int(discovery.get("archive_added") or 0),
+                          "next_archive_page": int(crawl.get("missav_page") or 0)},
+            "sources": sources, "rankings": ranks, "views": views, "official": official,
+            "fallback": {"source": "FC2ウォーカー", "rating_updated": int(walker.get("rating_updated") or 0),
+                         "title_updated": int(walker.get("title_updated") or 0)}}
+
+
+def catalog_payload(items, updated_at, update_status=None):
     # Render data only: do not ship crawler state, duplicate titles, or seven
     # repeated search URLs with every card. Templates are expanded on demand.
     fields = ("code", "code_num", "title", "url", "thumb", "preview", "preview_fallbacks", "duration",
@@ -2260,7 +2469,8 @@ def catalog_payload(items, updated_at):
     for item in items:
         public = public_item(item)
         rows.append({key: public[key] for key in fields if public.get(key) is not None and public.get(key) != "" and public.get(key) is not False and public.get(key) != []})
-    return {"updated_at": updated_at, "items": rows, "search_templates": extra_sources("{code}")}
+    return {"updated_at": updated_at, "items": rows, "search_templates": extra_sources("{code}"),
+            "update_status": update_status or build_update_status(items)}
 
 
 def render_html(items, updated_at, new_count):
@@ -2273,10 +2483,10 @@ def render_html(items, updated_at, new_count):
             .replace("__DATA_VERSION__", quote_plus(updated_at)))
 
 
-def write_site(items, updated_at, new_count):
+def write_site(items, updated_at, new_count, update_status=None):
     HTML_FILE.parent.mkdir(parents=True, exist_ok=True)
     # Data and assets are written first; Pages deploys the complete directory atomically.
-    payload = catalog_payload(items, updated_at)
+    payload = catalog_payload(items, updated_at, update_status)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     payload["version"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
     (HTML_FILE.parent / "catalog.json").write_text(
@@ -2294,11 +2504,33 @@ def rebuild_site():
     payload = load_json(DATA_FILE, {"items": []})
     items = payload.get("items", [])
     corrected = sanitize_item_titles(items)
+    corrected += reconcile_saved_ranks(items, load_json(FETCH_STATE_FILE, {}))
     if corrected:
         save_json(DATA_FILE, payload)
-        print(f"[Titles repaired] items={corrected}")
+        print(f"[Saved metadata repaired] changes={corrected}")
     write_site(items, payload.get("updated_at") or now_jst(), sum(bool(x.get("is_new")) for x in items))
     print(f"Site rebuilt: {len(items)} items")
+    return 0
+
+
+def refresh_update_metadata():
+    """Repair rankings/refresh views without new discoveries or notifications."""
+    payload = load_json(DATA_FILE, {"items": []})
+    items = payload.get("items") or []
+    if not items:
+        raise RuntimeError("No saved catalog to refresh")
+    crawl = load_json(CRAWL_FILE, {})
+    SOURCE_RETRY_AT.clear()
+    SOURCE_RETRY_AT.update({name: int(value) for name, value in (crawl.get("source_retry_at") or {}).items()
+                           if int(value or 0) > now_ts()})
+    apply_missav_ranks(items, scrape_missav_rankings(), now_jst())
+    fill_missing_views(items)
+    update_views_history(items)
+    save_discovery_cooldowns()
+    stamp = now_jst()
+    save_json(DATA_FILE, {**payload, "updated_at": stamp, "items": items})
+    write_site(items, stamp, sum(bool(x.get("is_new")) for x in items))
+    print("[Update repair] " + json.dumps(build_update_status(items), ensure_ascii=False))
     return 0
 
 
@@ -2381,7 +2613,7 @@ def main(discovery_only=False) -> int:
         ):
             item["title"] = old["title"]
             item["title_source"] = old.get("title_source") or ""
-        item["views"] = video.get("views") or old.get("views")
+        item["views"] = video.get("views") if isinstance(video.get("views"), int) else old.get("views")
         item["views_source"] = video.get("views_source") or old.get("views_source") or ""
         item["views_checked_at"] = video.get("views_checked_at") or old.get("views_checked_at") or 0
         item["last_views_fetch"] = video.get("last_views_fetch") or old.get("last_views_fetch") or 0
@@ -2443,7 +2675,7 @@ def main(discovery_only=False) -> int:
                    enrich_fc2_sample_assets, run_thumbnail_backfill, refresh_fc2_previews)):
         run_optional_step(action.__name__, action, merged)
     if not discovery_only:
-        run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), stamp))
+        run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), now_jst()))
         run_optional_step("Views history", update_views_history, merged)
     additions = [item for item in latest if item["code"] not in existing_map]
     if "last_discovery" in crawl_state:
@@ -2454,7 +2686,7 @@ def main(discovery_only=False) -> int:
         crawl_state["source_retry_at"] = dict(SOURCE_RETRY_AT)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
-    write_site(merged, stamp, len(new_videos))
+    write_site(merged, stamp, len(new_videos), build_update_status(merged, crawl_state))
     # Commit the discovery position only after both data and public output exist.
     save_json(CRAWL_FILE, crawl_state)
     print(f"[Catalog saved] items={len(merged)} new={len(new_videos)} updated_at={stamp}")
@@ -2528,6 +2760,7 @@ def audit_discovery() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(rebuild_site() if "--build-site" in sys.argv else
+                     refresh_update_metadata() if "--refresh-updates" in sys.argv else
                      repair_saved_titles() if "--repair-titles" in sys.argv else
                      audit_discovery() if "--audit-discovery" in sys.argv else
                      main(discovery_only="--discovery-only" in sys.argv))

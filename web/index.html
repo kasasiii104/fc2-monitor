@@ -198,7 +198,7 @@
         </button>
       </nav>
       <div class="sidebar-foot">
-        <span class="status-dot"></span> 2時間ごとに更新<br /><span
+        <span class="status-dot"></span> 2時間ごとに取得を確認<br /><span
           class="updated-label"
           >最終更新 <time data-updated-at>__UPDATED_AT__</time></span
         >
@@ -217,6 +217,7 @@
         ><button data-chip="saved" class="chip">保存済み</button>
       </div>
       <section class="feed" aria-label="作品一覧">
+        <button id="syncOverview" class="sync-overview" type="button" aria-controls="infoDialog">更新状況を確認</button>
         <section
           id="homeRankings"
           class="ranking-section"
@@ -272,6 +273,7 @@
             class="ranking-rail"
             aria-label="MissAV 今日のランキング"
           ></div>
+          <p id="rankingStatus" class="context-note ranking-status"></p>
         </section>
         <div class="feed-heading">
           <div>
@@ -362,6 +364,8 @@
       </div>
       <p>最終更新 <strong data-updated-at>__UPDATED_AT__</strong></p>
       <p>全 <span id="catalogItemCount">__ITEM_COUNT__</span> 作品・今回の新着 <span id="catalogNewCount">__NEW_COUNT__</span> 作品</p>
+      <div id="syncDetails" class="sync-details"></div>
+      <p class="context-note">再試行予定は待機が解除される目安です。その後の定期実行で確認します。取得元の本人確認・アクセス制限は回避しません。</p>
       <p class="context-note">
         保存・後で見る・履歴は、このブラウザに保存されます。
       </p>

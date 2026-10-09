@@ -36,6 +36,22 @@ def neutral_sources(item, additional=()):
     return [url.replace('https://fourhoi.com/', 'https://media.example.test/')
             for url in original_sources(item, additional)]
 
+stamp = now.strftime('%Y-%m-%d %H:%M:%S')
+previous_stamp = (now - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+retry_at = int(now.timestamp()) + 3600
+update_status = {
+    'version': 1,
+    'discovery': {'checked_at': stamp, 'recent_added': 0, 'archive_added': 11, 'next_archive_page': 357},
+    'sources': {'missav': {'status': 'ok'}, 'supjav': {'status': 'access_limited', 'next_retry_at': retry_at}},
+    'rankings': {period: {'status': 'fetch_failed' if period == 'week' else 'ok',
+                         'checked_at': stamp, 'last_success_at': previous_stamp if period == 'week' else stamp,
+                         'count': count, 'listed_count': count}
+                 for period, count in [('day', 50), ('week', 80), ('month', 100), ('total', 120)]},
+    'official': {'status': 'access_limited', 'reason': 'eKYC', 'pending': 100, 'next_retry_at': retry_at},
+    'views': {'status': 'access_limited', 'tried': 0, 'updated': 0, 'known_views': 2355,
+              'pending': 4709, 'never_checked': 4709, 'next_retry_at': retry_at},
+    'fallback': {'source': 'FC2ウォーカー', 'rating_updated': 10},
+}
 with patch.object(m, 'preview_source_urls', side_effect=neutral_sources):
-    m.write_site(items, now.strftime('%Y-%m-%d %H:%M:%S'),12)
+    m.write_site(items, stamp, 12, update_status)
 print(root.resolve())
