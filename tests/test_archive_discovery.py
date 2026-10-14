@@ -17,6 +17,8 @@ class ArchiveDiscoveryTests(unittest.TestCase):
         for name in ('DATA_FILE', 'HISTORY_FILE', 'CRAWL_FILE', 'FETCH_STATE_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
             self.enterContext(patch.object(m, name, Path(root) / (name + ('.html' if name == 'HTML_FILE' else '.json'))))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
+        # These legacy cursor fixtures put the archive boundary at page 9.
+        self.enterContext(patch.object(m, 'PAGES', 8))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.enterContext(patch.object(m.requests, 'post', side_effect=AssertionError('No external notifications')))
 

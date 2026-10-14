@@ -24,6 +24,8 @@ class MonitorRecoveryTests(unittest.TestCase):
             self.enterContext(patch.object(m, name, root / filename))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
+        # Keep exercising existing eight-page cursor/failure fixtures.
+        self.enterContext(patch.object(m, 'PAGES', 8))
         self.enterContext(patch.object(m.requests, 'post', side_effect=AssertionError('No notifications in tests')))
 
     def item(self, num='8000001'):

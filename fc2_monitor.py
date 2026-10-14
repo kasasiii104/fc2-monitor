@@ -35,8 +35,10 @@ VIEWS_HISTORY_FILE = Path(os.environ.get("VIEWS_HISTORY_FILE", "docs/views_histo
 FETCH_STATE_FILE = Path(os.environ.get("FETCH_STATE_FILE", "docs/fetch_state.json"))
 MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
 KEEP_ITEMS = int(os.environ.get("KEEP_ITEMS", "0"))
-PAGES = int(os.environ.get("PAGES", "8"))
-BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "12"))
+# Expand the discovery window, not the request rate or enrichment quotas.
+# Retain saved cursors and source cooldowns when these limits change.
+PAGES = int(os.environ.get("PAGES", "16"))
+BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "48"))
 DISCOVERY_RETRY_SEC = 12 * 3600
 SOURCE_RETRY_AT = {}
 JAVDB_URL = os.environ.get("JAVDB_URL", "https://javdb.com/search?q=FC2&f=all")
@@ -2297,6 +2299,7 @@ def get_latest_videos():
             recovery.pop("missav_page", None)
         state["missav_page"] = mp
         reports["missav"].update(search_items=len(items), catalog_items=len(catalog),
+            recent_page_limit=recent_count, archive_page_limit=len(missav_pages) - recent_count,
             recent_pages=sum(page <= recent_count for page in missav_completed),
             archive_pages=sum(page > recent_count for page in missav_completed), next_page=mp)
     except Exception as e:
