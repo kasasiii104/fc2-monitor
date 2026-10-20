@@ -92,8 +92,8 @@ jobs:
 
       # A UI/code push can publish immediately using the saved catalog. Scheduled
       # runs crawl hourly; the larger windows and Walker lane favor coverage while
-      # existing cooldowns stop sources that begin rejecting requests. This lane
-      # is also used for explicit crawl validation after acquisition changes.
+      # existing cooldowns stop sources that begin rejecting requests. Explicit
+      # discovery runs also repair historical primary links before publishing.
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
 
