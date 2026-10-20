@@ -2,14 +2,16 @@ name: FC2PPV Monitor
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - "fc2_monitor.py"
+      - "aggressive_discovery.py"
       - "requirements.txt"
+      - "tests/**"
       - "web/**"
       - ".github/workflows/monitor.yml"
 
@@ -49,7 +51,19 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INCLUDE_KEYWORDS: ${{ secrets.INCLUDE_KEYWORDS }}
           EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
+          PAGES: "24"
+          BACKFILL_PAGES: "72"
+          JAVDB_BACKFILL_PAGES: "12"
+          H_WALKER_PAGES: "30"
+          H_WALKER_REFRESH_SEC: "0"
         run: python fc2_monitor.py
+
+      - name: Add unseen Walker works to catalog
+        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
+        env:
+          H_WALKER_DISCOVERY_LIMIT: "1500"
+          H_WALKER_RECENT_PAGES: "4"
+        run: python aggressive_discovery.py
 
       - name: Repair saved Japanese titles
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[titles-now]')
@@ -66,6 +80,10 @@ jobs:
 
       - name: Repair archive discovery without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
+        env:
+          PAGES: "24"
+          BACKFILL_PAGES: "72"
+          JAVDB_BACKFILL_PAGES: "12"
         run: python -u fc2_monitor.py --discovery-only
 
       - name: Repair rankings and refresh views without notifications
@@ -73,7 +91,8 @@ jobs:
         run: python -u fc2_monitor.py --refresh-updates
 
       # A UI/code push can publish immediately using the saved catalog. Scheduled
-      # runs still crawl every two hours and use the same renderer afterwards.
+      # runs crawl hourly; the larger windows and Walker lane favor coverage while
+      # existing cooldowns stop sources that begin rejecting requests.
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
 
