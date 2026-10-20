@@ -58,7 +58,7 @@ jobs:
           JAVDB_BACKFILL_PAGES: "12"
           H_WALKER_PAGES: "30"
           H_WALKER_REFRESH_SEC: "0"
-          MISSAV_404_AUDIT_LIMIT: "250"
+          MISSAV_404_AUDIT_LIMIT: "1000"
         run: python missav_guard.py
 
       - name: Add unseen Walker works to catalog
@@ -71,13 +71,13 @@ jobs:
       - name: Prune MissAV 404 works on discovery-only runs
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          MISSAV_404_AUDIT_LIMIT: "250"
+          MISSAV_404_AUDIT_LIMIT: "1000"
         run: python missav_guard.py --prune-only
 
       - name: Audit MissAV 404 works without a full crawl
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[missav-audit]')
         env:
-          MISSAV_404_AUDIT_LIMIT: "250"
+          MISSAV_404_AUDIT_LIMIT: "1000"
         run: python missav_guard.py --prune-only
 
       - name: Repair saved Japanese titles
