@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import re
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import fc2_monitor as m
+
+STATE_FILE = Path(os.environ.get("MISSAV_GUARD_STATE_FILE", "docs/missav_guard_state.json"))
+AUDIT_LIMIT = max(1, int(os.environ.get("MISSAV_404_AUDIT_LIMIT", "250")))
+ALIVE_TTL_SEC = max(3600, int(os.environ.get("MISSAV_ALIVE_TTL_SEC", str(7 * 86400))))
+DEAD_TTL_SEC = max(3600, int(os.environ.get("MISSAV_DEAD_TTL_SEC", str(24 * 3600))))
+UNKNOWN_TTL_SEC = max(300, int(os.environ.get("MISSAV_UNKNOWN_TTL_SEC", str(3600))))
+
+
+def _num(value):
+    text = str(value or "")
+    match = re.search(r"(\d{5,8})", text)
+    return match.group(1) if match else ""
+
+
+def _code(item):
+    code = str((item or {}).get("code") or "")
+    num = _num((item or {}).get("code_num") or code)
+    return (f"FC2-PPV-{num}", num) if num else (code, "")
+
+
+def _correct_detail_destination(url, num):
+    try:
+        path = urlsplit(url or "").path
+    except ValueError:
+        return False
+    path = re.sub(r"^/dm\d+(?=/)", "", path, count=1)
+    return bool(re.fullmatch(rf"/(?:ja/)?fc2-ppv-{re.escape(num)}/?", path, re.I))
+
+
+class Guard:
+    def __init__(self):
+        raw = m.load_json(STATE_FILE, {"checks": {}})
+        self.state = raw if isinstance(raw, dict) else {"checks": {}}
+        self.checks = self.state.get("checks") if isinstance(self.state.get("checks"), dict) else {}
+        self.state["checks"] = self.checks
+        self.dirty = False
+
+    def _ttl(self, status):
+        if status == "alive":
+            return ALIVE_TTL_SEC
+        if status == "dead":
+            return DEAD_TTL_SEC
+        return UNKNOWN_TTL_SEC
+
+    def probe(self, num, force=False):
+        num = _num(num)
+        code = f"FC2-PPV-{num}" if num else ""
+        if not num:
+            return {"status": "unknown", "reason": "invalid_code", "checked_at": m.now_ts()}
+        previous = self.checks.get(code) if isinstance(self.checks.get(code), dict) else {}
+        age = m.now_ts() - int(previous.get("checked_at") or 0)
+        if previous and not force and age < self._ttl(previous.get("status")):
+            return previous
+
+        explicit_missing = 0
+        attempts = 0
+        result = None
+        for url in m.missav_detail_urls(num):
+            info = m.fetch_page(url)
+            attempts += 1
+            status = int(info.get("status") or 0)
+            if status == 200 and not info.get("cloudflare") and _correct_detail_destination(info.get("final_url") or url, num):
+                result = {"status": "alive", "reason": "detail_200", "http_status": 200}
+                break
+            if status in (404, 410):
+                explicit_missing += 1
+                continue
+            if status in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
+                result = {"status": "unknown", "reason": "access_limited", "http_status": status}
+                break
+            # A mirror can be temporarily down. Try the remaining official MissAV hosts,
+            # but never call a 404 unless every reachable MissAV detail route says missing.
+            if status == 200:
+                result = {"status": "unknown", "reason": "unexpected_destination", "http_status": status}
+                break
+
+        if result is None:
+            if attempts and explicit_missing == attempts == len(m.missav_detail_urls(num)):
+                result = {"status": "dead", "reason": "all_missav_hosts_404", "http_status": 404}
+            else:
+                result = {"status": "unknown", "reason": "fetch_failed", "http_status": 0}
+        result.update({"checked_at": m.now_ts(), "attempts": attempts})
+        self.checks[code] = result
+        self.dirty = True
+        return result
+
+    def save(self):
+        if not self.dirty:
+            return
+        # Keep only bounded, useful existence evidence. 40k covers the current catalog
+        # with room for future discoveries without letting state grow forever.
+        rows = sorted(self.checks.items(), key=lambda pair: int((pair[1] or {}).get("checked_at") or 0), reverse=True)
+        self.state["checks"] = dict(rows[:40000])
+        self.state["updated_at"] = m.now_ts()
+        m.save_json(STATE_FILE, self.state)
+        self.checks = self.state["checks"]
+        self.dirty = False
+
+
+def filter_unseen(videos, existing_codes, guard):
+    kept = []
+    rejected_404 = rejected_unverified = 0
+    for item in videos:
+        code, num = _code(item)
+        if not num or code in existing_codes:
+            kept.append(item)
+            continue
+        result = guard.probe(num)
+        if result.get("status") == "alive":
+            kept.append(item)
+        elif result.get("status") == "dead":
+            rejected_404 += 1
+            print(f"[MissAV guard] reject_new={code} reason=404")
+        else:
+            # New works are fail-closed: if MissAV cannot be verified now, wait for a
+            # later crawl instead of publishing a potentially dead primary link.
+            rejected_unverified += 1
+            print(f"[MissAV guard] defer_new={code} reason={result.get('reason')}")
+    print(f"[MissAV guard] new_checked={len(videos)} kept={len(kept)} rejected_404={rejected_404} deferred={rejected_unverified}")
+    return kept
+
+
+def prune_saved(guard=None, limit=AUDIT_LIMIT):
+    guard = guard or Guard()
+    payload = m.load_json(m.DATA_FILE, {"items": []})
+    items = payload.get("items") if isinstance(payload, dict) else []
+    items = items if isinstance(items, list) else []
+    if not items:
+        guard.save()
+        return {"checked": 0, "removed": 0, "remaining": 0}
+
+    def last_checked(item):
+        code, _ = _code(item)
+        rec = guard.checks.get(code) if isinstance(guard.checks.get(code), dict) else {}
+        return int(rec.get("checked_at") or 0)
+
+    candidates = sorted((item for item in items if _code(item)[1]), key=last_checked)
+    removed = set()
+    checked = 0
+    unknown = 0
+    for item in candidates[:max(1, limit)]:
+        code, num = _code(item)
+        result = guard.probe(num, force=True)
+        checked += 1
+        if result.get("status") == "dead":
+            removed.add(code)
+            print(f"[MissAV guard] remove_saved={code} reason=404")
+        elif result.get("status") == "unknown":
+            unknown += 1
+            # Once the source is denying access, further checks in this run would not
+            # provide evidence and could only add load.
+            if result.get("reason") == "access_limited":
+                break
+
+    if removed:
+        payload["items"] = [item for item in items if item.get("code") not in removed]
+        payload["updated_at"] = m.now_jst()
+        m.save_json(m.DATA_FILE, payload)
+
+        history = m.load_json(m.HISTORY_FILE, {"ids": []})
+        ids = [code for code in (history.get("ids") or []) if code not in removed]
+        history["ids"] = ids
+        history["updated_at"] = m.now_jst()
+        m.save_json(m.HISTORY_FILE, history)
+
+    guard.state["last_audit"] = {
+        "at": m.now_ts(), "checked": checked, "removed": len(removed),
+        "unknown": unknown, "catalog_before": len(items),
+        "catalog_after": len(items) - len(removed),
+    }
+    guard.dirty = True
+    guard.save()
+    print(f"[MissAV guard] audit_checked={checked} removed={len(removed)} unknown={unknown} remaining={len(items)-len(removed)}")
+    return {"checked": checked, "removed": len(removed), "remaining": len(items) - len(removed)}
+
+
+def run_guarded_monitor():
+    guard = Guard()
+    prune_saved(guard)
+    current = m.load_json(m.DATA_FILE, {"items": []})
+    existing_codes = {item.get("code") for item in (current.get("items") or []) if item.get("code")}
+    original = m.get_latest_videos
+
+    def guarded_latest():
+        videos, crawl_state = original()
+        filtered = filter_unseen(videos, existing_codes, guard)
+        guard.save()
+        return filtered, crawl_state
+
+    m.get_latest_videos = guarded_latest
+    try:
+        return m.main()
+    finally:
+        m.get_latest_videos = original
+        guard.save()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prune-only", action="store_true")
+    args = parser.parse_args()
+    if args.prune_only:
+        prune_saved()
+        return 0
+    return run_guarded_monitor()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
