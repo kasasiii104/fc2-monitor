@@ -16,7 +16,7 @@ on:
       - ".github/workflows/monitor.yml"
 
 concurrency:
-  group: fc2ppv-monitor-main
+  group: fc2ppv-monitor-main-v2
   cancel-in-progress: true
 
 permissions:
