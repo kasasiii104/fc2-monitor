@@ -3,6 +3,7 @@ import os
 import re
 
 import fc2_monitor as m
+import missav_guard as mg
 
 DISCOVERY_LIMIT = max(1, int(os.environ.get("H_WALKER_DISCOVERY_LIMIT", "2000")))
 RECENT_PAGES = max(1, int(os.environ.get("H_WALKER_RECENT_PAGES", "4")))
@@ -85,6 +86,7 @@ def main():
     items = payload.get("items") or []
     existing = {item.get("code") for item in items if item.get("code")}
     stamp = m.now_jst()
+    guard = mg.Guard()
 
     # Repair historical Walker-added rows as well. Walker may remain in
     # `sources`, but it must never become the primary work destination.
@@ -121,6 +123,7 @@ def main():
 
     added = []
     recent_added = archive_added = rejected_title = 0
+    rejected_missav_404 = deferred_unverified = verified = 0
     for code, rec in unseen:
         if len(added) >= DISCOVERY_LIMIT:
             break
@@ -128,6 +131,21 @@ def main():
         if row is None:
             rejected_title += 1
             continue
+
+        num = code.split("-")[-1]
+        existence = guard.probe(num)
+        verified += 1
+        if existence.get("status") == "dead":
+            rejected_missav_404 += 1
+            print(f"[Walker discovery] rejected={code} missav=404")
+            continue
+        if existence.get("status") != "alive":
+            deferred_unverified += 1
+            print(f"[Walker discovery] deferred={code} missav={existence.get('reason')}")
+            if existence.get("reason") == "access_limited":
+                break
+            continue
+
         items.append(row)
         existing.add(code)
         added.append(code)
@@ -135,6 +153,8 @@ def main():
             recent_added += 1
         else:
             archive_added += 1
+
+    guard.save()
 
     if added or relinked:
         m.sanitize_item_titles(items)
@@ -152,13 +172,16 @@ def main():
         ids.update(code for code in added if code not in recent_codes)
         m.save_json(m.HISTORY_FILE, {"updated_at": stamp, "ids": sorted(ids)})
 
-    if added or relinked:
+    if added or relinked or rejected_missav_404 or deferred_unverified:
         crawl = m.load_json(m.CRAWL_FILE, {})
         report = crawl.setdefault("last_discovery", {})
         report["walker_recent_added"] = recent_added
         report["walker_archive_added"] = archive_added
         report["walker_discovery_added"] = len(added)
         report["walker_unseen_before"] = len(unseen)
+        report["walker_missav_verified"] = verified
+        report["walker_rejected_missav_404"] = rejected_missav_404
+        report["walker_deferred_unverified"] = deferred_unverified
         report["primary_links_repaired"] = relinked
         report["total_after"] = len(items)
         m.save_json(m.CRAWL_FILE, crawl)
@@ -168,12 +191,15 @@ def main():
         "recent_records": len(recent_records),
         "cache_records": len(cache),
         "unseen_before": len(unseen),
+        "verified_on_missav": verified,
+        "rejected_missav_404": rejected_missav_404,
+        "deferred_unverified": deferred_unverified,
         "added": len(added),
         "recent_added": recent_added,
         "archive_added": archive_added,
         "rejected_unresolved_title": rejected_title,
         "primary_links_repaired": relinked,
-        "remaining_unseen_estimate": max(0, len(unseen) - len(added) - rejected_title),
+        "remaining_unseen_estimate": max(0, len(unseen) - len(added) - rejected_title - rejected_missav_404),
         "catalog_total": len(items),
     }, ensure_ascii=False))
     return 0
