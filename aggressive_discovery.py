@@ -8,6 +8,14 @@ DISCOVERY_LIMIT = max(1, int(os.environ.get("H_WALKER_DISCOVERY_LIMIT", "2000"))
 RECENT_PAGES = max(1, int(os.environ.get("H_WALKER_RECENT_PAGES", "4")))
 
 
+def missav_url_for(num, sources=None):
+    sources = sources if isinstance(sources, dict) else {}
+    existing = sources.get("MissAV") or ""
+    if m.discovery_source(existing) == "missav":
+        return existing
+    return m.missav_detail_urls(num)[0]
+
+
 def make_item(code, rec, stamp, recent=False):
     num = code.split("-")[-1]
     if not re.fullmatch(r"\d{5,8}", num):
@@ -17,12 +25,19 @@ def make_item(code, rec, stamp, recent=False):
     if not title or m.needs_jp_title(title):
         return None
 
+    missav_url = missav_url_for(num)
     product_url = f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
     walker_url = rec.get("source_url") or (m.H_WALKER_URL + "/")
-    row = m.enrich(num, title, "FC2ウォーカー", product_url)
+    # FC2 Walker is a discovery/metadata source only. The work itself always
+    # opens on MissAV from cards/titles.
+    row = m.enrich(num, title, "FC2ウォーカー", missav_url)
     row.update({
-        "sources": {"FC2ウォーカー": walker_url, "FC2公式": product_url},
-        "source_label": "FC2ウォーカー / FC2公式",
+        "sources": {
+            "MissAV": missav_url,
+            "FC2ウォーカー": walker_url,
+            "FC2公式": product_url,
+        },
+        "source_label": "MissAV / FC2ウォーカー / FC2公式",
         "title_source": "FC2ウォーカー",
         "hwalker_url": walker_url,
         "hwalker_checked_at": int(rec.get("checked_at") or m.now_ts()),
@@ -45,11 +60,35 @@ def make_item(code, rec, stamp, recent=False):
     return row
 
 
+def repair_primary_links(items):
+    """Keep metadata sources, but make every work/title link resolve to MissAV."""
+    changed = 0
+    for item in items:
+        code = item.get("code") or ""
+        num = str(item.get("code_num") or code.split("-")[-1])
+        if not re.fullmatch(r"\d{5,8}", num):
+            continue
+        sources = dict(item.get("sources") or {})
+        missav_url = missav_url_for(num, sources)
+        if item.get("url") != missav_url:
+            item["url"] = missav_url
+            changed += 1
+        if sources.get("MissAV") != missav_url:
+            sources["MissAV"] = missav_url
+            item["sources"] = sources
+            changed += 1
+    return changed
+
+
 def main():
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") or []
     existing = {item.get("code") for item in items if item.get("code")}
     stamp = m.now_jst()
+
+    # Repair historical Walker-added rows as well. Walker may remain in
+    # `sources`, but it must never become the primary work destination.
+    relinked = repair_primary_links(items)
 
     # Always sample the Walker head as an independent recent lane. The normal
     # Walker cursor can be thousands of pages deep while this keeps new works visible.
@@ -97,12 +136,13 @@ def main():
         else:
             archive_added += 1
 
-    if added:
+    if added or relinked:
         m.sanitize_item_titles(items)
         payload["items"] = items
         payload["updated_at"] = stamp
         m.save_json(m.DATA_FILE, payload)
 
+    if added:
         # Archive discoveries are historical and must never trigger a later
         # "new work" notification merely because another source sees them.
         # Recent Walker-head discoveries remain eligible for a later notification
@@ -112,12 +152,14 @@ def main():
         ids.update(code for code in added if code not in recent_codes)
         m.save_json(m.HISTORY_FILE, {"updated_at": stamp, "ids": sorted(ids)})
 
+    if added or relinked:
         crawl = m.load_json(m.CRAWL_FILE, {})
         report = crawl.setdefault("last_discovery", {})
         report["walker_recent_added"] = recent_added
         report["walker_archive_added"] = archive_added
         report["walker_discovery_added"] = len(added)
         report["walker_unseen_before"] = len(unseen)
+        report["primary_links_repaired"] = relinked
         report["total_after"] = len(items)
         m.save_json(m.CRAWL_FILE, crawl)
 
@@ -130,6 +172,7 @@ def main():
         "recent_added": recent_added,
         "archive_added": archive_added,
         "rejected_unresolved_title": rejected_title,
+        "primary_links_repaired": relinked,
         "remaining_unseen_estimate": max(0, len(unseen) - len(added) - rejected_title),
         "catalog_total": len(items),
     }, ensure_ascii=False))
