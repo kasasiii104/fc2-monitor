@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import requests
+
 import fc2_monitor as m
 
 STATE_FILE = Path(os.environ.get("MISSAV_GUARD_STATE_FILE", "docs/missav_guard_state.json"))
@@ -35,6 +37,26 @@ def _correct_detail_destination(url, num):
     return bool(re.fullmatch(rf"/(?:ja/)?fc2-ppv-{re.escape(num)}/?", path, re.I))
 
 
+def _existence_request(url):
+    """Check only response status/destination; never download the detail HTML body."""
+    if m.source_in_cooldown(url):
+        return {"status": 0, "final_url": url, "access_limited": True, "error": "source_cooldown"}
+    headers = {**m.HEADERS, "Range": "bytes=0-0", "Accept": "text/html,*/*;q=0.8"}
+    try:
+        with requests.get(url, headers=headers, timeout=(4, 8), allow_redirects=True, stream=True) as res:
+            status = int(res.status_code or 0)
+            challenge = (res.headers.get("cf-mitigated") or "").lower() == "challenge"
+            m.record_source_denial(url, status, challenge)
+            return {
+                "status": status,
+                "final_url": str(res.url or url),
+                "access_limited": bool(status in (401, 403, 429) or challenge),
+                "error": None,
+            }
+    except requests.RequestException as exc:
+        return {"status": 0, "final_url": url, "access_limited": False, "error": type(exc).__name__}
+
+
 class Guard:
     def __init__(self):
         raw = m.load_json(STATE_FILE, {"checks": {}})
@@ -60,30 +82,31 @@ class Guard:
         if previous and not force and age < self._ttl(previous.get("status")):
             return previous
 
+        urls = m.missav_detail_urls(num)
         explicit_missing = 0
         attempts = 0
         result = None
-        for url in m.missav_detail_urls(num):
-            info = m.fetch_page(url)
+        for url in urls:
+            info = _existence_request(url)
             attempts += 1
             status = int(info.get("status") or 0)
-            if status == 200 and not info.get("cloudflare") and _correct_detail_destination(info.get("final_url") or url, num):
-                result = {"status": "alive", "reason": "detail_200", "http_status": 200}
+            if status in (200, 206) and _correct_detail_destination(info.get("final_url") or url, num):
+                result = {"status": "alive", "reason": "detail_200", "http_status": status}
                 break
             if status in (404, 410):
                 explicit_missing += 1
                 continue
-            if status in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
+            if info.get("access_limited"):
                 result = {"status": "unknown", "reason": "access_limited", "http_status": status}
                 break
-            # A mirror can be temporarily down. Try the remaining official MissAV hosts,
-            # but never call a 404 unless every reachable MissAV detail route says missing.
-            if status == 200:
+            if status in (200, 206):
                 result = {"status": "unknown", "reason": "unexpected_destination", "http_status": status}
                 break
+            # One mirror can be temporarily unavailable. Try the remaining mirrors,
+            # but classify as dead only if all configured hosts explicitly say 404/410.
 
         if result is None:
-            if attempts and explicit_missing == attempts == len(m.missav_detail_urls(num)):
+            if attempts and explicit_missing == attempts == len(urls):
                 result = {"status": "dead", "reason": "all_missav_hosts_404", "http_status": 404}
             else:
                 result = {"status": "unknown", "reason": "fetch_failed", "http_status": 0}
