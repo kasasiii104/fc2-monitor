@@ -27,18 +27,17 @@ class MissAVGuardTests(unittest.TestCase):
             self.addCleanup(p.stop)
 
     @staticmethod
-    def page(status, url, **extra):
+    def probe(status, url, **extra):
         return {
-            "ok": status == 200,
             "status": status,
             "final_url": url,
-            "cloudflare": False,
+            "access_limited": status in (401, 403, 429),
             "error": None,
             **extra,
         }
 
     def test_dead_requires_all_missav_hosts_to_be_explicitly_missing(self):
-        with patch.object(m, "fetch_page", side_effect=lambda url: self.page(404, url)):
+        with patch.object(g, "_existence_request", side_effect=lambda url: self.probe(404, url)):
             result = g.Guard().probe("8000001", force=True)
         self.assertEqual(result["status"], "dead")
         self.assertEqual(result["reason"], "all_missav_hosts_404")
@@ -49,15 +48,15 @@ class MissAVGuardTests(unittest.TestCase):
         def page(url):
             calls.append(url)
             if len(calls) == 1:
-                return self.page(404, url)
-            return self.page(200, "https://missav.live/ja/fc2-ppv-8000001")
-        with patch.object(m, "fetch_page", side_effect=page):
+                return self.probe(404, url)
+            return self.probe(200, "https://missav.live/ja/fc2-ppv-8000001")
+        with patch.object(g, "_existence_request", side_effect=page):
             result = g.Guard().probe("8000001", force=True)
         self.assertEqual(result["status"], "alive")
         self.assertEqual(len(calls), 2)
 
     def test_access_denial_is_unknown_and_never_treated_as_404(self):
-        with patch.object(m, "fetch_page", return_value=self.page(403, "https://missav.ws/ja/fc2-ppv-8000001")):
+        with patch.object(g, "_existence_request", return_value=self.probe(403, "https://missav.ws/ja/fc2-ppv-8000001")):
             result = g.Guard().probe("8000001", force=True)
         self.assertEqual(result["status"], "unknown")
         self.assertEqual(result["reason"], "access_limited")
@@ -84,10 +83,10 @@ class MissAVGuardTests(unittest.TestCase):
 
         def page(url):
             if "8000001" in url:
-                return self.page(404, url)
-            return self.page(200, "https://missav.ws/ja/fc2-ppv-8000002")
+                return self.probe(404, url)
+            return self.probe(200, "https://missav.ws/ja/fc2-ppv-8000002")
 
-        with patch.object(m, "fetch_page", side_effect=page):
+        with patch.object(g, "_existence_request", side_effect=page):
             stats = g.prune_saved(limit=2)
         saved = m.load_json(m.DATA_FILE, {})["items"]
         history = m.load_json(m.HISTORY_FILE, {})["ids"]
