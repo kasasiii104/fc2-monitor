@@ -146,6 +146,7 @@ def main():
                 break
             continue
 
+        mg.apply_live_url(row, existence)
         items.append(row)
         existing.add(code)
         added.append(code)
