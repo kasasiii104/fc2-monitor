@@ -10,6 +10,7 @@ on:
     paths:
       - "fc2_monitor.py"
       - "aggressive_discovery.py"
+      - "missav_guard.py"
       - "requirements.txt"
       - "tests/**"
       - "web/**"
@@ -44,7 +45,7 @@ jobs:
       - name: Verify update and parser regressions
         run: python -m unittest discover -s tests -q
 
-      - name: Run monitor
+      - name: Run monitor with MissAV 404 guard
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -56,14 +57,21 @@ jobs:
           JAVDB_BACKFILL_PAGES: "12"
           H_WALKER_PAGES: "30"
           H_WALKER_REFRESH_SEC: "0"
-        run: python fc2_monitor.py
+          MISSAV_404_AUDIT_LIMIT: "250"
+        run: python missav_guard.py
 
       - name: Add unseen Walker works to catalog
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          H_WALKER_DISCOVERY_LIMIT: "1500"
+          H_WALKER_DISCOVERY_LIMIT: "300"
           H_WALKER_RECENT_PAGES: "4"
         run: python aggressive_discovery.py
+
+      - name: Prune MissAV 404 works on discovery-only runs
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
+        env:
+          MISSAV_404_AUDIT_LIMIT: "250"
+        run: python missav_guard.py --prune-only
 
       - name: Repair saved Japanese titles
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[titles-now]')
