@@ -57,6 +57,23 @@ def _existence_request(url):
         return {"status": 0, "final_url": url, "access_limited": False, "error": type(exc).__name__}
 
 
+def apply_live_url(item, result):
+    """Point the card/source link at the MissAV mirror actually verified alive."""
+    live_url = str((result or {}).get("live_url") or "")
+    if not live_url or (result or {}).get("status") != "alive":
+        return False
+    changed = False
+    if item.get("url") != live_url:
+        item["url"] = live_url
+        changed = True
+    sources = dict(item.get("sources") or {})
+    if sources.get("MissAV") != live_url:
+        sources["MissAV"] = live_url
+        item["sources"] = sources
+        changed = True
+    return changed
+
+
 class Guard:
     def __init__(self):
         raw = m.load_json(STATE_FILE, {"checks": {}})
@@ -90,8 +107,14 @@ class Guard:
             info = _existence_request(url)
             attempts += 1
             status = int(info.get("status") or 0)
-            if status in (200, 206) and _correct_detail_destination(info.get("final_url") or url, num):
-                result = {"status": "alive", "reason": "detail_200", "http_status": status}
+            final_url = str(info.get("final_url") or url)
+            if status in (200, 206) and _correct_detail_destination(final_url, num):
+                result = {
+                    "status": "alive",
+                    "reason": "detail_200",
+                    "http_status": status,
+                    "live_url": final_url,
+                }
                 break
             if status in (404, 410):
                 explicit_missing += 1
@@ -130,7 +153,7 @@ class Guard:
 
 def filter_unseen(videos, existing_codes, guard):
     kept = []
-    rejected_404 = rejected_unverified = 0
+    rejected_404 = rejected_unverified = relinked = 0
     for item in videos:
         code, num = _code(item)
         if not num or code in existing_codes:
@@ -138,6 +161,7 @@ def filter_unseen(videos, existing_codes, guard):
             continue
         result = guard.probe(num)
         if result.get("status") == "alive":
+            relinked += int(apply_live_url(item, result))
             kept.append(item)
         elif result.get("status") == "dead":
             rejected_404 += 1
@@ -147,7 +171,7 @@ def filter_unseen(videos, existing_codes, guard):
             # later crawl instead of publishing a potentially dead primary link.
             rejected_unverified += 1
             print(f"[MissAV guard] defer_new={code} reason={result.get('reason')}")
-    print(f"[MissAV guard] new_checked={len(videos)} kept={len(kept)} rejected_404={rejected_404} deferred={rejected_unverified}")
+    print(f"[MissAV guard] new_checked={len(videos)} kept={len(kept)} rejected_404={rejected_404} deferred={rejected_unverified} relinked={relinked}")
     return kept
 
 
@@ -158,7 +182,7 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
     items = items if isinstance(items, list) else []
     if not items:
         guard.save()
-        return {"checked": 0, "removed": 0, "remaining": 0}
+        return {"checked": 0, "removed": 0, "relinked": 0, "remaining": 0}
 
     def last_checked(item):
         code, _ = _code(item)
@@ -169,6 +193,7 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
     removed = set()
     checked = 0
     unknown = 0
+    relinked = 0
     for item in candidates[:max(1, limit)]:
         code, num = _code(item)
         result = guard.probe(num, force=True)
@@ -176,6 +201,8 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
         if result.get("status") == "dead":
             removed.add(code)
             print(f"[MissAV guard] remove_saved={code} reason=404")
+        elif result.get("status") == "alive":
+            relinked += int(apply_live_url(item, result))
         elif result.get("status") == "unknown":
             unknown += 1
             # Once the source is denying access, further checks in this run would not
@@ -183,11 +210,12 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
             if result.get("reason") == "access_limited":
                 break
 
-    if removed:
+    if removed or relinked:
         payload["items"] = [item for item in items if item.get("code") not in removed]
         payload["updated_at"] = m.now_jst()
         m.save_json(m.DATA_FILE, payload)
 
+    if removed:
         history = m.load_json(m.HISTORY_FILE, {"ids": []})
         ids = [code for code in (history.get("ids") or []) if code not in removed]
         history["ids"] = ids
@@ -196,13 +224,14 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
 
     guard.state["last_audit"] = {
         "at": m.now_ts(), "checked": checked, "removed": len(removed),
-        "unknown": unknown, "catalog_before": len(items),
+        "relinked": relinked, "unknown": unknown, "catalog_before": len(items),
         "catalog_after": len(items) - len(removed),
     }
     guard.dirty = True
     guard.save()
-    print(f"[MissAV guard] audit_checked={checked} removed={len(removed)} unknown={unknown} remaining={len(items)-len(removed)}")
-    return {"checked": checked, "removed": len(removed), "remaining": len(items) - len(removed)}
+    print(f"[MissAV guard] audit_checked={checked} removed={len(removed)} relinked={relinked} unknown={unknown} remaining={len(items)-len(removed)}")
+    return {"checked": checked, "removed": len(removed), "relinked": relinked,
+            "remaining": len(items) - len(removed)}
 
 
 def run_guarded_monitor():
