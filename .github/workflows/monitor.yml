@@ -17,7 +17,7 @@ on:
 
 concurrency:
   group: fc2ppv-monitor-main
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
