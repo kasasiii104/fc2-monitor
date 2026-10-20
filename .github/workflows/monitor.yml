@@ -19,7 +19,9 @@ on:
 
 concurrency:
   group: fc2ppv-monitor-main-v2
-  cancel-in-progress: true
+  # Never kill a productive crawl halfway through. The bounded Walker lane now
+  # finishes quickly enough that the next scheduled run can queue safely.
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -29,6 +31,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 55
     outputs:
       pages_artifact: ${{ steps.pages_artifact.outputs.name }}
     steps:
@@ -66,6 +69,7 @@ jobs:
         env:
           H_WALKER_DISCOVERY_LIMIT: "800"
           H_WALKER_RECENT_PAGES: "8"
+          H_WALKER_DISCOVERY_BUDGET_SEC: "480"
         run: python aggressive_discovery.py
 
       - name: Prune MissAV 404 works on discovery-only runs
