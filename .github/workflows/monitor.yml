@@ -1,9 +1,9 @@
-# MissAV 404 guard rollout validation trigger.
+# Aggressive automatic discovery: new works + historical backfill.
 name: FC2PPV Monitor
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "7,37 * * * *"
   workflow_dispatch:
   push:
     branches:
@@ -53,31 +53,31 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INCLUDE_KEYWORDS: ${{ secrets.INCLUDE_KEYWORDS }}
           EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
-          PAGES: "24"
-          BACKFILL_PAGES: "72"
-          JAVDB_BACKFILL_PAGES: "12"
-          H_WALKER_PAGES: "30"
+          PAGES: "36"
+          BACKFILL_PAGES: "120"
+          JAVDB_BACKFILL_PAGES: "24"
+          H_WALKER_PAGES: "50"
           H_WALKER_REFRESH_SEC: "0"
-          MISSAV_404_AUDIT_LIMIT: "1000"
+          MISSAV_404_AUDIT_LIMIT: "1500"
         run: python missav_guard.py
 
       - name: Add unseen Walker works to catalog
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          H_WALKER_DISCOVERY_LIMIT: "300"
-          H_WALKER_RECENT_PAGES: "4"
+          H_WALKER_DISCOVERY_LIMIT: "800"
+          H_WALKER_RECENT_PAGES: "8"
         run: python aggressive_discovery.py
 
       - name: Prune MissAV 404 works on discovery-only runs
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          MISSAV_404_AUDIT_LIMIT: "1000"
+          MISSAV_404_AUDIT_LIMIT: "1500"
         run: python missav_guard.py --prune-only
 
       - name: Audit MissAV 404 works without a full crawl
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[missav-audit]')
         env:
-          MISSAV_404_AUDIT_LIMIT: "1000"
+          MISSAV_404_AUDIT_LIMIT: "1500"
         run: python missav_guard.py --prune-only
 
       - name: Repair saved Japanese titles
@@ -96,19 +96,18 @@ jobs:
       - name: Repair archive discovery without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          PAGES: "24"
-          BACKFILL_PAGES: "72"
-          JAVDB_BACKFILL_PAGES: "12"
+          PAGES: "36"
+          BACKFILL_PAGES: "120"
+          JAVDB_BACKFILL_PAGES: "24"
         run: python -u fc2_monitor.py --discovery-only
 
       - name: Repair rankings and refresh views without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[updates-now]')
         run: python -u fc2_monitor.py --refresh-updates
 
-      # A UI/code push can publish immediately using the saved catalog. Scheduled
-      # runs crawl hourly; the larger windows and Walker lane favor coverage while
-      # existing cooldowns stop sources that begin rejecting requests. Explicit
-      # discovery runs also repair historical primary links before publishing.
+      # Code pushes publish saved data immediately. Scheduled runs crawl twice
+      # per hour with wider recent/archive windows; existing source cooldowns
+      # stop sources that begin rejecting requests instead of hammering them.
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
 
