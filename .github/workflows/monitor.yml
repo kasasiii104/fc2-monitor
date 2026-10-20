@@ -74,6 +74,12 @@ jobs:
           MISSAV_404_AUDIT_LIMIT: "250"
         run: python missav_guard.py --prune-only
 
+      - name: Audit MissAV 404 works without a full crawl
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[missav-audit]')
+        env:
+          MISSAV_404_AUDIT_LIMIT: "250"
+        run: python missav_guard.py --prune-only
+
       - name: Repair saved Japanese titles
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[titles-now]')
         run: |
