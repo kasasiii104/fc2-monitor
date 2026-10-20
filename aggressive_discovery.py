@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 import os
 import re
+import time
 
 import fc2_monitor as m
 import missav_guard as mg
 
 DISCOVERY_LIMIT = max(1, int(os.environ.get("H_WALKER_DISCOVERY_LIMIT", "2000")))
 RECENT_PAGES = max(1, int(os.environ.get("H_WALKER_RECENT_PAGES", "4")))
+# Keep the aggressive lane bounded so the normal 30-minute schedule can finish,
+# commit partial progress, and continue on the next run instead of being killed.
+DISCOVERY_BUDGET_SEC = max(60, int(os.environ.get("H_WALKER_DISCOVERY_BUDGET_SEC", "480")))
 
 
 def missav_url_for(num, sources=None):
@@ -82,6 +86,7 @@ def repair_primary_links(items):
 
 
 def main():
+    started = time.monotonic()
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") or []
     existing = {item.get("code") for item in items if item.get("code")}
@@ -124,8 +129,13 @@ def main():
     added = []
     recent_added = archive_added = rejected_title = 0
     rejected_missav_404 = deferred_unverified = verified = 0
+    budget_exhausted = False
     for code, rec in unseen:
         if len(added) >= DISCOVERY_LIMIT:
+            break
+        if time.monotonic() - started >= DISCOVERY_BUDGET_SEC:
+            budget_exhausted = True
+            print(f"[Walker discovery] budget_exhausted=true budget_sec={DISCOVERY_BUDGET_SEC}")
             break
         row = make_item(code, rec or {}, stamp, recent=code in recent_codes)
         if row is None:
@@ -156,6 +166,7 @@ def main():
             archive_added += 1
 
     guard.save()
+    elapsed_sec = round(time.monotonic() - started, 1)
 
     if added or relinked:
         m.sanitize_item_titles(items)
@@ -173,19 +184,23 @@ def main():
         ids.update(code for code in added if code not in recent_codes)
         m.save_json(m.HISTORY_FILE, {"updated_at": stamp, "ids": sorted(ids)})
 
-    if added or relinked or rejected_missav_404 or deferred_unverified:
-        crawl = m.load_json(m.CRAWL_FILE, {})
-        report = crawl.setdefault("last_discovery", {})
-        report["walker_recent_added"] = recent_added
-        report["walker_archive_added"] = archive_added
-        report["walker_discovery_added"] = len(added)
-        report["walker_unseen_before"] = len(unseen)
-        report["walker_missav_verified"] = verified
-        report["walker_rejected_missav_404"] = rejected_missav_404
-        report["walker_deferred_unverified"] = deferred_unverified
-        report["primary_links_repaired"] = relinked
-        report["total_after"] = len(items)
-        m.save_json(m.CRAWL_FILE, crawl)
+    # Always checkpoint the discovery outcome. A time-budget stop is normal,
+    # not a failure: the remaining cached unseen rows continue next run.
+    crawl = m.load_json(m.CRAWL_FILE, {})
+    report = crawl.setdefault("last_discovery", {})
+    report["walker_recent_added"] = recent_added
+    report["walker_archive_added"] = archive_added
+    report["walker_discovery_added"] = len(added)
+    report["walker_unseen_before"] = len(unseen)
+    report["walker_missav_verified"] = verified
+    report["walker_rejected_missav_404"] = rejected_missav_404
+    report["walker_deferred_unverified"] = deferred_unverified
+    report["walker_budget_exhausted"] = budget_exhausted
+    report["walker_budget_sec"] = DISCOVERY_BUDGET_SEC
+    report["walker_elapsed_sec"] = elapsed_sec
+    report["primary_links_repaired"] = relinked
+    report["total_after"] = len(items)
+    m.save_json(m.CRAWL_FILE, crawl)
 
     print("[Walker discovery] " + m.json.dumps({
         "recent_pages": recent_pages,
@@ -199,6 +214,9 @@ def main():
         "recent_added": recent_added,
         "archive_added": archive_added,
         "rejected_unresolved_title": rejected_title,
+        "budget_exhausted": budget_exhausted,
+        "budget_sec": DISCOVERY_BUDGET_SEC,
+        "elapsed_sec": elapsed_sec,
         "primary_links_repaired": relinked,
         "remaining_unseen_estimate": max(0, len(unseen) - len(added) - rejected_title - rejected_missav_404),
         "catalog_total": len(items),
