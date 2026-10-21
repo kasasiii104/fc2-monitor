@@ -12,6 +12,7 @@ on:
       - "fc2_monitor.py"
       - "aggressive_discovery.py"
       - "missav_guard.py"
+      - "walker_title_repair.py"
       - "requirements.txt"
       - "tests/**"
       - "web/**"
@@ -71,6 +72,9 @@ jobs:
           H_WALKER_RECENT_PAGES: "8"
           H_WALKER_DISCOVERY_BUDGET_SEC: "480"
         run: python aggressive_discovery.py
+
+      - name: Repair unresolved titles from Walker cache
+        run: python walker_title_repair.py
 
       - name: Prune MissAV 404 works on discovery-only runs
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
