@@ -2,10 +2,9 @@
 """Walker discovery lane optimized for useful catalog growth.
 
 Recent Walker entries keep the normal MissAV existence TTL so newly indexed
-works can appear quickly. Historical entries that were already confirmed 404
-on every MissAV mirror are not re-requested for 30 days; that lets each run
-reach still-unchecked archive candidates instead of spending its budget on the
-same dead records.
+works can appear quickly. Historical entries that are missing from MissAV can
+also be verified against FC2 official metadata; a MissAV 404 alone does not
+prove that an FC2 work does not exist.
 """
 
 import os
@@ -19,6 +18,9 @@ DISCOVERY_LIMIT = max(1, int(os.environ.get("H_WALKER_DISCOVERY_LIMIT", "2000"))
 RECENT_PAGES = max(1, int(os.environ.get("H_WALKER_RECENT_PAGES", "4")))
 DISCOVERY_BUDGET_SEC = max(60, int(os.environ.get("H_WALKER_DISCOVERY_BUDGET_SEC", "360")))
 ARCHIVE_DEAD_RECHECK_SEC = max(86400, int(os.environ.get("H_WALKER_ARCHIVE_DEAD_RECHECK_SEC", str(30 * 86400))))
+OFFICIAL_FALLBACK_LIMIT = max(0, int(os.environ.get("H_WALKER_OFFICIAL_FALLBACK_LIMIT", "100")))
+OFFICIAL_CHECK_KEY = "walker_official_discovery_checks"
+OFFICIAL_RETRY_SEC = 12 * 3600
 
 
 def cached_archive_dead(guard, code, recent, now):
@@ -26,6 +28,42 @@ def cached_archive_dead(guard, code, recent, now):
         return False
     rec = guard.checks.get(code) if isinstance(guard.checks.get(code), dict) else {}
     return rec.get("status") == "dead" and now - int(rec.get("checked_at") or 0) < ARCHIVE_DEAD_RECHECK_SEC
+
+
+def official_due(checks, code, now):
+    rec = checks.get(code) if isinstance(checks.get(code), dict) else {}
+    checked = int(rec.get("checked_at") or 0)
+    status = rec.get("status") or ""
+    delay = ARCHIVE_DEAD_RECHECK_SEC if status == "not_found" else OFFICIAL_RETRY_SEC
+    return not checked or now - checked >= delay
+
+
+def verify_official(row, num, checks, now):
+    """Return alive/dead/deferred using FC2 itself as a second existence source."""
+    try:
+        meta = m.fetch_fc2_market(num)
+    except Exception as exc:
+        meta = {"outcome": "failed", "reason": type(exc).__name__}
+    meta = meta or {"outcome": "failed", "reason": "empty_response"}
+    outcome = meta.get("outcome") or "failed"
+    checks[row["code"]] = {
+        "checked_at": now,
+        "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "failed",
+        "reason": meta.get("reason") or meta.get("blocked") or "",
+    }
+    if outcome == "success":
+        m.apply_fc2_market_metadata(row, meta, now)
+        official_url = meta.get("fc2_market_url") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
+        row.setdefault("sources", {})["FC2公式"] = official_url
+        # When MissAV has no page, make the authoritative FC2 page the primary link.
+        row["url"] = official_url
+        row["source"] = "FC2公式"
+        return "alive", meta
+    if outcome == "not_found":
+        return "dead", meta
+    if outcome == "blocked":
+        return "blocked", meta
+    return "deferred", meta
 
 
 def main():
@@ -49,6 +87,8 @@ def main():
     state = m.load_json(m.FETCH_STATE_FILE, {})
     cache = state.get(m.H_WALKER_CACHE_KEY)
     cache = cache if isinstance(cache, dict) else {}
+    official_checks = state.get(OFFICIAL_CHECK_KEY)
+    official_checks = official_checks if isinstance(official_checks, dict) else {}
     combined = dict(cache)
     now = m.now_ts()
     for code, rec in recent_records.items():
@@ -65,6 +105,8 @@ def main():
     added = []
     recent_added = archive_added = rejected_title = 0
     rejected_missav_404 = cached_dead_skipped = deferred_unverified = verified = 0
+    official_checked = official_added = official_not_found = official_deferred = 0
+    official_blocked = False
     budget_exhausted = False
     for code, rec in unseen:
         if len(added) >= DISCOVERY_LIMIT:
@@ -79,33 +121,78 @@ def main():
             rejected_title += 1
             continue
 
-        if cached_archive_dead(guard, code, recent, now):
-            cached_dead_skipped += 1
-            rejected_missav_404 += 1
-            continue
-
         num = code.split("-")[-1]
-        existence = guard.probe(num)
-        verified += 1
-        if existence.get("status") == "dead":
-            rejected_missav_404 += 1
-            continue
-        if existence.get("status") != "alive":
+        missav_dead_cached = cached_archive_dead(guard, code, recent, now)
+        existence = None
+        if not missav_dead_cached:
+            existence = guard.probe(num)
+            verified += 1
+            if existence.get("status") == "alive":
+                mg.apply_live_url(row, existence)
+                items.append(row)
+                existing.add(code)
+                added.append(code)
+                if recent:
+                    recent_added += 1
+                else:
+                    archive_added += 1
+                continue
+            if existence.get("status") not in ("dead", "alive"):
+                deferred_unverified += 1
+                if existence.get("reason") == "access_limited":
+                    break
+                continue
+        else:
+            cached_dead_skipped += 1
+
+        # A MissAV 404 is evidence about MissAV, not about FC2 itself. Spend a
+        # bounded secondary-verification budget on due candidates and add the
+        # work when FC2 official confirms that the article still exists.
+        can_official = (
+            not official_blocked
+            and official_checked < OFFICIAL_FALLBACK_LIMIT
+            and official_due(official_checks, code, now)
+        )
+        if can_official:
+            official_checked += 1
+            official_status, _ = verify_official(row, num, official_checks, now)
+            if official_status == "alive":
+                items.append(row)
+                existing.add(code)
+                added.append(code)
+                official_added += 1
+                if recent:
+                    recent_added += 1
+                else:
+                    archive_added += 1
+                continue
+            if official_status == "dead":
+                official_not_found += 1
+                rejected_missav_404 += 1
+                continue
+            if official_status == "blocked":
+                official_blocked = True
+            official_deferred += 1
             deferred_unverified += 1
-            if existence.get("reason") == "access_limited":
-                break
             continue
 
-        mg.apply_live_url(row, existence)
-        items.append(row)
-        existing.add(code)
-        added.append(code)
-        if recent:
-            recent_added += 1
-        else:
-            archive_added += 1
+        if missav_dead_cached:
+            # It is already known absent on MissAV and either official fallback
+            # is not due or this run exhausted its bounded official budget.
+            rejected_missav_404 += 1
+            continue
+        if existence and existence.get("status") == "dead":
+            rejected_missav_404 += 1
+            continue
 
     guard.save()
+    # Keep official verification evidence bounded to currently useful history.
+    official_checks = {
+        code: rec for code, rec in official_checks.items()
+        if isinstance(rec, dict) and now - int(rec.get("checked_at") or 0) < ARCHIVE_DEAD_RECHECK_SEC
+    }
+    state[OFFICIAL_CHECK_KEY] = official_checks
+    m.save_json(m.FETCH_STATE_FILE, state)
     elapsed_sec = round(time.monotonic() - started, 1)
 
     if added or relinked:
@@ -130,6 +217,10 @@ def main():
     report["walker_rejected_missav_404"] = rejected_missav_404
     report["walker_cached_dead_skipped"] = cached_dead_skipped
     report["walker_deferred_unverified"] = deferred_unverified
+    report["walker_official_checked"] = official_checked
+    report["walker_official_added"] = official_added
+    report["walker_official_not_found"] = official_not_found
+    report["walker_official_deferred"] = official_deferred
     report["walker_budget_exhausted"] = budget_exhausted
     report["walker_budget_sec"] = DISCOVERY_BUDGET_SEC
     report["walker_elapsed_sec"] = elapsed_sec
@@ -146,6 +237,11 @@ def main():
         "cached_dead_skipped": cached_dead_skipped,
         "rejected_missav_404": rejected_missav_404,
         "deferred_unverified": deferred_unverified,
+        "official_checked": official_checked,
+        "official_added": official_added,
+        "official_not_found": official_not_found,
+        "official_deferred": official_deferred,
+        "official_blocked": official_blocked,
         "added": len(added),
         "recent_added": recent_added,
         "archive_added": archive_added,
