@@ -56,6 +56,7 @@ def repair_titles(items, cache):
         "pending_after": 0,
         "chinese_before": 0,
         "code_only_before": 0,
+        "examples": [],
     }
     for item in items:
         if not needs_walker_repair(item):
@@ -77,12 +78,15 @@ def repair_titles(items, cache):
             stats["rejected_walker_title"] += 1
             continue
 
+        old_title = item.get("title") or code
         item["title"] = title
         item["title_source"] = "FC2ウォーカー"
         item["hwalker_url"] = rec.get("source_url") or m.H_WALKER_URL
         if rec.get("checked_at"):
             item["hwalker_checked_at"] = int(rec["checked_at"])
         stats["repaired"] += 1
+        if len(stats["examples"]) < 10:
+            stats["examples"].append({"code": code, "from": old_title[:80], "to": title[:120]})
 
     stats["pending_after"] = sum(needs_walker_repair(item) for item in items)
     return stats
