@@ -12,6 +12,7 @@ on:
       - "fc2_monitor.py"
       - "aggressive_discovery.py"
       - "efficient_discovery.py"
+      - "prioritize_title_backfill.py"
       - "advance_archive_cursor.py"
       - "missav_guard.py"
       - "walker_title_repair.py"
@@ -52,6 +53,10 @@ jobs:
       - name: Verify update and parser regressions
         run: python -m unittest discover -s tests -q
 
+      - name: Prioritize unresolved Japanese titles
+        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]')
+        run: python prioritize_title_backfill.py
+
       - name: Run monitor with MissAV 404 guard
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]')
         env:
@@ -74,6 +79,7 @@ jobs:
           H_WALKER_RECENT_PAGES: "8"
           H_WALKER_DISCOVERY_BUDGET_SEC: "360"
           H_WALKER_ARCHIVE_DEAD_RECHECK_SEC: "2592000"
+          H_WALKER_OFFICIAL_FALLBACK_LIMIT: "100"
         run: python efficient_discovery.py
 
       - name: Repair unresolved titles from Walker cache
