@@ -11,6 +11,8 @@ on:
     paths:
       - "fc2_monitor.py"
       - "aggressive_discovery.py"
+      - "efficient_discovery.py"
+      - "advance_archive_cursor.py"
       - "missav_guard.py"
       - "walker_title_repair.py"
       - "requirements.txt"
@@ -20,8 +22,8 @@ on:
 
 concurrency:
   group: fc2ppv-monitor-main-v2
-  # Never kill a productive crawl halfway through. The bounded Walker lane now
-  # finishes quickly enough that the next scheduled run can queue safely.
+  # Never kill a productive crawl halfway through. Discovery lanes are bounded
+  # so queued scheduled runs can finish without throwing away cursor progress.
   cancel-in-progress: false
 
 permissions:
@@ -68,10 +70,11 @@ jobs:
       - name: Add unseen Walker works to catalog
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          H_WALKER_DISCOVERY_LIMIT: "800"
+          H_WALKER_DISCOVERY_LIMIT: "1200"
           H_WALKER_RECENT_PAGES: "8"
-          H_WALKER_DISCOVERY_BUDGET_SEC: "480"
-        run: python aggressive_discovery.py
+          H_WALKER_DISCOVERY_BUDGET_SEC: "360"
+          H_WALKER_ARCHIVE_DEAD_RECHECK_SEC: "2592000"
+        run: python efficient_discovery.py
 
       - name: Repair unresolved titles from Walker cache
         run: python walker_title_repair.py
@@ -109,13 +112,17 @@ jobs:
           JAVDB_BACKFILL_PAGES: "24"
         run: python -u fc2_monitor.py --discovery-only
 
+      - name: Advance past confirmed duplicate archive page
+        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
+        run: python advance_archive_cursor.py
+
       - name: Repair rankings and refresh views without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[updates-now]')
         run: python -u fc2_monitor.py --refresh-updates
 
       # Code pushes publish saved data immediately. Scheduled runs crawl twice
-      # per hour with wider recent/archive windows; existing source cooldowns
-      # stop sources that begin rejecting requests instead of hammering them.
+      # per hour; duplicate/archive-dead evidence is reused so those runs spend
+      # their time on unseen pages/candidates rather than known dead ends.
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
 
