@@ -26,7 +26,6 @@ on:
       - ".github/workflows/monitor.yml"
 
 concurrency:
-  # Fresh group releases the new fast schedule from any old long-running v2 job.
   group: fc2ppv-monitor-main-v3
   cancel-in-progress: false
 
@@ -56,8 +55,6 @@ jobs:
       - name: Verify update and parser regressions
         run: python -m unittest discover -s tests -q
 
-      # Every 30 minutes, scan both the recent MissAV lane and a much wider
-      # archive slice without spending time on ratings, previews or title repair.
       - name: Fast MissAV recent and archive discovery
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '7,37 * * * *') ||
@@ -68,9 +65,6 @@ jobs:
           JAVDB_BACKFILL_PAGES: "24"
         run: python -u fc2_monitor.py --discovery-only
 
-      # Walker is the productive archive source while JavDB/Supjav remain
-      # access-limited. Keep the serial MissAV verification lane short, then let
-      # the parallel FC2-authoritative lane do most of the historical growth.
       - name: Add unseen Walker works to catalog
         if: >-
           github.event_name == 'schedule' ||
@@ -95,8 +89,7 @@ jobs:
           WALKER_OFFICIAL_FAILED_RETRY_SEC: "43200"
         run: python walker_official_fastlane.py
 
-      # Full metadata maintenance is deliberately much less frequent than
-      # discovery. It remains comprehensive, but no longer blocks every fast run.
+      # Full metadata maintenance is deliberately less frequent than discovery.
       - name: Prioritize unresolved Japanese titles
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '52 */4 * * *') ||
@@ -117,7 +110,9 @@ jobs:
           JAVDB_BACKFILL_PAGES: "24"
           H_WALKER_PAGES: "50"
           H_WALKER_REFRESH_SEC: "0"
-          MISSAV_404_AUDIT_LIMIT: "1500"
+          # Saved-link auditing is maintenance, not discovery. Keep it bounded;
+          # a 1,500-item audit previously consumed most of the run while removing 0.
+          MISSAV_404_AUDIT_LIMIT: "200"
         run: python missav_guard.py
 
       - name: Repair unresolved titles from Walker cache
@@ -126,12 +121,8 @@ jobs:
           (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]') || contains(github.event.head_commit.message, '[titles-now]')))
         run: python walker_title_repair.py
 
-      - name: Prune MissAV 404 works on discovery-only runs
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
-        env:
-          MISSAV_404_AUDIT_LIMIT: "1500"
-        run: python missav_guard.py --prune-only
-
+      # Full 404 auditing remains available explicitly, but never blocks normal
+      # new/archive discovery runs.
       - name: Audit MissAV 404 works without a full crawl
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[missav-audit]')
         env:
