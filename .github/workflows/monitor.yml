@@ -12,6 +12,7 @@ on:
       - "fc2_monitor.py"
       - "aggressive_discovery.py"
       - "efficient_discovery.py"
+      - "walker_official_fastlane.py"
       - "prioritize_title_backfill.py"
       - "advance_archive_cursor.py"
       - "missav_guard.py"
@@ -64,7 +65,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INCLUDE_KEYWORDS: ${{ secrets.INCLUDE_KEYWORDS }}
           EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
-          PAGES: "36"
+          # Keep a wider recent lane on every run while the archive cursor keeps
+          # moving independently through the historical catalog.
+          PAGES: "48"
           BACKFILL_PAGES: "120"
           JAVDB_BACKFILL_PAGES: "24"
           H_WALKER_PAGES: "50"
@@ -75,12 +78,24 @@ jobs:
       - name: Add unseen Walker works to catalog
         if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          H_WALKER_DISCOVERY_LIMIT: "1200"
-          H_WALKER_RECENT_PAGES: "8"
-          H_WALKER_DISCOVERY_BUDGET_SEC: "360"
+          H_WALKER_DISCOVERY_LIMIT: "1600"
+          H_WALKER_RECENT_PAGES: "12"
+          H_WALKER_DISCOVERY_BUDGET_SEC: "300"
           H_WALKER_ARCHIVE_DEAD_RECHECK_SEC: "2592000"
-          H_WALKER_OFFICIAL_FALLBACK_LIMIT: "100"
+          # The serial lane remains conservative; the next fast lane performs
+          # additional authoritative FC2 checks in small concurrent batches.
+          H_WALKER_OFFICIAL_FALLBACK_LIMIT: "80"
         run: python efficient_discovery.py
+
+      - name: Verify more unseen Walker works against FC2 official
+        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
+        env:
+          WALKER_OFFICIAL_FAST_LIMIT: "240"
+          WALKER_OFFICIAL_FAST_WORKERS: "4"
+          WALKER_OFFICIAL_FAST_BATCH: "24"
+          WALKER_OFFICIAL_NOT_FOUND_RETRY_SEC: "2592000"
+          WALKER_OFFICIAL_FAILED_RETRY_SEC: "43200"
+        run: python walker_official_fastlane.py
 
       - name: Repair unresolved titles from Walker cache
         run: python walker_title_repair.py
@@ -113,7 +128,7 @@ jobs:
       - name: Repair archive discovery without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
         env:
-          PAGES: "36"
+          PAGES: "48"
           BACKFILL_PAGES: "120"
           JAVDB_BACKFILL_PAGES: "24"
         run: python -u fc2_monitor.py --discovery-only
