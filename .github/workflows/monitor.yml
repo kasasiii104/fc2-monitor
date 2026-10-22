@@ -3,7 +3,10 @@ name: FC2PPV Monitor
 
 on:
   schedule:
+    # Fast discovery stays frequent. Heavy metadata/preview maintenance is split
+    # out so it cannot permanently queue behind the 30-minute discovery lane.
     - cron: "7,37 * * * *"
+    - cron: "52 */4 * * *"
   workflow_dispatch:
   push:
     branches:
@@ -23,9 +26,8 @@ on:
       - ".github/workflows/monitor.yml"
 
 concurrency:
-  group: fc2ppv-monitor-main-v2
-  # Never kill a productive crawl halfway through. Discovery lanes are bounded
-  # so queued scheduled runs can finish without throwing away cursor progress.
+  # Fresh group releases the new fast schedule from any old long-running v2 job.
+  group: fc2ppv-monitor-main-v3
   cancel-in-progress: false
 
 permissions:
@@ -54,19 +56,62 @@ jobs:
       - name: Verify update and parser regressions
         run: python -m unittest discover -s tests -q
 
+      # Every 30 minutes, scan both the recent MissAV lane and a much wider
+      # archive slice without spending time on ratings, previews or title repair.
+      - name: Fast MissAV recent and archive discovery
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '7,37 * * * *') ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]'))
+        env:
+          PAGES: "60"
+          BACKFILL_PAGES: "180"
+          JAVDB_BACKFILL_PAGES: "24"
+        run: python -u fc2_monitor.py --discovery-only
+
+      # Walker is the productive archive source while JavDB/Supjav remain
+      # access-limited. Keep the serial MissAV verification lane short, then let
+      # the parallel FC2-authoritative lane do most of the historical growth.
+      - name: Add unseen Walker works to catalog
+        if: >-
+          github.event_name == 'schedule' ||
+          (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')))
+        env:
+          H_WALKER_DISCOVERY_LIMIT: "1800"
+          H_WALKER_RECENT_PAGES: "16"
+          H_WALKER_DISCOVERY_BUDGET_SEC: "150"
+          H_WALKER_ARCHIVE_DEAD_RECHECK_SEC: "2592000"
+          H_WALKER_OFFICIAL_FALLBACK_LIMIT: "40"
+        run: python efficient_discovery.py
+
+      - name: Verify more unseen Walker works against FC2 official
+        if: >-
+          github.event_name == 'schedule' ||
+          (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')))
+        env:
+          WALKER_OFFICIAL_FAST_LIMIT: "360"
+          WALKER_OFFICIAL_FAST_WORKERS: "6"
+          WALKER_OFFICIAL_FAST_BATCH: "30"
+          WALKER_OFFICIAL_NOT_FOUND_RETRY_SEC: "2592000"
+          WALKER_OFFICIAL_FAILED_RETRY_SEC: "43200"
+        run: python walker_official_fastlane.py
+
+      # Full metadata maintenance is deliberately much less frequent than
+      # discovery. It remains comprehensive, but no longer blocks every fast run.
       - name: Prioritize unresolved Japanese titles
-        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]')
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '52 */4 * * *') ||
+          (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[titles-now]')))
         run: python prioritize_title_backfill.py
 
-      - name: Run monitor with MissAV 404 guard
-        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]')
+      - name: Run full monitor with MissAV 404 guard
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '52 */4 * * *') ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[crawl-now]'))
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INCLUDE_KEYWORDS: ${{ secrets.INCLUDE_KEYWORDS }}
           EXCLUDE_KEYWORDS: ${{ secrets.EXCLUDE_KEYWORDS }}
-          # Keep a wider recent lane on every run while the archive cursor keeps
-          # moving independently through the historical catalog.
           PAGES: "48"
           BACKFILL_PAGES: "120"
           JAVDB_BACKFILL_PAGES: "24"
@@ -75,29 +120,10 @@ jobs:
           MISSAV_404_AUDIT_LIMIT: "1500"
         run: python missav_guard.py
 
-      - name: Add unseen Walker works to catalog
-        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
-        env:
-          H_WALKER_DISCOVERY_LIMIT: "1600"
-          H_WALKER_RECENT_PAGES: "12"
-          H_WALKER_DISCOVERY_BUDGET_SEC: "300"
-          H_WALKER_ARCHIVE_DEAD_RECHECK_SEC: "2592000"
-          # The serial lane remains conservative; the next fast lane performs
-          # additional authoritative FC2 checks in small concurrent batches.
-          H_WALKER_OFFICIAL_FALLBACK_LIMIT: "80"
-        run: python efficient_discovery.py
-
-      - name: Verify more unseen Walker works against FC2 official
-        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
-        env:
-          WALKER_OFFICIAL_FAST_LIMIT: "240"
-          WALKER_OFFICIAL_FAST_WORKERS: "4"
-          WALKER_OFFICIAL_FAST_BATCH: "24"
-          WALKER_OFFICIAL_NOT_FOUND_RETRY_SEC: "2592000"
-          WALKER_OFFICIAL_FAILED_RETRY_SEC: "43200"
-        run: python walker_official_fastlane.py
-
       - name: Repair unresolved titles from Walker cache
+        if: >-
+          github.event_name == 'schedule' ||
+          (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]') || contains(github.event.head_commit.message, '[titles-now]')))
         run: python walker_title_repair.py
 
       - name: Prune MissAV 404 works on discovery-only runs
@@ -115,8 +141,6 @@ jobs:
       - name: Repair saved Japanese titles
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[titles-now]')
         run: |
-          # Snapshot immediately before the overbroad language filter. Restore
-          # only missing Japanese titles; preserve newer metadata and works.
           git fetch --depth=1 origin d7012e571cd74ffab62c70a6ec183685092ee95e
           git show d7012e571cd74ffab62c70a6ec183685092ee95e:docs/data.json > "$RUNNER_TEMP/title-recovery.json"
           TITLE_RECOVERY_FILE="$RUNNER_TEMP/title-recovery.json" python fc2_monitor.py --repair-titles
@@ -125,25 +149,16 @@ jobs:
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[audit-discovery]')
         run: python -u fc2_monitor.py --audit-discovery
 
-      - name: Repair archive discovery without notifications
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')
-        env:
-          PAGES: "48"
-          BACKFILL_PAGES: "120"
-          JAVDB_BACKFILL_PAGES: "24"
-        run: python -u fc2_monitor.py --discovery-only
-
       - name: Advance past confirmed duplicate archive page
-        if: github.event_name != 'push' || contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')
+        if: >-
+          github.event_name == 'schedule' ||
+          (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]')))
         run: python advance_archive_cursor.py
 
       - name: Repair rankings and refresh views without notifications
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[updates-now]')
         run: python -u fc2_monitor.py --refresh-updates
 
-      # Code pushes publish saved data immediately. Scheduled runs crawl twice
-      # per hour; duplicate/archive-dead evidence is reused so those runs spend
-      # their time on unseen pages/candidates rather than known dead ends.
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
 
