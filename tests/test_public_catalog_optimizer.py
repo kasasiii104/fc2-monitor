@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -17,11 +18,11 @@ class PublicCatalogOptimizerTests(unittest.TestCase):
             catalog = docs / "catalog.json"
             catalog.write_text(json.dumps({"version": "abc", "items": rows}), encoding="utf-8")
             with patch.object(o, "DOCS", docs), patch.object(o, "CATALOG", catalog), \
-                 patch.object(o, "FIRST_PAINT_ITEMS", 300), patch.object(o, "CHUNK_ITEMS", 1000):
+                 patch.object(o, "FIRST_PAINT_ITEMS", 160), patch.object(o, "CHUNK_ITEMS", 600):
                 total, chunks = o.split_catalog()
             manifest = json.loads(catalog.read_text(encoding="utf-8"))
-            self.assertEqual((total, chunks), (2505, 3))
-            self.assertEqual(len(manifest["items"]), 300)
+            self.assertEqual((total, chunks), (2505, 4))
+            self.assertEqual(len(manifest["items"]), 160)
             self.assertEqual(manifest["item_count"], 2505)
             self.assertTrue(manifest["progressive"])
             recovered = list(manifest["items"])
@@ -38,8 +39,29 @@ class PublicCatalogOptimizerTests(unittest.TestCase):
                 o.patch_site_js()
             patched = target.read_text(encoding="utf-8")
             self.assertIn("async function fetchCatalogChunks(payload)", patched)
-            self.assertIn("Initial navigation becomes interactive after only the small inline", patched)
+            self.assertIn("Let the recent cards paint before any archive download starts", patched)
             self.assertIn("Background refresh keeps the old complete feed visible", patched)
+            self.assertIn("Math.min(2, chunks.length)", patched)
+            self.assertIn("setTimeout(resolve, 350)", patched)
+
+    def test_generated_js_version_matches_deployed_bytes_and_preload_is_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            docs = Path(directory)
+            site = docs / "site.js"
+            index = docs / "index.html"
+            site.write_text("console.log('generated loader');", encoding="utf-8")
+            index.write_text(
+                '<link rel="preload" href="catalog.json?v=old" as="fetch" crossorigin />\n'
+                '<script src="site.js?v=stale" defer></script>',
+                encoding="utf-8",
+            )
+            with patch.object(o, "SITE_JS", site), patch.object(o, "INDEX", index):
+                version = o.sync_generated_asset_version()
+            expected = hashlib.sha256(site.read_bytes()).hexdigest()[:12]
+            self.assertEqual(version, expected)
+            html = index.read_text(encoding="utf-8")
+            self.assertIn(f'site.js?v={expected}', html)
+            self.assertNotIn('rel="preload"', html)
 
 
 if __name__ == "__main__":
