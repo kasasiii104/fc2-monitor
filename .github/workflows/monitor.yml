@@ -20,6 +20,7 @@ on:
       - "advance_archive_cursor.py"
       - "missav_guard.py"
       - "walker_title_repair.py"
+      - "optimize_public_catalog.py"
       - "requirements.txt"
       - "tests/**"
       - "web/**"
@@ -156,6 +157,21 @@ jobs:
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
 
+      - name: Optimize public catalog for fast first paint
+        run: |
+          python optimize_public_catalog.py
+          node --check docs/site.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('docs/catalog.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          assert data.get('progressive') is True
+          assert len(data.get('items') or []) <= 300
+          assert int(data.get('item_count') or 0) >= len(data.get('items') or [])
+          print(f"manifest_bytes={p.stat().st_size} inline={len(data.get('items') or [])} chunks={len(data.get('chunks') or [])} total={data.get('item_count')}")
+          PY
+
       - name: Enforce MissAV-only outbound viewing
         run: |
           cp web/missav-only.js docs/missav-only.js
@@ -191,10 +207,19 @@ jobs:
         id: pages_artifact
         run: echo "name=github-pages-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare lean Pages artifact
+        run: |
+          rm -rf pages-public
+          mkdir -p pages-public
+          cp -a docs/. pages-public/
+          rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
+                pages-public/views_history.json pages-public/notified_ids.json
+          du -sh pages-public
+
       - uses: actions/upload-pages-artifact@v3
         with:
           name: ${{ steps.pages_artifact.outputs.name }}
-          path: docs
+          path: pages-public
 
   pages:
     needs: check
