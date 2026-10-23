@@ -1446,6 +1446,59 @@
       checkingUpdates = false;
     }
   }
+
+  async function fetchCatalogChunks(payload) {
+    const chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
+    if (!chunks.length) return [];
+    const results = new Array(chunks.length);
+    let next = 0;
+    const worker = async () => {
+      while (true) {
+        const index = next++;
+        if (index >= chunks.length) return;
+        const entry = chunks[index] || {};
+        const url = new URL(entry.url || entry, document.baseURI);
+        if (payload.version) url.searchParams.set("v", payload.version);
+        const response = await fetch(url, { cache: "no-cache" });
+        if (!response.ok) throw new Error(`Chunk ${index + 1}: HTTP ${response.status}`);
+        const chunk = await response.json();
+        if (!Array.isArray(chunk.items)) throw new Error(`Chunk ${index + 1}: invalid data`);
+        results[index] = chunk.items;
+      }
+    };
+    const concurrency = Math.min(3, chunks.length);
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    return results.flat();
+  }
+  function appendCatalogItems(rows, totalCount) {
+    const seen = new Set(items.map((it) => it.code));
+    for (const it of rows) {
+      if (!it?.code || seen.has(it.code)) continue;
+      seen.add(it.code);
+      const codeNum = String(it.code_num || it.code?.split("-").pop() || "");
+      items.push({
+        ...it,
+        code_num: codeNum,
+        _codeNumber: codeNumber(codeNum),
+        _ts: parseSeen(it.first_seen),
+        _sources: Object.keys(it.sources || {}).length,
+        _search: normalize(`${it.code} ${it.title} ${Object.keys(it.sources || {}).join(" ")}`),
+      });
+    }
+    homeRankingCache = Object.fromEntries(
+      homePeriods.map((period) => {
+        const field = "missav_rank_" + period;
+        return [period, items.filter((it) => it[field] > 0)
+          .sort((a, b) => a[field] - b[field]).slice(0, 10)];
+      }),
+    );
+    homeRankingKey = "";
+    byCode = new Map(items.map((it) => [it.code, it]));
+    $("catalogItemCount").textContent = number(totalCount || items.length);
+    $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
+    render(false);
+  }
+
   async function loadCatalog(background = false, expectedVersion = "") {
     if (catalogLoading || (background && catalogRefreshBusy())) return;
     catalogLoading = true;
@@ -1461,6 +1514,12 @@
       if (!response.ok) throw new Error("HTTP " + response.status);
       const payload = await response.json();
       if (!Array.isArray(payload.items)) throw new Error("Invalid catalog");
+      // Background refresh keeps the old complete feed visible until every
+      // chunk for the new version is available.
+      if (background && Array.isArray(payload.chunks) && payload.chunks.length) {
+        const archiveRows = await fetchCatalogChunks(payload);
+        payload.items = payload.items.concat(archiveRows);
+      }
       if (expectedVersion && payload.version !== expectedVersion)
         throw new Error("Catalog deployment in progress");
       if (background && (document.hidden || catalogRefreshBusy())) return;
@@ -1508,6 +1567,19 @@
       failedLoad = false;
       if (background) $("grid").replaceChildren();
       render(!background);
+      // Initial navigation becomes interactive after only the small inline
+      // slice.  Hydrate the archive afterwards; failures keep that recent feed
+      // usable instead of turning the whole page into an error state.
+      if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {
+        const expectedTotal = Number(payload.item_count || items.length);
+        $("resultCount").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;
+        try {
+          const archiveRows = await fetchCatalogChunks(payload);
+          if (payload.version === catalogVersion) appendCatalogItems(archiveRows, expectedTotal);
+        } catch {
+          toast("過去作品の追加読み込みに失敗しました。新着作品はそのまま閲覧できます。");
+        }
+      }
       if (background) {
         const replacement = anchorCode && document.querySelector(
           `#grid .video-card[data-code="${CSS.escape(anchorCode)}"]`,
