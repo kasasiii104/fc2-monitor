@@ -130,8 +130,6 @@ def patch_site_js() -> None:
     if old in source:
         source = source.replace(old, new, 1)
     elif "Let the recent cards paint before any archive download starts" not in source:
-        # Older generated output may already contain the previous progressive
-        # block. Replace just the old wording/delay behavior safely.
         source = source.replace(
             "// Initial navigation becomes interactive after only the small inline\n"
             "      // slice.  Hydrate the archive afterwards; failures keep that recent feed\n"
@@ -145,8 +143,6 @@ def patch_site_js() -> None:
         elif "await new Promise((resolve) => setTimeout(resolve, 350));" not in source:
             raise RuntimeError("site.js progressive render marker changed; refusing unsafe patch")
 
-    # If HELPERS came from an older generated build, reduce its concurrency and
-    # add a parse-yield without relying on a source rewrite elsewhere.
     source = source.replace("const concurrency = Math.min(3, chunks.length);", "const concurrency = Math.min(2, chunks.length);")
     chunk_marker = "        results[index] = chunk.items;\n"
     if chunk_marker in source and "Give Safari/iOS a paint opportunity" not in source:
@@ -169,7 +165,7 @@ def sync_generated_asset_version() -> str:
     # Safari can issue a second fetch when a fetch-preload's credentials mode
     # differs from fetch(). The manifest is small now; direct fetch is safer.
     text = re.sub(
-        r'\n\s*<link\s+rel="preload"\s+href="catalog\.json[^>]+?/>',
+        r'(?:^|\n)\s*<link\s+rel="preload"\s+href="catalog\.json[^>]+?/>',
         "",
         text,
         count=1,
