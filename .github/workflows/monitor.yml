@@ -55,6 +55,9 @@ jobs:
       - name: Verify update and parser regressions
         run: python -m unittest discover -s tests -q
 
+      - name: Verify MissAV-only navigation guard syntax
+        run: node --check web/missav-only.js
+
       - name: Fast MissAV recent and archive discovery
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '7,37 * * * *') ||
@@ -152,6 +155,22 @@ jobs:
 
       - name: Build site from saved data
         run: python fc2_monitor.py --build-site
+
+      - name: Enforce MissAV-only outbound viewing
+        run: |
+          cp web/missav-only.js docs/missav-only.js
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("docs/index.html")
+          html = path.read_text(encoding="utf-8")
+          marker = "</body>"
+          tag = f'    <script src="missav-only.js?v={os.environ.get("GITHUB_SHA", "")[:12]}" defer></script>\n'
+          if "missav-only.js" not in html:
+              html = html.replace(marker, tag + marker)
+          path.write_text(html, encoding="utf-8")
+          PY
 
       - name: Commit site data
         if: always()
