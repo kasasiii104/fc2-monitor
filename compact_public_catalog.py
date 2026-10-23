@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -6,11 +7,13 @@ from urllib.parse import urlsplit
 
 DOCS = Path("docs")
 CATALOG = DOCS / "catalog.json"
+DATA = DOCS / "data.json"
 INDEX = DOCS / "index.html"
 SITE_JS = DOCS / "site.js"
 MISSAV_HOSTS = {"missav.ws", "missav.live", "missav.ai"}
 DIRECT_RE = re.compile(r"/(?:ja/)?fc2-ppv-(\d{6,8})(?:/|$)", re.I)
 PRELOAD_RE = re.compile(r"\s*<link\s+rel=\"preload\"\s+href=\"catalog\.json[^\"]*\"\s+as=\"fetch\"\s+crossorigin\s*/?>\s*", re.I | re.S)
+SITE_JS_RE = re.compile(r"site\.js\?v=[^\"']+")
 BOOTSTRAP_ITEMS = 800
 CHUNK_ITEMS = 1200
 CHUNK_GLOB = "catalog-chunk-*.json"
@@ -20,6 +23,51 @@ def code_num(item):
     raw = str(item.get("code_num") or item.get("code") or "")
     m = re.search(r"(\d{6,8})", raw)
     return m.group(1) if m else ""
+
+
+def duration_seconds(text):
+    parts = [int(x) for x in re.findall(r"\d+", str(text or ""))]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    return 0
+
+
+def public_from_saved(item):
+    """Rebuild a public record from the authoritative full docs/data.json row."""
+    sources = dict(item.get("sources") or {})
+    num = code_num(item)
+    row = {
+        "code": item.get("code") or (f"FC2-PPV-{num}" if num else ""),
+        "code_num": num,
+        "title": item.get("title") or item.get("code") or "",
+        "url": item.get("url") or sources.get("MissAV") or "",
+        "thumb": item.get("thumb") or "",
+        "preview": item.get("preview") or "",
+        "preview_fallbacks": item.get("preview_fallbacks") if isinstance(item.get("preview_fallbacks"), list) else [],
+        "duration": item.get("duration") or "",
+        "duration_sec": duration_seconds(item.get("duration") or ""),
+        "views": item.get("views") if isinstance(item.get("views"), int) else 0,
+        "views_source": item.get("views_source") or "",
+        "first_seen": item.get("first_seen") or "",
+        "is_new": bool(item.get("is_new")),
+        "sources": sources,
+        "trend_6h": item.get("trend_6h") if isinstance(item.get("trend_6h"), int) else None,
+        "trend_24h": item.get("trend_24h") if isinstance(item.get("trend_24h"), int) else None,
+        "missav_rank_day": item.get("missav_rank_day") if isinstance(item.get("missav_rank_day"), int) else None,
+        "missav_rank_week": item.get("missav_rank_week") if isinstance(item.get("missav_rank_week"), int) else None,
+        "missav_rank_month": item.get("missav_rank_month") if isinstance(item.get("missav_rank_month"), int) else None,
+        "missav_rank_total": item.get("missav_rank_total") if isinstance(item.get("missav_rank_total"), int) else None,
+        "fc2_market_url": item.get("fc2_market_url") or "",
+        "fc2_rating": item.get("fc2_rating"),
+        "fc2_review_count": item.get("fc2_review_count"),
+        "fc2_rating_source": item.get("fc2_rating_source") or "",
+    }
+    return {
+        key: value for key, value in row.items()
+        if value is not None and value != "" and value is not False and value != []
+    }
 
 
 def direct_missav(url, expected=""):
@@ -65,11 +113,9 @@ def compact_item(item):
 
     # Never expose FC2 official as a viewing destination.
     item.pop("fc2_market_url", None)
-    # Client does not use this field for rendering/filtering.
     item.pop("views_source", None)
 
-    # Retain one backup preview at most. The primary+backup pair still gives
-    # failover without repeating several long CDN URLs in every public record.
+    # Retain one backup preview at most.
     primary = item.get("preview") or ""
     fallbacks = item.get("preview_fallbacks") if isinstance(item.get("preview_fallbacks"), list) else []
     deduped = []
@@ -210,23 +256,49 @@ def patch_site_js():
     return True
 
 
-def main():
-    payload = json.loads(CATALOG.read_text(encoding="utf-8"))
-    items = payload.get("items") or []
-    before = CATALOG.stat().st_size
-    clickable = 0
-    compacted = []
-    for row in items:
-        item, has_missav = compact_item(row)
-        clickable += int(has_missav)
-        compacted.append(item)
+def refresh_index_asset_version():
+    if not INDEX.exists() or not SITE_JS.exists():
+        return ""
+    digest = hashlib.sha256(SITE_JS.read_bytes()).hexdigest()[:12]
+    html = INDEX.read_text(encoding="utf-8")
+    html = PRELOAD_RE.sub("\n", html)
+    html = SITE_JS_RE.sub(f"site.js?v={digest}", html)
+    INDEX.write_text(html, encoding="utf-8")
+    return digest
 
-    templates = payload.get("search_templates") if isinstance(payload.get("search_templates"), dict) else {}
+
+def main():
+    if not DATA.exists():
+        raise RuntimeError("docs/data.json is required for an idempotent public build")
+    manifest = json.loads(CATALOG.read_text(encoding="utf-8")) if CATALOG.exists() else {}
+    saved = json.loads(DATA.read_text(encoding="utf-8"))
+    saved_items = saved.get("items") or []
+
+    # Always rebuild from the authoritative full catalog. Never re-compact the
+    # already chunked 800-item bootstrap, otherwise repeated runs would lose the
+    # archive chunks even though docs/data.json still contains them.
+    payload = {
+        key: value for key, value in manifest.items()
+        if key not in {"items", "chunks", "item_count_total", "search_templates"}
+    }
+    payload["updated_at"] = saved.get("updated_at") or manifest.get("updated_at") or ""
+    templates = manifest.get("search_templates") if isinstance(manifest.get("search_templates"), dict) else {}
     payload["search_templates"] = {
         "MissAV": templates.get("MissAV", "https://missav.ws/ja/fc2-ppv-{code}")
     }
 
-    # Remove stale chunk files first so a shrinking catalog cannot leave orphaned data.
+    clickable = 0
+    compacted = []
+    for raw in saved_items:
+        item, has_missav = compact_item(public_from_saved(raw))
+        clickable += int(has_missav)
+        compacted.append(item)
+
+    # Estimate the old one-shot payload for a useful bootstrap reduction metric.
+    full_payload = dict(payload)
+    full_payload["items"] = compacted
+    full_bytes = len(json.dumps(full_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
     for old in DOCS.glob(CHUNK_GLOB):
         old.unlink()
 
@@ -241,7 +313,6 @@ def main():
         )
         chunk_names.append(name)
 
-    # catalog.json becomes a fast bootstrap rather than the entire 25k-item archive.
     payload["items"] = compacted[:BOOTSTRAP_ITEMS]
     payload["chunks"] = chunk_names
     payload["item_count_total"] = len(compacted)
@@ -249,26 +320,22 @@ def main():
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
-    after = CATALOG.stat().st_size
-
-    if INDEX.exists():
-        html = INDEX.read_text(encoding="utf-8")
-        # Do not prefetch the old giant catalog before site.js can render the bootstrap.
-        html = PRELOAD_RE.sub("\n", html)
-        INDEX.write_text(html, encoding="utf-8")
 
     js_patched = patch_site_js()
+    asset_version = refresh_index_asset_version()
+    bootstrap_bytes = CATALOG.stat().st_size
     chunk_bytes = sum((DOCS / name).stat().st_size for name in chunk_names)
     print(json.dumps({
         "items": len(compacted),
         "bootstrap_items": min(len(compacted), BOOTSTRAP_ITEMS),
         "chunks": len(chunk_names),
         "missav_clickable": clickable,
-        "bytes_before": before,
-        "bootstrap_bytes": after,
+        "full_payload_bytes": full_bytes,
+        "bootstrap_bytes": bootstrap_bytes,
         "chunk_bytes": chunk_bytes,
-        "initial_saved_pct": round((before - after) * 100 / before, 1) if before else 0,
+        "initial_saved_pct": round((full_bytes - bootstrap_bytes) * 100 / full_bytes, 1) if full_bytes else 0,
         "site_js_patched": js_patched,
+        "site_js_version": asset_version,
     }, ensure_ascii=False))
 
 
