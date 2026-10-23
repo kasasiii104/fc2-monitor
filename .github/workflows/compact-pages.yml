@@ -53,6 +53,11 @@ jobs:
           path.write_text(html, encoding="utf-8")
           PY
 
+      - name: Verify generated public JavaScript
+        run: |
+          node --check docs/site.js
+          node --check docs/missav-only.js
+
       - name: Commit compact public assets
         run: |
           git config user.name "github-actions[bot]"
