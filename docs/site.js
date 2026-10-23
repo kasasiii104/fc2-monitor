@@ -1464,9 +1464,11 @@
         const chunk = await response.json();
         if (!Array.isArray(chunk.items)) throw new Error(`Chunk ${index + 1}: invalid data`);
         results[index] = chunk.items;
+        // Give Safari/iOS a paint opportunity between JSON parses.
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
     };
-    const concurrency = Math.min(3, chunks.length);
+    const concurrency = Math.min(2, chunks.length);
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
     return results.flat();
   }
@@ -1567,12 +1569,12 @@
       failedLoad = false;
       if (background) $("grid").replaceChildren();
       render(!background);
-      // Initial navigation becomes interactive after only the small inline
-      // slice.  Hydrate the archive afterwards; failures keep that recent feed
-      // usable instead of turning the whole page into an error state.
+      // Let the recent cards paint before any archive download starts. This is
+      // important on Safari/iOS and slow mobile networks.
       if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {
         const expectedTotal = Number(payload.item_count || items.length);
         $("resultCount").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;
+        await new Promise((resolve) => setTimeout(resolve, 350));
         try {
           const archiveRows = await fetchCatalogChunks(payload);
           if (payload.version === catalogVersion) appendCatalogItems(archiveRows, expectedTotal);
