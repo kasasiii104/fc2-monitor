@@ -1421,73 +1421,7 @@
     render(false);
     window.scrollTo(0, e.state?.scroll || 0);
   });
-  // PUBLIC_CHUNK_LOADER_V1: render the small bootstrap immediately,
-  // then add archive chunks in the background without blocking first paint.
   let searchTemplates = {};
-  let catalogChunkToken = 0;
-  function prepareCatalogItem(it) {
-    return {
-      ...it,
-      code_num: String(it.code_num || it.code?.split("-").pop() || ""),
-      _codeNumber: codeNumber(it.code_num || it.code?.split("-").pop()),
-      _ts: parseSeen(it.first_seen),
-      _sources: Object.keys(it.sources || {}).length,
-      _search: normalize(
-        `${it.code} ${it.title} ${Object.keys(it.sources || {}).join(" ")}`,
-      ),
-    };
-  }
-  function rebuildCatalogIndexes() {
-    homeRankingCache = Object.fromEntries(
-      homePeriods.map((period) => {
-        const field = "missav_rank_" + period;
-        return [
-          period,
-          items
-            .filter((it) => it[field] > 0)
-            .sort((a, b) => a[field] - b[field])
-            .slice(0, 10),
-        ];
-      }),
-    );
-    homeRankingKey = "";
-    byCode = new Map(items.map((it) => [it.code, it]));
-  }
-  async function loadCatalogChunks(chunks, version, token) {
-    if (!Array.isArray(chunks) || !chunks.length) return;
-    let changed = false;
-    for (const name of chunks) {
-      if (token !== catalogChunkToken || version !== catalogVersion) return;
-      try {
-        const url = new URL(name, document.baseURI);
-        if (version) url.searchParams.set("v", version);
-        const response = await fetch(url, { cache: "force-cache" });
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        const payload = await response.json();
-        const rows = Array.isArray(payload) ? payload : payload.items;
-        if (!Array.isArray(rows)) throw new Error("Invalid catalog chunk");
-        for (const raw of rows) {
-          const it = prepareCatalogItem(raw);
-          if (byCode.has(it.code)) continue;
-          items.push(it);
-          byCode.set(it.code, it);
-          changed = true;
-        }
-        await new Promise((resolve) => {
-          if ("requestIdleCallback" in window)
-            requestIdleCallback(() => resolve(), { timeout: 500 });
-          else setTimeout(resolve, 0);
-        });
-      } catch {
-        // A failed archive chunk must not hide the already usable bootstrap.
-        break;
-      }
-    }
-    if (changed && token === catalogChunkToken && version === catalogVersion) {
-      rebuildCatalogIndexes();
-      render(false);
-    }
-  }
   function catalogRefreshBusy() {
     return !!(activePreview || composing || document.querySelector("dialog[open]") ||
       document.activeElement?.matches("input,textarea,select"));
@@ -1540,20 +1474,40 @@
       searchTemplates = payload.search_templates || {};
       updateStatus = payload.update_status || {};
       catalogUpdatedAt = payload.updated_at || "";
-      catalogChunkToken += 1;
-      items = payload.items.map(prepareCatalogItem);
-      rebuildCatalogIndexes();
+      items = payload.items.map((it) => ({
+        ...it,
+        code_num: String(it.code_num || it.code?.split("-").pop() || ""),
+        _codeNumber: codeNumber(it.code_num || it.code?.split("-").pop()),
+        _ts: parseSeen(it.first_seen),
+        _sources: Object.keys(it.sources || {}).length,
+        _search: normalize(
+          `${it.code} ${it.title} ${Object.keys(it.sources || {}).join(" ")}`,
+        ),
+      }));
+      homeRankingCache = Object.fromEntries(
+        homePeriods.map((period) => {
+          const field = "missav_rank_" + period;
+          return [
+            period,
+            items
+              .filter((it) => it[field] > 0)
+              .sort((a, b) => a[field] - b[field])
+              .slice(0, 10),
+          ];
+        }),
+      );
+      homeRankingKey = "";
+      byCode = new Map(items.map((it) => [it.code, it]));
       catalogVersion = payload.version || "";
       for (const node of document.querySelectorAll("[data-updated-at]"))
         node.textContent = payload.updated_at || "";
-      $("catalogItemCount").textContent = number(payload.item_count_total || items.length);
+      $("catalogItemCount").textContent = number(items.length);
       $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
       renderUpdateStatus();
       ready = true;
       failedLoad = false;
       if (background) $("grid").replaceChildren();
       render(!background);
-      void loadCatalogChunks(payload.chunks || [], catalogVersion, catalogChunkToken);
       if (background) {
         const replacement = anchorCode && document.querySelector(
           `#grid .video-card[data-code="${CSS.escape(anchorCode)}"]`,
