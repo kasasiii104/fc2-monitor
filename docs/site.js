@@ -1447,30 +1447,61 @@
     }
   }
 
-  async function fetchCatalogChunks(payload) {
+  async function fetchCatalogChunks(payload, onChunk = null) {
     const chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
-    if (!chunks.length) return [];
+    if (!chunks.length)
+      return { rows: [], failed: 0, loadedChunks: 0, totalChunks: 0 };
     const results = new Array(chunks.length);
-    let next = 0;
+    let next = 0, failed = 0, loadedChunks = 0;
+    const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const fetchOne = async (index) => {
+      const entry = chunks[index] || {};
+      const url = new URL(entry.url || entry, document.baseURI);
+      if (payload.version) url.searchParams.set("v", payload.version);
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          // The version query makes each deploy immutable. Reusing a previously
+          // downloaded chunk is much faster than forcing 20+ MB over the wire
+          // again on every reload.
+          const response = await fetch(url, { cache: "force-cache" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const chunk = await response.json();
+          if (!Array.isArray(chunk.items)) throw new Error("invalid data");
+          return chunk.items;
+        } catch (err) {
+          lastError = err;
+          if (attempt < 3) await pause(250 * attempt);
+        }
+      }
+      console.warn(`Catalog chunk ${index + 1} failed`, lastError);
+      return null;
+    };
     const worker = async () => {
       while (true) {
         const index = next++;
         if (index >= chunks.length) return;
-        const entry = chunks[index] || {};
-        const url = new URL(entry.url || entry, document.baseURI);
-        if (payload.version) url.searchParams.set("v", payload.version);
-        const response = await fetch(url, { cache: "no-cache" });
-        if (!response.ok) throw new Error(`Chunk ${index + 1}: HTTP ${response.status}`);
-        const chunk = await response.json();
-        if (!Array.isArray(chunk.items)) throw new Error(`Chunk ${index + 1}: invalid data`);
-        results[index] = chunk.items;
+        const rows = await fetchOne(index);
+        if (!rows) {
+          failed++;
+          continue;
+        }
+        results[index] = rows;
+        loadedChunks++;
+        if (onChunk) await onChunk(rows, index, loadedChunks, chunks.length);
         // Give Safari/iOS a paint opportunity between JSON parses.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await pause(0);
       }
     };
-    const concurrency = Math.min(2, chunks.length);
+    const saveData = !!navigator.connection?.saveData;
+    const concurrency = Math.min(saveData ? 1 : 4, chunks.length);
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
-    return results.flat();
+    return {
+      rows: results.flatMap((rows) => rows || []),
+      failed,
+      loadedChunks,
+      totalChunks: chunks.length,
+    };
   }
   function appendCatalogItems(rows, totalCount) {
     const seen = new Set(items.map((it) => it.code));
@@ -1496,9 +1527,12 @@
     );
     homeRankingKey = "";
     byCode = new Map(items.map((it) => [it.code, it]));
-    $("catalogItemCount").textContent = number(totalCount || items.length);
+    const expected = Number(totalCount || items.length);
+    $("catalogItemCount").textContent = number(expected);
     $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
     render(false);
+    if (items.length < expected)
+      $("resultCount").textContent = `${number(items.length)} / ${number(expected)} 作品読み込み済み…`;
   }
 
   async function loadCatalog(background = false, expectedVersion = "") {
@@ -1516,11 +1550,12 @@
       if (!response.ok) throw new Error("HTTP " + response.status);
       const payload = await response.json();
       if (!Array.isArray(payload.items)) throw new Error("Invalid catalog");
-      // Background refresh keeps the old complete feed visible until every
-      // chunk for the new version is available.
+      // Background refresh keeps the old complete feed visible until the new
+      // version is fully available. A partial deploy must never replace it.
       if (background && Array.isArray(payload.chunks) && payload.chunks.length) {
-        const archiveRows = await fetchCatalogChunks(payload);
-        payload.items = payload.items.concat(archiveRows);
+        const archive = await fetchCatalogChunks(payload);
+        if (archive.failed) throw new Error("Incomplete catalog deployment");
+        payload.items = payload.items.concat(archive.rows);
       }
       if (expectedVersion && payload.version !== expectedVersion)
         throw new Error("Catalog deployment in progress");
@@ -1562,25 +1597,40 @@
       catalogVersion = payload.version || "";
       for (const node of document.querySelectorAll("[data-updated-at]"))
         node.textContent = payload.updated_at || "";
-      $("catalogItemCount").textContent = number(items.length);
+      $("catalogItemCount").textContent = number(payload.item_count || items.length);
       $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
       renderUpdateStatus();
       ready = true;
       failedLoad = false;
       if (background) $("grid").replaceChildren();
       render(!background);
-      // Let the recent cards paint before any archive download starts. This is
-      // important on Safari/iOS and slow mobile networks.
+      // Paint the recent rows immediately, then hydrate archive chunks in
+      // small visible batches. The old implementation waited for all 45 chunks
+      // and discarded every successful chunk if a single request failed.
       if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {
         const expectedTotal = Number(payload.item_count || items.length);
         $("resultCount").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        try {
-          const archiveRows = await fetchCatalogChunks(payload);
-          if (payload.version === catalogVersion) appendCatalogItems(archiveRows, expectedTotal);
-        } catch {
-          toast("過去作品の追加読み込みに失敗しました。新着作品はそのまま閲覧できます。");
-        }
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        let staged = [];
+        const flush = async () => {
+          if (!staged.length || payload.version !== catalogVersion) return;
+          const batch = staged;
+          staged = [];
+          appendCatalogItems(batch, expectedTotal);
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        };
+        const archive = await fetchCatalogChunks(payload, async (rows) => {
+          if (payload.version !== catalogVersion) return;
+          staged.push(...rows);
+          // Four 600-row chunks per paint keeps sorting/render work bounded
+          // while users see steady progress instead of a long frozen counter.
+          if (staged.length >= 2400) await flush();
+        });
+        await flush();
+        if (archive.failed)
+          toast(`${archive.failed}個の過去データを再取得できませんでした。表示済み作品はそのまま使えます。`);
+        else if (items.length >= expectedTotal)
+          $("resultCount").textContent = `${number(items.length)} 作品`;
       }
       if (background) {
         const replacement = anchorCode && document.querySelector(
