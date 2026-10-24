@@ -18,8 +18,10 @@ DOCS = Path("docs")
 CATALOG = DOCS / "catalog.json"
 SITE_JS = DOCS / "site.js"
 INDEX = DOCS / "index.html"
-FIRST_PAINT_ITEMS = 160
-CHUNK_ITEMS = 600
+# Keep the first response comfortably small on mobile Safari/4G. The archive is
+# hydrated only after these rows have painted.
+FIRST_PAINT_ITEMS = 96
+CHUNK_ITEMS = 400
 
 
 def compact_write(path: Path, payload) -> None:
@@ -54,6 +56,20 @@ def split_catalog() -> tuple[int, int]:
 
 
 HELPERS = r'''
+  const catalogMobile = () =>
+    matchMedia("(max-width: 820px)").matches || /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const catalogPaintPause = (ms = 0) => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, ms)));
+  });
+  async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async function fetchCatalogChunks(payload, onChunk = null) {
     const chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
     if (!chunks.length)
@@ -61,6 +77,7 @@ HELPERS = r'''
     const results = new Array(chunks.length);
     let next = 0, failed = 0, loadedChunks = 0;
     const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const mobile = catalogMobile();
     const fetchOne = async (index) => {
       const entry = chunks[index] || {};
       const url = new URL(entry.url || entry, document.baseURI);
@@ -69,16 +86,16 @@ HELPERS = r'''
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           // The version query makes each deploy immutable. Reusing a previously
-          // downloaded chunk is much faster than forcing 20+ MB over the wire
-          // again on every reload.
-          const response = await fetch(url, { cache: "force-cache" });
+          // downloaded chunk is much faster than forcing the archive over the
+          // wire again on every reload.
+          const response = await fetchWithTimeout(url, { cache: "force-cache" }, mobile ? 12000 : 15000);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const chunk = await response.json();
           if (!Array.isArray(chunk.items)) throw new Error("invalid data");
           return chunk.items;
         } catch (err) {
           lastError = err;
-          if (attempt < 3) await pause(250 * attempt);
+          if (attempt < 3) await pause(300 * attempt);
         }
       }
       console.warn(`Catalog chunk ${index + 1} failed`, lastError);
@@ -96,12 +113,13 @@ HELPERS = r'''
         results[index] = rows;
         loadedChunks++;
         if (onChunk) await onChunk(rows, index, loadedChunks, chunks.length);
-        // Give Safari/iOS a paint opportunity between JSON parses.
-        await pause(0);
+        // iOS Safari is much more stable when JSON parsing and list updates do
+        // not run back-to-back on the same main-thread turn.
+        await pause(mobile ? 90 : 0);
       }
     };
     const saveData = !!navigator.connection?.saveData;
-    const concurrency = Math.min(saveData ? 1 : 4, chunks.length);
+    const concurrency = Math.min(saveData || mobile ? 1 : 3, chunks.length);
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
     return {
       rows: results.flatMap((rows) => rows || []),
@@ -141,6 +159,43 @@ HELPERS = r'''
     if (items.length < expected)
       $("resultCount").textContent = `${number(items.length)} / ${number(expected)} 作品読み込み済み…`;
   }
+  let archiveHydrationGeneration = 0;
+  async function hydrateCatalogArchive(payload) {
+    const generation = ++archiveHydrationGeneration;
+    const expectedTotal = Number(payload.item_count || items.length);
+    const mobile = catalogMobile();
+    try {
+      // First paint wins. Do not keep loadCatalog() pending while tens of
+      // thousands of historical rows are fetched and indexed.
+      await catalogPaintPause(mobile ? 1200 : 250);
+      if (generation !== archiveHydrationGeneration || payload.version !== catalogVersion) return;
+      let staged = [];
+      const flush = async () => {
+        if (!staged.length || generation !== archiveHydrationGeneration || payload.version !== catalogVersion) return;
+        const batch = staged;
+        staged = [];
+        appendCatalogItems(batch, expectedTotal);
+        await catalogPaintPause(mobile ? 180 : 0);
+      };
+      const archive = await fetchCatalogChunks(payload, async (rows) => {
+        if (generation !== archiveHydrationGeneration || payload.version !== catalogVersion) return;
+        staged.push(...rows);
+        // Keep expensive sort/map/render passes bounded while still allowing
+        // the first 96 rows to remain fully interactive on mobile.
+        if (staged.length >= (mobile ? 1600 : 2400)) await flush();
+      });
+      await flush();
+      if (generation !== archiveHydrationGeneration || payload.version !== catalogVersion) return;
+      if (archive.failed)
+        toast(`${archive.failed}個の過去データを再取得できませんでした。表示済み作品はそのまま使えます。`);
+      else if (items.length >= expectedTotal)
+        $("resultCount").textContent = `${number(items.length)} 作品`;
+    } catch (err) {
+      console.warn("Archive hydration failed", err);
+      // Recent rows are already usable; archive failure must not put the whole
+      // page back into a loading/error state.
+    }
+  }
 '''
 
 
@@ -159,8 +214,16 @@ def patch_site_js() -> None:
     elif "Background refresh keeps the old complete feed visible" not in source:
         raise RuntimeError("site.js payload marker changed; refusing unsafe patch")
 
+    # Bound the small manifest request too. A stalled mobile connection must
+    # fall into the existing retry UI rather than leaving skeletons forever.
+    source = source.replace(
+        '      const response = await fetch(url, { cache: "no-cache" });',
+        '      const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);',
+        1,
+    )
+
     # The manifest knows the real total. Do not make the header look like the
-    # catalog only contains the 160 first-paint rows.
+    # catalog only contains the first-paint rows.
     source = source.replace(
         '      $("catalogItemCount").textContent = number(items.length);',
         '      $("catalogItemCount").textContent = number(payload.item_count || items.length);',
@@ -168,10 +231,10 @@ def patch_site_js() -> None:
     )
 
     old = """      render(!background);\n      if (background) {"""
-    new = """      render(!background);\n      // Paint the recent rows immediately, then hydrate archive chunks in\n      // small visible batches. The old implementation waited for all 45 chunks\n      // and discarded every successful chunk if a single request failed.\n      if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const expectedTotal = Number(payload.item_count || items.length);\n        $(\"resultCount\").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;\n        await new Promise((resolve) => setTimeout(resolve, 120));\n        let staged = [];\n        const flush = async () => {\n          if (!staged.length || payload.version !== catalogVersion) return;\n          const batch = staged;\n          staged = [];\n          appendCatalogItems(batch, expectedTotal);\n          await new Promise((resolve) => requestAnimationFrame(() => resolve()));\n        };\n        const archive = await fetchCatalogChunks(payload, async (rows) => {\n          if (payload.version !== catalogVersion) return;\n          staged.push(...rows);\n          // Four 600-row chunks per paint keeps sorting/render work bounded\n          // while users see steady progress instead of a long frozen counter.\n          if (staged.length >= 2400) await flush();\n        });\n        await flush();\n        if (archive.failed)\n          toast(`${archive.failed}個の過去データを再取得できませんでした。表示済み作品はそのまま使えます。`);\n        else if (items.length >= expectedTotal)\n          $(\"resultCount\").textContent = `${number(items.length)} 作品`;\n      }\n      if (background) {"""
+    new = """      render(!background);\n      // Detach archive hydration from initial loading. The page is considered\n      // ready as soon as the first-paint rows are rendered.\n      if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const expectedTotal = Number(payload.item_count || items.length);\n        $(\"resultCount\").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;\n        void hydrateCatalogArchive(payload);\n      }\n      if (background) {"""
     if old in source:
         source = source.replace(old, new, 1)
-    elif "Paint the recent rows immediately" not in source:
+    elif "Detach archive hydration from initial loading" not in source:
         raise RuntimeError("site.js progressive render marker changed; refusing unsafe patch")
 
     SITE_JS.write_text(source, encoding="utf-8")
