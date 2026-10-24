@@ -20,6 +20,8 @@ on:
       - "advance_archive_cursor.py"
       - "missav_guard.py"
       - "walker_title_repair.py"
+      - "repair_code_only_titles.py"
+      - "embed_catalog_bootstrap.py"
       - "optimize_public_catalog.py"
       - "requirements.txt"
       - "tests/**"
@@ -125,6 +127,12 @@ jobs:
           (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]') || contains(github.event.head_commit.message, '[titles-now]')))
         run: python walker_title_repair.py
 
+      - name: Repair number-only titles before general backlog
+        if: >-
+          github.event_name == 'schedule' ||
+          (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]') || contains(github.event.head_commit.message, '[titles-now]')))
+        run: python repair_code_only_titles.py
+
       # Full 404 auditing remains available explicitly, but never blocks normal
       # new/archive discovery runs.
       - name: Audit MissAV 404 works without a full crawl
@@ -170,6 +178,17 @@ jobs:
           assert len(data.get('items') or []) <= 300
           assert int(data.get('item_count') or 0) >= len(data.get('items') or [])
           print(f"manifest_bytes={p.stat().st_size} inline={len(data.get('items') or [])} chunks={len(data.get('chunks') or [])} total={data.get('item_count')}")
+          PY
+
+      - name: Embed instant first-paint catalog for mobile
+        run: |
+          python embed_catalog_bootstrap.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('docs/index.html').read_text(encoding='utf-8')
+          assert 'id="catalogBootstrapData"' in html
+          assert 'catalog-bootstrap:start' in html
+          print(f"index_bytes={len(html.encode('utf-8'))} bootstrap=true")
           PY
 
       - name: Enforce MissAV-only outbound viewing
