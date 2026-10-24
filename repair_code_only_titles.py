@@ -3,7 +3,8 @@
 
 Official FC2 article access can be eKYC-blocked on GitHub Actions. This lane first
 uses already-saved canonical candidates and the Walker cache, then checks Japanese
-MissAV detail pages. Authentication/search chrome is never accepted as a title.
+MissAV detail pages. MissAV page chrome or ambiguous non-kana text is never
+accepted as a title.
 """
 
 import re
@@ -19,8 +20,9 @@ LIMIT = 40
 RETRY_SEC = 4 * 3600
 STATE_KEY = "code_only_title_repair_v1"
 CODE_ONLY_RE = re.compile(r"^(?:FC2[-_ ]?PPV[-_ ]?)?\d{5,8}$", re.I)
+KANA_RE = re.compile(r"[ぁ-んァ-ヶ]")
 GENERIC_PAGE_RE = re.compile(
-    r"(?:パスワードを忘れ|パスワード|ログイン|サインイン|新規登録|会員登録|"
+    r"(?:パスワードを忘れ|パスワード|ログイン|サインイン|新規登録|会員登録|無料登録|"
     r"検索結果|検索する|forgot\s+password|reset\s+password|sign\s*in|log\s*in|register|"
     r"access\s+denied|just\s+a\s+moment|cloudflare)",
     re.I,
@@ -64,18 +66,20 @@ def candidate_from_html(text, item):
             raw_candidates.append(node.get("content"))
     if soup.title:
         raw_candidates.append(soup.title.get_text(" ", strip=True))
-    for h in soup.find_all(["h1", "h2"], limit=4):
+    for h in soup.find_all(["h1"], limit=3):
         raw_candidates.append(h.get_text(" ", strip=True))
 
     usable = []
     for raw in raw_candidates:
         title = valid_candidate(raw, item)
-        if title:
+        # MissAV can return HTTP-200 login/chrome pages at a work URL. For this
+        # untrusted fallback lane, require Japanese kana. Kanji-only canonical
+        # titles must come from trusted Walker/official/saved metadata instead.
+        if title and KANA_RE.search(title):
             usable.append(title)
     if not usable:
         return ""
-    # Prefer clear Japanese-script titles, then the most descriptive candidate.
-    usable.sort(key=lambda x: (0 if re.search(r"[ぁ-んァ-ヶ]", x) else 1, -len(x)))
+    usable.sort(key=len, reverse=True)
     return usable[0]
 
 
@@ -96,8 +100,6 @@ def fetch_title(item):
             text = res.text or ""
             if res.status_code != 200 or len(text) < 1500:
                 continue
-            # A login/challenge response can be HTTP 200. Require the resolved
-            # URL or document itself to still identify the requested FC2 work.
             final_path = (urlsplit(str(res.url or url)).path or "").lower()
             if f"fc2-ppv-{num}" not in final_path and num not in text:
                 continue
@@ -121,14 +123,18 @@ def main():
     walker_cache = walker_cache if isinstance(walker_cache, dict) else {}
     now = m.now_ts()
 
-    # Undo any previous false repair that accidentally captured authentication
-    # page chrome. Never leave a fake title in the public catalog.
+    # Undo false repairs from earlier fallback versions. Generic auth chrome is
+    # always invalid. MissAV repairs made by this lane that contain no kana are
+    # also rolled back because they may be Chinese or site chrome.
     rolled_back = 0
     for item in items:
-        if not is_generic_page_title(item.get("title") or ""):
-            continue
         code = item.get("code") or ""
+        title = item.get("title") or ""
         if not code:
+            continue
+        prior_missav_attempt = item.get("title_source") == "MissAV" and code in attempts
+        ambiguous_missav = prior_missav_attempt and not KANA_RE.search(title)
+        if not is_generic_page_title(title) and not ambiguous_missav:
             continue
         item["title"] = code
         item["title_source"] = ""
@@ -149,8 +155,6 @@ def main():
         tried += 1
         attempts[code] = now
 
-        # A discovery source may already have preserved a fuller title even if
-        # the visible title fell back to the FC2 number. Use it before requests.
         title = valid_candidate(item.get("source_title") or "", item)
         source_url = ""
         source = "取得元"
@@ -186,7 +190,7 @@ def main():
     attempts = {code: ts for code, ts in attempts.items() if code in live}
     stats = {
         "last_run": now,
-        "rolled_back_generic": rolled_back,
+        "rolled_back_generic_or_ambiguous": rolled_back,
         "pending_before": len(pending),
         "due": len(due),
         "tried": tried,
