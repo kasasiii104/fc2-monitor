@@ -1,10 +1,10 @@
 name: Regression tests
 on:
   pull_request:
-    paths: ["fc2_monitor.py", "web/**", "tests/**", ".github/workflows/**", "requirements.txt"]
+    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "web/**", "tests/**", ".github/workflows/**", "requirements.txt"]
   push:
     branches: [main]
-    paths: ["fc2_monitor.py", "web/**", "tests/**", ".github/workflows/test.yml", "requirements.txt"]
+    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "web/**", "tests/**", ".github/workflows/test.yml", "requirements.txt"]
 permissions:
   contents: read
 jobs:
@@ -21,6 +21,24 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
       - run: node --check web/site.js
+      - name: Verify generated progressive catalog loader
+        run: |
+          python fc2_monitor.py --build-site
+          python optimize_public_catalog.py
+          node --check docs/site.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('docs/catalog.json').read_text(encoding='utf-8'))
+          js = Path('docs/site.js').read_text(encoding='utf-8')
+          assert manifest.get('progressive') is True
+          assert manifest.get('chunks')
+          assert len(manifest.get('items') or []) <= 160
+          assert int(manifest.get('item_count') or 0) > len(manifest.get('items') or [])
+          assert 'fetchCatalogChunks(payload, onChunk = null)' in js
+          assert 'staged.length >= 2400' in js
+          assert 'cache: "force-cache"' in js
+          PY
       - run: npm install --no-save playwright@1.51.1
       - run: npx playwright install --with-deps chromium webkit
       - run: python tests/build_fixture.py test-results/fixture

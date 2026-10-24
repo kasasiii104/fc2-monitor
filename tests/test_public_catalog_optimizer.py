@@ -38,11 +38,14 @@ class PublicCatalogOptimizerTests(unittest.TestCase):
             with patch.object(o, "SITE_JS", target):
                 o.patch_site_js()
             patched = target.read_text(encoding="utf-8")
-            self.assertIn("async function fetchCatalogChunks(payload)", patched)
-            self.assertIn("Let the recent cards paint before any archive download starts", patched)
+            self.assertIn("async function fetchCatalogChunks(payload, onChunk = null)", patched)
+            self.assertIn("Paint the recent rows immediately", patched)
             self.assertIn("Background refresh keeps the old complete feed visible", patched)
-            self.assertIn("Math.min(2, chunks.length)", patched)
-            self.assertIn("setTimeout(resolve, 350)", patched)
+            self.assertIn("Math.min(saveData ? 1 : 4, chunks.length)", patched)
+            self.assertIn('cache: "force-cache"', patched)
+            self.assertIn("staged.length >= 2400", patched)
+            self.assertIn("setTimeout(resolve, 120)", patched)
+            self.assertIn("for (let attempt = 1; attempt <= 3; attempt++)", patched)
 
     def test_generated_js_version_matches_deployed_bytes_and_preload_is_removed(self):
         with tempfile.TemporaryDirectory() as directory:
