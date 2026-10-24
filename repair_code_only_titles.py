@@ -2,12 +2,12 @@
 """Repair bare FC2-PPV number titles before the general historical backlog.
 
 Official FC2 article access can be eKYC-blocked on GitHub Actions. This lane first
-uses the already harvested Walker canonical-title cache, then checks Japanese
-MissAV detail pages for only the highest-priority code-only records.
+uses already-saved canonical candidates and the Walker cache, then checks Japanese
+MissAV detail pages. Authentication/search chrome is never accepted as a title.
 """
 
 import re
-from urllib.parse import urljoin
+from urllib.parse import urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -19,6 +19,12 @@ LIMIT = 40
 RETRY_SEC = 4 * 3600
 STATE_KEY = "code_only_title_repair_v1"
 CODE_ONLY_RE = re.compile(r"^(?:FC2[-_ ]?PPV[-_ ]?)?\d{5,8}$", re.I)
+GENERIC_PAGE_RE = re.compile(
+    r"(?:パスワードを忘れ|パスワード|ログイン|サインイン|新規登録|会員登録|"
+    r"検索結果|検索する|forgot\s+password|reset\s+password|sign\s*in|log\s*in|register|"
+    r"access\s+denied|just\s+a\s+moment|cloudflare)",
+    re.I,
+)
 
 
 def is_code_only(item):
@@ -27,7 +33,27 @@ def is_code_only(item):
     return not title or title == code or bool(CODE_ONLY_RE.fullmatch(title))
 
 
-def candidate_from_html(text, num):
+def is_generic_page_title(title):
+    value = " ".join(str(title or "").split()).strip()
+    if not value:
+        return False
+    return bool(GENERIC_PAGE_RE.search(value)) or value.casefold() in {
+        "missav", "fc2", "fc2-ppv", "home", "search"
+    }
+
+
+def valid_candidate(raw, item):
+    code = item.get("code") or ""
+    num = str(item.get("code_num") or code.split("-")[-1])
+    title = m.clean_title(raw or "", num)
+    if not title or m.is_invalid_title(title) or m.looks_chinese_title(title):
+        return ""
+    if CODE_ONLY_RE.fullmatch(title) or is_generic_page_title(title):
+        return ""
+    return title
+
+
+def candidate_from_html(text, item):
     soup = BeautifulSoup(text or "", "html.parser")
     raw_candidates = []
     for node in (
@@ -43,15 +69,9 @@ def candidate_from_html(text, num):
 
     usable = []
     for raw in raw_candidates:
-        title = m.clean_title(raw or "", num)
-        if not title or m.is_invalid_title(title) or m.looks_chinese_title(title):
-            continue
-        if CODE_ONLY_RE.fullmatch(title):
-            continue
-        # Reject page chrome and generic search labels.
-        if title.lower() in {"missav", "fc2", "fc2-ppv"}:
-            continue
-        usable.append(title)
+        title = valid_candidate(raw, item)
+        if title:
+            usable.append(title)
     if not usable:
         return ""
     # Prefer clear Japanese-script titles, then the most descriptive candidate.
@@ -73,9 +93,15 @@ def fetch_title(item):
     for url in urls:
         try:
             res = requests.get(url, headers=m.HEADERS, timeout=12, allow_redirects=True)
-            if res.status_code != 200 or len(res.text or "") < 1500:
+            text = res.text or ""
+            if res.status_code != 200 or len(text) < 1500:
                 continue
-            title = candidate_from_html(res.text, num)
+            # A login/challenge response can be HTTP 200. Require the resolved
+            # URL or document itself to still identify the requested FC2 work.
+            final_path = (urlsplit(str(res.url or url)).path or "").lower()
+            if f"fc2-ppv-{num}" not in final_path and num not in text:
+                continue
+            title = candidate_from_html(text, item)
             if title:
                 return title, str(res.url or url)
         except Exception:
@@ -95,6 +121,20 @@ def main():
     walker_cache = walker_cache if isinstance(walker_cache, dict) else {}
     now = m.now_ts()
 
+    # Undo any previous false repair that accidentally captured authentication
+    # page chrome. Never leave a fake title in the public catalog.
+    rolled_back = 0
+    for item in items:
+        if not is_generic_page_title(item.get("title") or ""):
+            continue
+        code = item.get("code") or ""
+        if not code:
+            continue
+        item["title"] = code
+        item["title_source"] = ""
+        attempts.pop(code, None)
+        rolled_back += 1
+
     pending = [item for item in items if is_code_only(item)]
     pending.sort(key=lambda item: (
         0 if item.get("is_new") else 1,
@@ -102,24 +142,32 @@ def main():
     ))
     due = [item for item in pending if now - int(attempts.get(item.get("code") or "") or 0) >= RETRY_SEC]
 
-    repaired = walker_repaired = web_repaired = tried = 0
+    repaired = stored_repaired = walker_repaired = web_repaired = tried = 0
     examples = []
     for item in due[:LIMIT]:
         code = item.get("code") or ""
         tried += 1
         attempts[code] = now
 
-        rec = walker_cache.get(code)
-        title = walker.valid_walker_title((rec or {}).get("title"), item) if isinstance(rec, dict) else ""
-        source_url = (rec or {}).get("source_url") if isinstance(rec, dict) else ""
-        source = "FC2ウォーカー"
+        # A discovery source may already have preserved a fuller title even if
+        # the visible title fell back to the FC2 number. Use it before requests.
+        title = valid_candidate(item.get("source_title") or "", item)
+        source_url = ""
+        source = "取得元"
         if title:
-            walker_repaired += 1
+            stored_repaired += 1
         else:
-            title, source_url = fetch_title(item)
-            source = "MissAV"
+            rec = walker_cache.get(code)
+            title = walker.valid_walker_title((rec or {}).get("title"), item) if isinstance(rec, dict) else ""
+            source_url = (rec or {}).get("source_url") if isinstance(rec, dict) else ""
+            source = "FC2ウォーカー"
             if title:
-                web_repaired += 1
+                walker_repaired += 1
+            else:
+                title, source_url = fetch_title(item)
+                source = "MissAV"
+                if title:
+                    web_repaired += 1
         if not title:
             continue
 
@@ -132,16 +180,18 @@ def main():
         if len(examples) < 10:
             examples.append({"code": code, "from": old[:80], "to": title[:120], "source": source})
 
-    if repaired:
+    if repaired or rolled_back:
         m.save_json(m.DATA_FILE, payload)
     live = {item.get("code") for item in items if item.get("code")}
     attempts = {code: ts for code, ts in attempts.items() if code in live}
     stats = {
         "last_run": now,
+        "rolled_back_generic": rolled_back,
         "pending_before": len(pending),
         "due": len(due),
         "tried": tried,
         "repaired": repaired,
+        "stored_repaired": stored_repaired,
         "walker_repaired": walker_repaired,
         "web_repaired": web_repaired,
         "pending_after": sum(is_code_only(item) for item in items),
