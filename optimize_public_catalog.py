@@ -54,30 +54,61 @@ def split_catalog() -> tuple[int, int]:
 
 
 HELPERS = r'''
-  async function fetchCatalogChunks(payload) {
+  async function fetchCatalogChunks(payload, onChunk = null) {
     const chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
-    if (!chunks.length) return [];
+    if (!chunks.length)
+      return { rows: [], failed: 0, loadedChunks: 0, totalChunks: 0 };
     const results = new Array(chunks.length);
-    let next = 0;
+    let next = 0, failed = 0, loadedChunks = 0;
+    const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const fetchOne = async (index) => {
+      const entry = chunks[index] || {};
+      const url = new URL(entry.url || entry, document.baseURI);
+      if (payload.version) url.searchParams.set("v", payload.version);
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          // The version query makes each deploy immutable. Reusing a previously
+          // downloaded chunk is much faster than forcing 20+ MB over the wire
+          // again on every reload.
+          const response = await fetch(url, { cache: "force-cache" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const chunk = await response.json();
+          if (!Array.isArray(chunk.items)) throw new Error("invalid data");
+          return chunk.items;
+        } catch (err) {
+          lastError = err;
+          if (attempt < 3) await pause(250 * attempt);
+        }
+      }
+      console.warn(`Catalog chunk ${index + 1} failed`, lastError);
+      return null;
+    };
     const worker = async () => {
       while (true) {
         const index = next++;
         if (index >= chunks.length) return;
-        const entry = chunks[index] || {};
-        const url = new URL(entry.url || entry, document.baseURI);
-        if (payload.version) url.searchParams.set("v", payload.version);
-        const response = await fetch(url, { cache: "no-cache" });
-        if (!response.ok) throw new Error(`Chunk ${index + 1}: HTTP ${response.status}`);
-        const chunk = await response.json();
-        if (!Array.isArray(chunk.items)) throw new Error(`Chunk ${index + 1}: invalid data`);
-        results[index] = chunk.items;
+        const rows = await fetchOne(index);
+        if (!rows) {
+          failed++;
+          continue;
+        }
+        results[index] = rows;
+        loadedChunks++;
+        if (onChunk) await onChunk(rows, index, loadedChunks, chunks.length);
         // Give Safari/iOS a paint opportunity between JSON parses.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await pause(0);
       }
     };
-    const concurrency = Math.min(2, chunks.length);
+    const saveData = !!navigator.connection?.saveData;
+    const concurrency = Math.min(saveData ? 1 : 4, chunks.length);
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
-    return results.flat();
+    return {
+      rows: results.flatMap((rows) => rows || []),
+      failed,
+      loadedChunks,
+      totalChunks: chunks.length,
+    };
   }
   function appendCatalogItems(rows, totalCount) {
     const seen = new Set(items.map((it) => it.code));
@@ -103,54 +134,45 @@ HELPERS = r'''
     );
     homeRankingKey = "";
     byCode = new Map(items.map((it) => [it.code, it]));
-    $("catalogItemCount").textContent = number(totalCount || items.length);
+    const expected = Number(totalCount || items.length);
+    $("catalogItemCount").textContent = number(expected);
     $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
     render(false);
+    if (items.length < expected)
+      $("resultCount").textContent = `${number(items.length)} / ${number(expected)} 作品読み込み済み…`;
   }
 '''
 
 
 def patch_site_js() -> None:
     source = SITE_JS.read_text(encoding="utf-8")
-    if "async function fetchCatalogChunks(payload)" not in source:
+    if "async function fetchCatalogChunks(payload, onChunk = null)" not in source:
         marker = "  async function loadCatalog(background = false, expectedVersion = \"\") {"
         if marker not in source:
             raise RuntimeError("site.js loadCatalog marker changed; refusing unsafe patch")
         source = source.replace(marker, HELPERS + "\n" + marker, 1)
 
     old = """      const payload = await response.json();\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");"""
-    new = """      const payload = await response.json();\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");\n      // Background refresh keeps the old complete feed visible until every\n      // chunk for the new version is available.\n      if (background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const archiveRows = await fetchCatalogChunks(payload);\n        payload.items = payload.items.concat(archiveRows);\n      }"""
+    new = """      const payload = await response.json();\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");\n      // Background refresh keeps the old complete feed visible until the new\n      // version is fully available. A partial deploy must never replace it.\n      if (background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const archive = await fetchCatalogChunks(payload);\n        if (archive.failed) throw new Error(\"Incomplete catalog deployment\");\n        payload.items = payload.items.concat(archive.rows);\n      }"""
     if old in source:
         source = source.replace(old, new, 1)
     elif "Background refresh keeps the old complete feed visible" not in source:
         raise RuntimeError("site.js payload marker changed; refusing unsafe patch")
 
+    # The manifest knows the real total. Do not make the header look like the
+    # catalog only contains the 160 first-paint rows.
+    source = source.replace(
+        '      $("catalogItemCount").textContent = number(items.length);',
+        '      $("catalogItemCount").textContent = number(payload.item_count || items.length);',
+        1,
+    )
+
     old = """      render(!background);\n      if (background) {"""
-    new = """      render(!background);\n      // Let the recent cards paint before any archive download starts. This is\n      // important on Safari/iOS and slow mobile networks.\n      if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const expectedTotal = Number(payload.item_count || items.length);\n        $(\"resultCount\").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;\n        await new Promise((resolve) => setTimeout(resolve, 350));\n        try {\n          const archiveRows = await fetchCatalogChunks(payload);\n          if (payload.version === catalogVersion) appendCatalogItems(archiveRows, expectedTotal);\n        } catch {\n          toast(\"過去作品の追加読み込みに失敗しました。新着作品はそのまま閲覧できます。\");\n        }\n      }\n      if (background) {"""
+    new = """      render(!background);\n      // Paint the recent rows immediately, then hydrate archive chunks in\n      // small visible batches. The old implementation waited for all 45 chunks\n      // and discarded every successful chunk if a single request failed.\n      if (!background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const expectedTotal = Number(payload.item_count || items.length);\n        $(\"resultCount\").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;\n        await new Promise((resolve) => setTimeout(resolve, 120));\n        let staged = [];\n        const flush = async () => {\n          if (!staged.length || payload.version !== catalogVersion) return;\n          const batch = staged;\n          staged = [];\n          appendCatalogItems(batch, expectedTotal);\n          await new Promise((resolve) => requestAnimationFrame(() => resolve()));\n        };\n        const archive = await fetchCatalogChunks(payload, async (rows) => {\n          if (payload.version !== catalogVersion) return;\n          staged.push(...rows);\n          // Four 600-row chunks per paint keeps sorting/render work bounded\n          // while users see steady progress instead of a long frozen counter.\n          if (staged.length >= 2400) await flush();\n        });\n        await flush();\n        if (archive.failed)\n          toast(`${archive.failed}個の過去データを再取得できませんでした。表示済み作品はそのまま使えます。`);\n        else if (items.length >= expectedTotal)\n          $(\"resultCount\").textContent = `${number(items.length)} 作品`;\n      }\n      if (background) {"""
     if old in source:
         source = source.replace(old, new, 1)
-    elif "Let the recent cards paint before any archive download starts" not in source:
-        source = source.replace(
-            "// Initial navigation becomes interactive after only the small inline\n"
-            "      // slice.  Hydrate the archive afterwards; failures keep that recent feed\n"
-            "      // usable instead of turning the whole page into an error state.",
-            "// Let the recent cards paint before any archive download starts. This is\n"
-            "      // important on Safari/iOS and slow mobile networks.",
-        )
-        needle = "        $(\"resultCount\").textContent = `${number(items.length)} / ${number(expectedTotal)} 作品読み込み済み…`;\n        try {"
-        if needle in source:
-            source = source.replace(needle, needle.replace("        try {", "        await new Promise((resolve) => setTimeout(resolve, 350));\n        try {"), 1)
-        elif "await new Promise((resolve) => setTimeout(resolve, 350));" not in source:
-            raise RuntimeError("site.js progressive render marker changed; refusing unsafe patch")
-
-    source = source.replace("const concurrency = Math.min(3, chunks.length);", "const concurrency = Math.min(2, chunks.length);")
-    chunk_marker = "        results[index] = chunk.items;\n"
-    if chunk_marker in source and "Give Safari/iOS a paint opportunity" not in source:
-        source = source.replace(
-            chunk_marker,
-            chunk_marker + "        // Give Safari/iOS a paint opportunity between JSON parses.\n        await new Promise((resolve) => setTimeout(resolve, 0));\n",
-            1,
-        )
+    elif "Paint the recent rows immediately" not in source:
+        raise RuntimeError("site.js progressive render marker changed; refusing unsafe patch")
 
     SITE_JS.write_text(source, encoding="utf-8")
 
