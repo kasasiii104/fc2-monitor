@@ -57,6 +57,16 @@ async function checkScenario(browser, origin, width, sort) {
     await page.goto(`${origin}/?sort=${sort}`, { waitUntil: 'domcontentloaded' });
     await page.addScriptTag({ path: path.resolve(__dirname, '..', 'web', 'missav-only.js') });
     await page.waitForSelector('#grid .video-card:not(.bootstrap-card)');
+    const batch = width < 821 ? 4 : 6;
+    let firstBatch = batch;
+    if (sort === 'code_desc') {
+      // At the top, newly sorted data must never scroll the page by itself.
+      release(batch);
+      const expected = manifest.items.length + manifest.chunks.slice(0, batch).reduce((sum, entry) => sum + entry.count, 0);
+      await page.waitForFunction(expected => parseInt(document.getElementById('resultCount').textContent.replaceAll(',', ''), 10) === expected, expected);
+      assert.equal(await page.evaluate(() => scrollY), 0, 'initial hydration must stay at the top');
+      firstBatch += batch;
+    }
     await page.evaluate(() => {
       window.scrollTo(0, document.getElementById('feedWindow').getBoundingClientRect().top + scrollY + 1800);
     });
@@ -70,8 +80,7 @@ async function checkScenario(browser, origin, width, sort) {
           if ([...record.removedNodes].includes(window.testAnchor)) window.testAnchorRemovals++;
       }).observe(document.getElementById('grid'), { childList: true });
     });
-    const batch = width < 821 ? 4 : 6;
-    for (let limit = batch; limit < manifest.chunks.length + batch; limit += batch) {
+    for (let limit = firstBatch; limit < manifest.chunks.length + batch; limit += batch) {
       const before = await page.evaluate(() => {
         window.testAnchor = [...document.querySelectorAll('#grid .video-card')].find(node => {
           const rect = node.getBoundingClientRect();
