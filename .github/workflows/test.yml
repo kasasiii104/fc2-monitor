@@ -1,10 +1,10 @@
 name: Regression tests
 on:
   pull_request:
-    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "web/**", "tests/**", ".github/workflows/**", "requirements.txt"]
+    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "embed_catalog_bootstrap.py", "web/**", "tests/**", ".github/workflows/**", "requirements.txt"]
   push:
     branches: [main]
-    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "web/**", "tests/**", ".github/workflows/test.yml", "requirements.txt"]
+    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "embed_catalog_bootstrap.py", "web/**", "tests/**", ".github/workflows/test.yml", "requirements.txt"]
 permissions:
   contents: read
 jobs:
@@ -25,12 +25,14 @@ jobs:
         run: |
           python fc2_monitor.py --build-site
           python optimize_public_catalog.py
+          python embed_catalog_bootstrap.py
           node --check docs/site.js
           python - <<'PY'
           import json
           from pathlib import Path
           manifest = json.loads(Path('docs/catalog.json').read_text(encoding='utf-8'))
           js = Path('docs/site.js').read_text(encoding='utf-8')
+          html = Path('docs/index.html').read_text(encoding='utf-8')
           assert manifest.get('progressive') is True
           assert manifest.get('chunks')
           assert len(manifest.get('items') or []) <= 96
@@ -40,9 +42,16 @@ jobs:
           assert 'Math.min(saveData || mobile ? 1 : 3, chunks.length)' in js
           assert 'fetchWithTimeout(url, { cache: "no-cache" }, 12000)' in js
           assert 'cache: "force-cache"' in js
+          assert 'window.__FC2_CATALOG_BOOTSTRAP__' in js
+          assert 'if ("ResizeObserver" in window)' in js
+          assert 'id="catalogBootstrapData"' in html
+          assert 'window.__FC2_CATALOG_BOOTSTRAP__ = payload' in html
+          assert 'bootstrap-card' in html
           PY
       - run: npm install --no-save playwright@1.51.1
       - run: npx playwright install --with-deps chromium webkit
+      - run: GENERATED_BROWSER=chromium node tests/generated_site.cjs
+      - run: GENERATED_BROWSER=webkit node tests/generated_site.cjs
       - run: python tests/build_fixture.py test-results/fixture
       - run: node tests/browser.cjs
       - run: node tests/preview.cjs
