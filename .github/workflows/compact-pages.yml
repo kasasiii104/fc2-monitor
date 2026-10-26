@@ -1,20 +1,18 @@
 name: Compact FC2 Monitor Pages
 
 on:
+  # Normal assets are published by monitor.yml. This is an offline recovery
+  # build, not a second publisher racing each source or generated-data change.
   push:
     branches:
       - main
     paths:
-      - "docs/catalog.json"
-      - "docs/index.html"
-      - "compact_public_catalog.py"
-      - "web/missav-only.js"
       - ".github/workflows/compact-pages.yml"
   workflow_dispatch:
 
 concurrency:
-  group: fc2ppv-compact-pages
-  cancel-in-progress: true
+  group: fc2ppv-monitor-main-v3
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -23,8 +21,8 @@ permissions:
 
 jobs:
   compact:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'Compact monitor public catalog'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       artifact: ${{ steps.artifact.outputs.name }}
     steps:
@@ -36,8 +34,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Compact public catalog and enforce MissAV destinations
-        run: python compact_public_catalog.py
+      - name: Install build dependencies
+        run: pip install -r requirements.txt
+
+      # Use the same renderer as monitor.yml. The retired compactor patches
+      # obsolete JavaScript markers and fails against the progressive loader.
+      - name: Rebuild public assets from saved data
+        run: |
+          python fc2_monitor.py --build-site
+          python optimize_public_catalog.py
+          python embed_catalog_bootstrap.py
 
       - name: Ensure MissAV-only navigation guard is deployed
         run: |
@@ -57,6 +63,16 @@ jobs:
         run: |
           node --check docs/site.js
           node --check docs/missav-only.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('docs/catalog.json').read_text(encoding='utf-8'))
+          html = Path('docs/index.html').read_text(encoding='utf-8')
+          assert manifest.get('progressive') is True
+          assert int(manifest.get('item_count') or 0) >= len(manifest.get('items') or [])
+          assert 'id="catalogBootstrapData"' in html
+          assert 'missav-only.js' in html
+          PY
 
       - name: Commit compact public assets
         run: |
@@ -74,15 +90,23 @@ jobs:
       - id: artifact
         run: echo "name=github-pages-compact-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare lean Pages artifact
+        run: |
+          mkdir -p pages-public
+          cp -a docs/. pages-public/
+          rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
+                pages-public/views_history.json pages-public/notified_ids.json
+
       - uses: actions/upload-pages-artifact@v3
         with:
           name: ${{ steps.artifact.outputs.name }}
-          path: docs
+          path: pages-public
 
   pages:
     needs: compact
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
