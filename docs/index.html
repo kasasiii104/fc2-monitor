@@ -375,29 +375,39 @@
 <script>
 (() => {
   const node = document.getElementById("catalogBootstrapData");
-  if (!node || !window.fetch) return;
-  const embedded = node.textContent || "";
-  const nativeFetch = window.fetch.bind(window);
-  let served = false;
-  window.fetch = function(input, init) {
-    if (!served) {
-      try {
-        const requestUrl = new URL(typeof input === "string" ? input : input.url, document.baseURI);
-        const catalogUrl = new URL(document.body.dataset.catalog || "catalog.json", document.baseURI);
-        if (requestUrl.origin === catalogUrl.origin && requestUrl.pathname === catalogUrl.pathname) {
-          served = true;
-          return Promise.resolve(new Response(embedded, {
-            status: 200,
-            headers: { "Content-Type": "application/json; charset=utf-8" }
-          }));
-        }
-      } catch (_) {}
-    }
-    return nativeFetch(input, init);
-  };
+  if (!node) return;
+  try {
+    const payload = JSON.parse(node.textContent || "{}");
+    if (!Array.isArray(payload.items)) return;
+    window.__FC2_CATALOG_BOOTSTRAP__ = payload;
+
+    // Paint a small usable fallback immediately. The full application replaces
+    // these nodes a moment later. If application JS is blocked or an optional
+    // API throws, users still see and can open recent works instead of skeletons.
+    const grid = document.getElementById("grid");
+    const count = document.getElementById("resultCount");
+    if (!grid || !payload.items.length) return;
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
+      ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+    const safe = (value) => {
+      try { const u = new URL(value, document.baseURI); return /^https?:$/.test(u.protocol) ? u.href : ""; }
+      catch (_) { return ""; }
+    };
+    grid.innerHTML = payload.items.slice(0, 24).map((it) => {
+      const code = esc(it.code || "");
+      const title = esc(it.title || it.code || "");
+      const url = safe(it.url);
+      const thumb = safe(it.thumb);
+      return `<article class="video-card bootstrap-card" data-code="${code}"><div class="thumb-shell"><a class="thumb-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${thumb ? `<img src="${esc(thumb)}" alt="" loading="eager" decoding="async" referrerpolicy="no-referrer" width="480" height="270">` : ""}</a></div><div class="card-body">${url ? `<a class="card-title" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${title}</a>` : `<div class="card-title">${title}</div>`}<div class="card-code">${code}</div></div></article>`;
+    }).join("");
+    grid.setAttribute("aria-busy", "false");
+    if (count) count.textContent = `${payload.items.length} / ${payload.item_count || payload.items.length} 作品読み込み済み…`;
+  } catch (error) {
+    console.warn("Catalog bootstrap parse failed", error);
+  }
 })();
 </script>
 <!-- catalog-bootstrap:end -->
-    <script src="missav-only.js?v=c44368f7b096" defer></script>
+    <script src="missav-only.js?v=ab7a1b82a8ea" defer></script>
 </body>
 </html>

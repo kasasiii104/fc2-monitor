@@ -1184,7 +1184,7 @@
       }),
     );
   }
-  new ResizeObserver(updateRankingArrows).observe($("rankingRail"));
+  if ("ResizeObserver" in window) new ResizeObserver(updateRankingArrows).observe($("rankingRail"));
   $("sidebarToggle").addEventListener("click", () => {
     if (innerWidth < 1200) {
       const open = document.body.classList.toggle("drawer");
@@ -1402,7 +1402,7 @@
     }
   });
   window.addEventListener("scroll", queueScroll, { passive: true });
-  new ResizeObserver(() => {
+  if ("ResizeObserver" in window) new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
       metrics = null;
@@ -1597,11 +1597,18 @@
       $("resultCount").textContent = "読み込み中…";
     }
     try {
-      const url = new URL(document.body.dataset.catalog, document.baseURI);
-      if (expectedVersion) url.searchParams.set("v", expectedVersion);
-      const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const payload = await response.json();
+      let payload = null;
+      if (!background && window.__FC2_CATALOG_BOOTSTRAP__ &&
+          Array.isArray(window.__FC2_CATALOG_BOOTSTRAP__.items)) {
+        payload = window.__FC2_CATALOG_BOOTSTRAP__;
+        window.__FC2_CATALOG_BOOTSTRAP__ = null;
+      } else {
+        const url = new URL(document.body.dataset.catalog, document.baseURI);
+        if (expectedVersion) url.searchParams.set("v", expectedVersion);
+        const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        payload = await response.json();
+      }
       if (!Array.isArray(payload.items)) throw new Error("Invalid catalog");
       // Background refresh keeps the old complete feed visible until the new
       // version is fully available. A partial deploy must never replace it.
