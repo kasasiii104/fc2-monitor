@@ -50,6 +50,10 @@ jobs:
           PY
       - run: npm install --no-save playwright@1.51.1
       - run: npx playwright install --with-deps chromium webkit
+      - name: Verify navigation guard does not freeze rendering or input
+        run: |
+          node tests/missav_only.cjs
+          GUARD_BROWSER=webkit node tests/missav_only.cjs
       - run: GENERATED_BROWSER=chromium node tests/generated_site.cjs
       - run: GENERATED_BROWSER=webkit node tests/generated_site.cjs
       - run: python tests/build_fixture.py test-results/fixture

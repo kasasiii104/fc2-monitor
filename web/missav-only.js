@@ -47,6 +47,16 @@
     anchor.replaceWith(replacement);
   }
 
+  function setAttributeIfChanged(element, name, value) {
+    if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+  }
+
+  function secureAnchor(anchor, url) {
+    setAttributeIfChanged(anchor, "href", url);
+    setAttributeIfChanged(anchor, "target", "_blank");
+    setAttributeIfChanged(anchor, "rel", "noopener noreferrer");
+  }
+
   function sanitizeCard(card) {
     const code = itemCode(card);
     const missav = confirmedMissav(card, code);
@@ -54,9 +64,7 @@
 
     if (title instanceof HTMLAnchorElement) {
       if (missav) {
-        title.href = missav;
-        title.target = "_blank";
-        title.rel = "noopener noreferrer";
+        secureAnchor(title, missav);
       } else {
         unwrapTitle(title);
       }
@@ -67,8 +75,15 @@
       const direct = [...sourceRow.querySelectorAll("a[href]")].find((anchor) =>
         directMissavURL(anchor.getAttribute("href"), code),
       );
-      sourceRow.replaceChildren();
-      if (direct) sourceRow.append(direct.cloneNode(true));
+      // Keep the existing node (and its listeners). Replacing/cloning it on
+      // every pass creates a childList mutation even when nothing changed.
+      if (direct) {
+        if (sourceRow.childNodes.length !== 1 || sourceRow.firstChild !== direct) {
+          sourceRow.replaceChildren(direct);
+        }
+      } else if (sourceRow.hasChildNodes()) {
+        sourceRow.replaceChildren();
+      }
     }
   }
 
@@ -81,9 +96,7 @@
         anchor.remove();
         continue;
       }
-      anchor.href = missav;
-      anchor.target = "_blank";
-      anchor.rel = "noopener noreferrer";
+      secureAnchor(anchor, missav);
     }
 
     for (const heading of [...dialog.querySelectorAll(".menu-subheading")]) {
@@ -113,10 +126,20 @@
     queued = true;
     queueMicrotask(() => {
       queued = false;
-      sanitize();
+      sanitizeWithoutObserving();
     });
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  function sanitizeWithoutObserving() {
+    // Ignore our own writes. Otherwise the observer queues another microtask
+    // before the browser can paint or handle a tap, starving the event loop.
+    observer.disconnect();
+    try {
+      sanitize();
+    } finally {
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  }
 
   document.addEventListener(
     "click",
@@ -133,5 +156,5 @@
     true,
   );
 
-  sanitize();
+  sanitizeWithoutObserving();
 })();

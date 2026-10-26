@@ -42,9 +42,17 @@ function server() {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const errors = [];
     page.on('pageerror', (err) => errors.push(String(err)));
+    // Verify our generated UI without requesting real thumbnails or media.
+    await page.route('**/*', (route) => {
+      const host = new URL(route.request().url()).hostname;
+      return host === '127.0.0.1' ? route.continue() : route.abort();
+    });
     // The first paint must not depend on downloading the historical archive.
     await page.route('**/catalog-chunk-*.json*', (route) => route.abort());
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+    // This script is added by the deployment workflow after the Python build.
+    // Include it here too; checking only the base renderer missed its freeze.
+    await page.addScriptTag({ path: path.resolve(__dirname, '..', 'web', 'missav-only.js') });
     await page.waitForSelector('#grid .video-card', { timeout: 10000 });
     const result = await page.evaluate(() => ({
       cards: document.querySelectorAll('#grid .video-card').length,
@@ -57,7 +65,8 @@ function server() {
     if (result.count.trim() === '読み込み中…') throw new Error(`loading state stuck: ${JSON.stringify(result)}`);
     if (!result.title.trim()) throw new Error(`first card has no title: ${JSON.stringify(result)}`);
     if (errors.length) throw new Error(`page errors: ${errors.join(' | ')}`);
-    console.log(JSON.stringify({ browser: process.env.GENERATED_BROWSER || 'webkit', ...result }));
+    const { title, ...summary } = result;
+    console.log(JSON.stringify({ browser: process.env.GENERATED_BROWSER || 'webkit', ...summary, titlePresent: Boolean(title.trim()) }));
   } finally {
     await browser.close();
     await new Promise((resolve) => srv.close(resolve));
