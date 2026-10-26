@@ -701,10 +701,10 @@
     const position = scrollY;
     const header = parseFloat(getComputedStyle(document.documentElement)
       .getPropertyValue("--header")) || 64;
-    const anchor = [...$("grid").children].find((node) => {
+    const anchor = position > 0 ? [...$("grid").children].find((node) => {
       const rect = node.getBoundingClientRect();
       return rect.bottom > header && rect.top < innerHeight;
-    });
+    }) : null;
     const anchorCode = anchor?.dataset.code;
     const anchorTop = anchor?.getBoundingClientRect().top;
     list = selectList();
