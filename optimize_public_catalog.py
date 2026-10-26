@@ -150,12 +150,11 @@ HELPERS = r'''
           .sort((a, b) => a[field] - b[field]).slice(0, 10)];
       }),
     );
-    homeRankingKey = "";
     byCode = new Map(items.map((it) => [it.code, it]));
     const expected = Number(totalCount || items.length);
     $("catalogItemCount").textContent = number(expected);
     $("catalogNewCount").textContent = number(items.filter((it) => it.is_new).length);
-    render(false);
+    refreshHydratedList();
     if (items.length < expected)
       $("resultCount").textContent = `${number(items.length)} / ${number(expected)} 作品読み込み済み…`;
   }

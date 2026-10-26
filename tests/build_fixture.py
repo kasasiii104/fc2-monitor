@@ -54,4 +54,16 @@ update_status = {
 }
 with patch.object(m, 'preview_source_urls', side_effect=neutral_sources):
     m.write_site(items, stamp, 12, update_status)
+
+if '--progressive' in sys.argv[2:]:
+    # Exercise the deployed loader with neutral data, including archive batches.
+    import optimize_public_catalog as optimizer
+    import embed_catalog_bootstrap as bootstrap
+    with patch.multiple(optimizer, DOCS=root, CATALOG=root / 'catalog.json',
+                        SITE_JS=root / 'site.js', INDEX=root / 'index.html'):
+        optimizer.main()
+    with patch.multiple(bootstrap, CATALOG=root / 'catalog.json',
+                        SITE_JS=root / 'site.js', INDEX=root / 'index.html'):
+        bootstrap.main()
 print(root.resolve())
+

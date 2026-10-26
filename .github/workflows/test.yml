@@ -56,6 +56,11 @@ jobs:
           GUARD_BROWSER=webkit node tests/missav_only.cjs
       - run: GENERATED_BROWSER=chromium node tests/generated_site.cjs
       - run: GENERATED_BROWSER=webkit node tests/generated_site.cjs
+      - name: Verify scrolling and stable cards during archive loading
+        run: |
+          python tests/build_fixture.py test-results/progressive-fixture --progressive
+          node tests/progressive_ui.cjs
+          PROGRESSIVE_BROWSER=webkit node tests/progressive_ui.cjs
       - run: python tests/build_fixture.py test-results/fixture
       - run: node tests/browser.cjs
       - run: node tests/preview.cjs

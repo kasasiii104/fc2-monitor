@@ -437,7 +437,7 @@
   }
   // Keep only nearby rows mounted, even after thousands of items have been loaded.
   // Spacers retain the page height; focus keeps its row mounted for keyboard users.
-  function renderWindow(force = false) {
+  function renderWindow(force = false, position = scrollY) {
     if (!ready || !list.length) return;
     if (!metrics) measure();
     const { cols, gapY, row } = metrics;
@@ -446,7 +446,7 @@
     const top = $("feedWindow").getBoundingClientRect().top + scrollY;
     const firstRow = Math.max(
       0,
-      Math.min(rows - 1, Math.floor((scrollY - top) / row) - 2),
+      Math.min(rows - 1, Math.floor((position - top) / row) - 2),
     );
     let start = firstRow * cols,
       end = Math.min(
@@ -593,9 +593,10 @@
       button.classList.toggle("active", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
-    if (force || homeRankingKey !== homeRank) {
+    const rows = homeRankingCache[homeRank] || [];
+    const rankingKey = `${homeRank}:${rows.map((it) => `${it.code}:${it["missav_rank_" + homeRank]}`).join(",")}`;
+    if (force || homeRankingKey !== rankingKey) {
       if (activePreview?.shell?.closest("#rankingRail")) stopActivePreview();
-      const rows = homeRankingCache[homeRank] || [];
       $("rankingRail").innerHTML = rows.length
         ? rows
             .map((it, index) =>
@@ -612,7 +613,7 @@
         `MissAV ${rankLabels[homeRank]}のランキング`,
       );
       $("rankingRail").scrollLeft = 0;
-      homeRankingKey = homeRank;
+      homeRankingKey = rankingKey;
     }
     updateRankingArrows();
   }
@@ -693,6 +694,39 @@
         )
         .join("");
     return "";
+  }
+  function refreshHydratedList() {
+    // Archive batches add data, not a new screen. Clearing the grid/spacers here
+    // collapses the document, clamps scrollY and reloads every visible image.
+    const position = scrollY;
+    const header = parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue("--header")) || 64;
+    const anchor = [...$("grid").children].find((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.bottom > header && rect.top < innerHeight;
+    });
+    const anchorCode = anchor?.dataset.code;
+    const anchorTop = anchor?.getBoundingClientRect().top;
+    list = selectList();
+    renderHomeRankings();
+    $("resultCount").textContent = `${number(list.length)} 作品`;
+    $("feedWindow").hidden = !list.length;
+    $("emptyState").hidden = !!list.length;
+    if (!list.length) return;
+    if (!metrics) measure();
+    let target = position;
+    if (anchorCode) {
+      const index = list.findIndex((it) => it.code === anchorCode);
+      if (index >= 0) {
+        // Other sort orders can insert new rows above the reader. Render the
+        // new window around the same card before restoring its screen offset.
+        loaded = Math.max(loaded, index + PAGE_SIZE);
+        const feedTop = $("feedWindow").getBoundingClientRect().top + scrollY;
+        target = Math.max(0, feedTop + Math.floor(index / metrics.cols) * metrics.row - anchorTop);
+      }
+    }
+    renderWindow(true, target);
+    if (Math.abs(scrollY - target) > 1) window.scrollTo(0, target);
   }
   function render(reset = true) {
     if (!ready) return;
@@ -1402,7 +1436,13 @@
     }
   });
   window.addEventListener("scroll", queueScroll, { passive: true });
-  new ResizeObserver(() => {
+  let observedGridWidth = 0;
+  if ("ResizeObserver" in window) new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width || 0;
+    // Virtual rows change the grid's height on every scroll. Only a width
+    // change needs new column measurements; height changes must not feed back.
+    if (!width || Math.abs(width - observedGridWidth) < 0.5) return;
+    observedGridWidth = width;
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
       metrics = null;
