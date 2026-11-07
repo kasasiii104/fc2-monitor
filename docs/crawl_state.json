@@ -12,8 +12,8 @@
     "supjav": 1794077116
   },
   "last_discovery": {
-    "checked_at": "2026-11-08 00:19:00",
-    "found_unique": 466,
+    "checked_at": "2026-11-08 00:54:02",
+    "found_unique": 598,
     "sources": {
       "missav": {
         "archive_from": 241,
@@ -48,10 +48,10 @@
         "status": "repeated_page",
         "max_page": 2000,
         "stopped_page": 4,
-        "search_items": 456,
+        "search_items": 588,
         "catalog_items": 33,
-        "recent_page_limit": 48,
-        "archive_page_limit": 120,
+        "recent_page_limit": 60,
+        "archive_page_limit": 180,
         "recent_pages": 3,
         "archive_pages": 0,
         "next_page": 241
@@ -69,11 +69,33 @@
         "status": "access_limited"
       }
     },
-    "previous_total": 41320,
-    "new_to_catalog": 13,
-    "recent_added": 13,
+    "previous_total": 41333,
+    "new_to_catalog": 0,
+    "recent_added": 0,
     "archive_added": 0,
-    "total_after": 41333
+    "total_after": 41524,
+    "walker_recent_added": 0,
+    "walker_archive_added": 37,
+    "walker_discovery_added": 37,
+    "walker_unseen_before": 17239,
+    "walker_missav_verified": 192,
+    "walker_rejected_missav_404": 156,
+    "walker_cached_dead_skipped": 1,
+    "walker_deferred_unverified": 0,
+    "walker_official_checked": 40,
+    "walker_official_added": 37,
+    "walker_official_not_found": 3,
+    "walker_official_deferred": 0,
+    "walker_budget_exhausted": true,
+    "walker_budget_sec": 150,
+    "walker_elapsed_sec": 152.0,
+    "primary_links_repaired": 16645,
+    "walker_official_fastlane_added": 154,
+    "walker_official_fastlane_checked": 360,
+    "walker_official_fastlane_success": 154,
+    "walker_official_fastlane_failed": 195,
+    "walker_official_fastlane_not_found": 11,
+    "walker_official_fastlane_relinked": 16645
   },
   "missav_repeated_pages": [
     {
