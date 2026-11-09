@@ -48,6 +48,9 @@ jobs:
         with:
           ref: main
 
+      - name: Record start commit
+        run: echo "START_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -207,8 +210,9 @@ jobs:
           path.write_text(html, encoding="utf-8")
           PY
 
+      # Public artifacts are committed only when every generation/verification
+      # step above succeeded (default success() condition).
       - name: Commit site data
-        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -218,6 +222,31 @@ jobs:
             echo "更新なし"
           else
             git commit -m "Update monitor site"
+            git pull --rebase origin main
+            git push
+          fi
+
+      - name: Preserve state files after failure
+        if: failure()
+        run: |
+          # Keep only explicit state (cooldowns, probe evidence, notification state).
+          # crawl_state.json and data.json are excluded so the cursor never advances without a built catalog.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Drop any unpushed full-docs commit/index from a failed "Commit site data" step.
+          # Re-base on the commit this run started from (not a newer origin/main), so a
+          # concurrent remote state update conflicts in the rebase below instead of being
+          # silently overwritten; on conflict the step fails and nothing is pushed.
+          git rebase --abort 2>/dev/null || true
+          git reset -q "$START_SHA"
+          for f in docs/fetch_state.json docs/missav_guard_state.json docs/notified_ids.json docs/notify_queue.json; do
+            if [ -f "$f" ]; then git add -- "$f"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "状態ファイルの更新なし"
+          else
+            git commit -m "Preserve monitor state after failed run"
+            git stash push --include-untracked -q || true
             git pull --rebase origin main
             git push
           fi
@@ -232,7 +261,8 @@ jobs:
           mkdir -p pages-public
           cp -a docs/. pages-public/
           rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
-                pages-public/views_history.json pages-public/notified_ids.json
+                pages-public/views_history.json pages-public/notified_ids.json \
+                pages-public/notify_queue.json
           du -sh pages-public
 
       - uses: actions/upload-pages-artifact@v3
