@@ -29,6 +29,9 @@ HEADERS = {
 }
 DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
+NOTIFY_QUEUE_FILE = Path(os.environ.get("NOTIFY_QUEUE_FILE", "docs/notify_queue.json"))
+NOTIFY_QUEUE_MAX = int(os.environ.get("NOTIFY_QUEUE_MAX", "300"))
+NOTIFY_QUEUE_TTL_SEC = int(os.environ.get("NOTIFY_QUEUE_TTL_SEC", str(7 * 86400)))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
 CRAWL_FILE = Path(os.environ.get("CRAWL_FILE", "docs/crawl_state.json"))
 VIEWS_HISTORY_FILE = Path(os.environ.get("VIEWS_HISTORY_FILE", "docs/views_history.json"))
@@ -2590,6 +2593,87 @@ def run_optional_step(label, action, *args, **kwargs):
         return False
 
 
+NOTIFY_SNAPSHOT_FIELDS = ("code", "title", "duration", "views", "sources", "source", "url", "thumb")
+
+
+def normalize_notify_queue(payload):
+    """Validate persisted state and retain the first entry for each code."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("pending"), list):
+        return []
+    # Skip only malformed rows so one bad entry cannot drop every pending notice.
+    rows = [row for row in payload["pending"]
+            if isinstance(row, dict) and isinstance(row.get("code"), str)
+            and re.fullmatch(r"FC2-PPV-\d{5,8}", row["code"])  # same range as missav_guard
+            and type(row.get("queued_at")) is int and isinstance(row.get("item"), dict)]
+    if len(rows) != len(payload["pending"]):
+        print(f"[Notify queue] skipped malformed: {len(payload['pending']) - len(rows)}")
+    pending, seen = [], set()
+    for row in rows:
+        if row["code"] not in seen:
+            seen.add(row["code"])
+            row = dict(row)
+            item = dict(row["item"])
+            for key in ("title", "duration", "source", "url", "thumb"):
+                if not isinstance(item.get(key), str):
+                    item[key] = ""
+            if type(item.get("views")) is not int:
+                item["views"] = None
+            sources = item.get("sources")
+            item["sources"] = {k: v for k, v in sources.items()
+                               if isinstance(k, str) and isinstance(v, str)} if isinstance(sources, dict) else {}
+            item["code"] = row["code"]
+            row["item"] = item
+            if type(row.get("held", False)) is not bool:
+                row["held"] = False
+            pending.append(row)
+    pending.sort(key=lambda row: row["queued_at"])
+    cutoff = now_ts() - NOTIFY_QUEUE_TTL_SEC
+    retained = [row for row in pending if row["queued_at"] >= cutoff]
+    if len(retained) != len(pending):
+        print(f"[Notify queue] expired: {len(pending) - len(retained)}")
+    overflow = max(0, len(retained) - max(0, NOTIFY_QUEUE_MAX))
+    if overflow:
+        print(f"[Notify queue] over limit, dropped oldest: {overflow}")
+        retained = retained[overflow:]
+    return retained
+
+
+def load_notify_queue():
+    try:
+        return normalize_notify_queue(load_json(NOTIFY_QUEUE_FILE, {}))
+    except (ValueError, TypeError):
+        return []
+
+
+def save_notify_queue(pending):
+    save_json(NOTIFY_QUEUE_FILE, {"version": 1, "updated_at": now_jst(), "pending": pending})
+
+
+def hold_notification(code, item, reason):
+    pending = load_notify_queue()
+    row = next((row for row in pending if row["code"] == code), None)
+    if row is None:
+        row = {"code": code, "queued_at": now_ts(),
+               "item": {key: item.get(key) for key in NOTIFY_SNAPSHOT_FIELDS}}
+        pending.append(row)
+    row.update(held=True, held_reason=reason)
+    save_notify_queue(pending)
+
+
+def release_notification(code, item=None):
+    pending = load_notify_queue()
+    row = next((row for row in pending if row["code"] == code), None)
+    if row is None:
+        return
+    row.pop("held", None)
+    row.pop("held_reason", None)
+    empty_snapshot = {key: "" for key in ("title", "duration", "source", "url", "thumb")}
+    empty_snapshot.update(code=code, views=None, sources={})
+    if item is not None and row["item"] == empty_snapshot:
+        row["item"] = {key: item.get(key) for key in NOTIFY_SNAPSHOT_FIELDS}
+    save_notify_queue(pending)
+
+
 def main(discovery_only=False) -> int:
     print(f"[{now_jst()}] チェック開始")
     try:
@@ -2611,6 +2695,10 @@ def main(discovery_only=False) -> int:
     existing = load_json(DATA_FILE, {"items": []})
     existing_map = {item["code"]: item for item in existing.get("items", [])}
     first_run = not known
+    pending = load_notify_queue()
+    queued_codes = {row["code"] for row in pending}
+    queued_at = now_ts()
+    queued_new = []
     new_videos, merged = [], []
     stamp = now_jst()
 
@@ -2664,11 +2752,29 @@ def main(discovery_only=False) -> int:
         item["thumb_backfill_checked_at"] = old.get("thumb_backfill_checked_at") or 0
         for key in ("fc2_sample_last_success", "fc2_sample_failures", "fc2_sample_retry_at"):
             item[key] = old.get(key) or 0
-        if old.get("sources"):
-            item["sources"] = {**old.get("sources", {}), **item.get("sources", {})}
+        old_sources = old.get("sources") if isinstance(old.get("sources"), dict) else {}
+        if not isinstance(item.get("sources"), dict):
+            item["sources"] = {}
+        if old_sources:
+            item["sources"] = {**old_sources, **item["sources"]}
+        if old.get("missav_dead"):
+            item["missav_dead"] = old["missav_dead"]
+            item["missav_dead_checked_at"] = old.get("missav_dead_checked_at")
+            num = str(item.get("code_num") or item["code"].split("-")[-1])
+            fallback = missav_detail_urls(num)[0]
+            old_url = old.get("url") if isinstance(old.get("url"), str) else ""
+            item["url"] = old_url if discovery_source(old_url) == "missav" else fallback
+            old_missav = old_sources.get("MissAV")
+            item["sources"]["MissAV"] = old_missav if isinstance(old_missav, str) and old_missav else fallback
+            if "FC2公式" in old_sources:
+                item["sources"]["FC2公式"] = old_sources["FC2公式"]
         merged.append(item)
         if is_new:
             new_videos.append(item)
+            if item["code"] not in queued_codes:
+                queued_new.append({"code": item["code"], "queued_at": queued_at,
+                                "item": {key: item.get(key) for key in NOTIFY_SNAPSHOT_FIELDS}})
+                queued_codes.add(item["code"])
         known.add(video["code"])
 
     latest_codes = {v["code"] for v in latest}
@@ -2697,6 +2803,9 @@ def main(discovery_only=False) -> int:
     if SOURCE_RETRY_AT:
         crawl_state["source_retry_at"] = dict(SOURCE_RETRY_AT)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
+    pending.extend(reversed(queued_new))
+    pending = normalize_notify_queue({"pending": pending})
+    save_notify_queue(pending)
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     write_site(merged, stamp, len(new_videos), build_update_status(merged, crawl_state))
     # Commit the discovery position only after both data and public output exist.
@@ -2721,22 +2830,34 @@ def main(discovery_only=False) -> int:
             return False
         return True
 
-    new_videos = [v for v in new_videos if allowed(v)]
-    if not new_videos:
+    merged_map = {video["code"]: video for video in merged}
+    videos = {row["code"]: merged_map.get(row["code"], row["item"]) for row in pending}
+    pending = [row for row in pending if row.get("held") or allowed(videos[row["code"]])]
+    save_notify_queue(pending)
+    if not any(not row.get("held") for row in pending):
         print("新着なし")
         return 0
-    for video in reversed(new_videos):
-        source_lines = [f"{n}: {u}" for n, u in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items()]
-        extra = []
-        if video.get("duration"):
-            extra.append(f"時間: {video['duration']}")
-        if video.get("views"):
-            extra.append(f"再生: {video['views']:,}")
-        sent = run_optional_step("New item notification", send_telegram,
-            "【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + (" / ".join(extra) + "\n\n" if extra else "\n") + "\n".join(source_lines),
-            photo=video.get("thumb"),
-        )
+    for row in pending[:]:
+        video = videos[row["code"]]
+        if row.get("held"):
+            continue
+        try:
+            source_lines = [f"{n}: {u}" for n, u in (video.get("sources") or {video.get("source", "Link"): video.get("url")}).items()]
+            extra = []
+            if video.get("duration"):
+                extra.append(f"時間: {video['duration']}")
+            if video.get("views"):
+                extra.append(f"再生: {video['views']:,}")
+            message = "【新着 FC2-PPV】\n\n" + f"{video['code']}\n{video['title']}\n" + (" / ".join(extra) + "\n\n" if extra else "\n") + "\n".join(source_lines)
+        except Exception as exc:
+            print(f"[Notify queue] discarded malformed message: {row['code']} ({type(exc).__name__})")
+            pending.remove(row)
+            save_notify_queue(pending)
+            continue
+        sent = run_optional_step("New item notification", send_telegram, message, photo=video.get("thumb"))
         if sent:
+            pending.remove(row)
+            save_notify_queue(pending)
             print(f"通知: {video['code']}")
         else:
             # Avoid repeated timeouts/rate limits delaying the Pages deployment.

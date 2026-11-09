@@ -31,7 +31,7 @@ class WalkerOfficialFastlaneTests(unittest.TestCase):
             "checked_at": 1_799_999_000,
         }
 
-    def test_only_fc2_confirmed_rows_are_added_and_use_official_primary_link(self):
+    def test_only_fc2_confirmed_rows_are_added_and_use_missav_primary_link(self):
         m.save_json(m.DATA_FILE, {"items": []})
         m.save_json(m.FETCH_STATE_FILE, {
             m.H_WALKER_CACHE_KEY: {
@@ -58,7 +58,8 @@ class WalkerOfficialFastlaneTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["code"], "FC2-PPV-8000001")
         self.assertEqual(items[0]["source"], "FC2公式")
-        self.assertEqual(items[0]["url"], "https://adult.contents.fc2.com/article/8000001/?lang=ja")
+        self.assertEqual(items[0]["url"], m.missav_detail_urls("8000001")[0])
+        self.assertEqual(items[0]["sources"]["FC2公式"], items[0]["fc2_market_url"])
         self.assertEqual(items[0]["title"], "公式サンプル作品")
         self.assertFalse(items[0]["is_new"])
 
@@ -66,7 +67,7 @@ class WalkerOfficialFastlaneTests(unittest.TestCase):
         self.assertEqual(state[fast.CHECK_KEY]["FC2-PPV-8000001"]["status"], "alive")
         self.assertEqual(state[fast.CHECK_KEY]["FC2-PPV-8000002"]["status"], "not_found")
 
-    def test_restores_official_primary_after_generic_missav_relink(self):
+    def test_ensures_missav_primary_and_official_source(self):
         item = {
             "code": "FC2-PPV-8000001",
             "code_num": "8000001",
@@ -75,9 +76,30 @@ class WalkerOfficialFastlaneTests(unittest.TestCase):
             "fc2_market_url": "https://adult.contents.fc2.com/article/8000001/?lang=ja",
             "sources": {"MissAV": "https://missav.ws/ja/fc2-ppv-8000001"},
         }
-        self.assertGreater(fast.restore_official_primary_links([item]), 0)
-        self.assertEqual(item["url"], item["fc2_market_url"])
+        self.assertGreater(fast.ensure_missav_primary_links([item]), 0)
+        self.assertEqual(item["url"], m.missav_detail_urls("8000001")[0])
         self.assertEqual(item["sources"]["FC2公式"], item["fc2_market_url"])
+
+    def test_repairs_official_url_and_preserves_live_mirror(self):
+        for url in ("https://adult.contents.fc2.com/article/8000001/", "https://missav.live/ja/fc2-ppv-8000001"):
+            with self.subTest(url=url):
+                item = {"code": "FC2-PPV-8000001", "source": "FC2公式", "url": url,
+                        "sources": {"FC2公式": "https://official.test/"}}
+                expected = url if m.discovery_source(url) == "missav" else m.missav_detail_urls("8000001")[0]
+                self.assertGreater(fast.ensure_missav_primary_links([item]), 0)
+                self.assertEqual(item["url"], expected)
+                self.assertEqual(item["sources"]["MissAV"], expected)
+                self.assertEqual(item["sources"]["FC2公式"], "https://official.test/")
+                self.assertEqual(fast.ensure_missav_primary_links([item]), 0)
+
+    def test_ensure_tolerates_legacy_non_str_url_and_non_dict_sources(self):
+        for url, sources in ((123, ["x"]), (["u"], None), (None, "s")):
+            with self.subTest(url=url, sources=sources):
+                item = {"code": "FC2-PPV-8000001", "source": "FC2公式", "url": url, "sources": sources}
+                self.assertGreater(fast.ensure_missav_primary_links([item]), 0)
+                self.assertEqual(item["url"], m.missav_detail_urls("8000001")[0])
+                self.assertEqual(item["sources"]["MissAV"], item["url"])
+                self.assertIn("FC2公式", item["sources"])
 
 
 if __name__ == "__main__":

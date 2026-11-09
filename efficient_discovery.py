@@ -55,8 +55,8 @@ def verify_official(row, num, checks, now):
         m.apply_fc2_market_metadata(row, meta, now)
         official_url = meta.get("fc2_market_url") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
         row.setdefault("sources", {})["FC2公式"] = official_url
-        # When MissAV has no page, make the authoritative FC2 page the primary link.
-        row["url"] = official_url
+        if m.discovery_source(row.get("url")) != "missav":
+            row["url"] = m.missav_detail_urls(num)[0]
         row["source"] = "FC2公式"
         return "alive", meta
     if outcome == "not_found":

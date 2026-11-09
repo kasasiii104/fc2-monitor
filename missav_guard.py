@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from copy import deepcopy
 import os
 import re
 from pathlib import Path
@@ -14,6 +15,9 @@ AUDIT_LIMIT = max(1, int(os.environ.get("MISSAV_404_AUDIT_LIMIT", "250")))
 ALIVE_TTL_SEC = max(3600, int(os.environ.get("MISSAV_ALIVE_TTL_SEC", str(7 * 86400))))
 DEAD_TTL_SEC = max(3600, int(os.environ.get("MISSAV_DEAD_TTL_SEC", str(24 * 3600))))
 UNKNOWN_TTL_SEC = max(300, int(os.environ.get("MISSAV_UNKNOWN_TTL_SEC", str(3600))))
+MISSAV_RETRY_LIMIT = max(0, int(os.environ.get("MISSAV_RETRY_LIMIT", "40")))
+MISSAV_RETRY_TTL_SEC = max(0, int(os.environ.get("MISSAV_RETRY_TTL_SEC", str(14 * 86400))))
+RETRY_QUEUE_MAX = 2000
 
 
 def _num(value):
@@ -57,6 +61,25 @@ def _existence_request(url):
         return {"status": 0, "final_url": url, "access_limited": False, "error": type(exc).__name__}
 
 
+def is_official_confirmed(item):
+    return item.get("source") == "FC2公式" or (
+        int(item.get("fc2_market_last_success") or 0) > 0
+        and not item.get("fc2_market_not_found")
+    )
+
+
+def invalidate_missav_link(item):
+    sources = dict(item.get("sources") or {})
+    _, num = _code(item)
+    official_url = (item.get("fc2_market_url") or sources.get("FC2公式")
+                    or f"https://adult.contents.fc2.com/article/{num}/?lang=ja")
+    missav_url = m.missav_detail_urls(num)[0]
+    sources["MissAV"] = missav_url
+    sources["FC2公式"] = official_url
+    item.update(url=missav_url, sources=sources, missav_dead=True,
+                missav_dead_checked_at=m.now_ts())
+
+
 def apply_live_url(item, result):
     """Point the card/source link at the MissAV mirror actually verified alive."""
     live_url = str((result or {}).get("live_url") or "")
@@ -71,6 +94,10 @@ def apply_live_url(item, result):
         sources["MissAV"] = live_url
         item["sources"] = sources
         changed = True
+    for key in ("missav_dead", "missav_dead_checked_at"):
+        if key in item:
+            del item[key]
+            changed = True
     return changed
 
 
@@ -80,7 +107,34 @@ class Guard:
         self.state = raw if isinstance(raw, dict) else {"checks": {}}
         self.checks = self.state.get("checks") if isinstance(self.state.get("checks"), dict) else {}
         self.state["checks"] = self.checks
+        raw_queue = self.state.get("retry_queue") if isinstance(self.state.get("retry_queue"), dict) else {}
+        # Drop malformed rows individually so one bad entry cannot crash the guarded run.
+        self.retry_queue = {}
+        for code, row in raw_queue.items():
+            if (not re.fullmatch(r"FC2-PPV-[0-9]{5,8}", code)
+                    or not isinstance(row, dict) or not isinstance(row.get("item"), dict)
+                    or type(row.get("queued_at")) is not int
+                    or type(row.get("attempts")) is not int):
+                continue
+            item = row["item"]
+            # The snapshot is re-injected into latest, so its own code must match the key
+            # and the fields used by link handling / main's merge must have usable types.
+            if item.get("code") != code or _code(item)[0] != code:
+                continue
+            for key in ("title", "url", "source", "thumb", "duration"):
+                if key in item and not isinstance(item[key], str):
+                    item[key] = ""
+            sources = item.get("sources")
+            item["sources"] = ({k: v for k, v in sources.items() if isinstance(k, str) and isinstance(v, str)}
+                               if isinstance(sources, dict) else {})
+            if not isinstance(row.get("discovery_kind"), str):
+                row["discovery_kind"] = "recent"
+            if "last_tried_at" in row and type(row["last_tried_at"]) is not int:
+                del row["last_tried_at"]
+            self.retry_queue[code] = row
+        self.state["retry_queue"] = self.retry_queue
         self.dirty = False
+        self.recovered = set()
 
     def _ttl(self, status):
         if status == "alive":
@@ -151,27 +205,122 @@ class Guard:
         self.dirty = False
 
 
+def _queue_retry(item, result, guard):
+    code, _ = _code(item)
+    row = guard.retry_queue.setdefault(code, {
+        "item": deepcopy(item), "discovery_kind": item.get("discovery_kind") if isinstance(item.get("discovery_kind"), str) else "recent",
+        "queued_at": m.now_ts(), "attempts": 0,
+    })
+    row.update(last_tried_at=m.now_ts(), attempts=row["attempts"] + 1,
+               last_reason=str(result.get("reason") or ""),
+               last_status=str(result.get("status") or ""))
+    guard.dirty = True
+
+
+def _trim_retry_queue(guard):
+    expired = 0
+    rows = sorted(guard.retry_queue.items(), key=lambda pair: pair[1]["queued_at"])
+    for code, row in rows:
+        if m.now_ts() - row["queued_at"] > MISSAV_RETRY_TTL_SEC:
+            del guard.retry_queue[code]
+            expired += 1
+            guard.dirty = True
+            print(f"[MissAV guard] retry_expired={code}")
+    overflow = max(0, len(guard.retry_queue) - RETRY_QUEUE_MAX)
+    for code, _ in sorted(guard.retry_queue.items(), key=lambda pair: pair[1]["queued_at"])[:overflow]:
+        del guard.retry_queue[code]
+        guard.dirty = True
+        print(f"[MissAV guard] retry_discarded={code} reason=queue_limit")
+    return expired
+
+
+def _mark_recovered(code, guard):
+    guard.recovered.add(code)
+    guard.retry_queue[code]["recovered_at"] = m.now_ts()
+    guard.dirty = True
+
+
 def filter_unseen(videos, existing_codes, guard):
+    expired = _trim_retry_queue(guard)
+    known = set(m.load_json(m.HISTORY_FILE, {"ids": []}).get("ids", []))
+
+    def hold_rejected(code, item, result):
+        if known and code not in known and guard.retry_queue[code]["discovery_kind"] != "archive":
+            m.hold_notification(code, item, "missav_" + str(result.get("status") or "unknown"))
+
+    # Preserve the first occurrence and the original discovery classification.
+    by_code = {}
+    for item in videos:
+        code, _ = _code(item)
+        by_code.setdefault(code, item)
+    retry_checked = recovered = 0
+    verified = set()
+    rows = sorted(guard.retry_queue.items(),
+                  key=lambda pair: pair[1].get("last_tried_at", pair[1]["queued_at"]))
+    for code, row in rows:
+        if code in by_code:
+            by_code[code]["discovery_kind"] = row["discovery_kind"]
+            continue
+        item = deepcopy(row["item"])
+        item["discovery_kind"] = row["discovery_kind"]
+        if code in existing_codes:
+            by_code[code] = item
+        else:
+            if retry_checked >= MISSAV_RETRY_LIMIT:
+                continue
+            row["last_tried_at"] = m.now_ts()
+            guard.dirty = True
+            result = guard.probe(_code(item)[1])
+            retry_checked += 1
+            if result.get("status") != "alive":
+                _queue_retry(item, result, guard)
+                hold_rejected(code, item, result)
+                if result.get("reason") == "access_limited":
+                    break
+                continue
+            apply_live_url(item, result)
+            by_code[code] = item
+            verified.add(code)
+
     kept = []
     rejected_404 = rejected_unverified = relinked = 0
-    for item in videos:
+    for code, item in by_code.items():
+        if code in guard.retry_queue:
+            item["discovery_kind"] = guard.retry_queue[code]["discovery_kind"]
         code, num = _code(item)
-        if not num or code in existing_codes:
+        if not num or code in existing_codes or code in verified:
+            if code in guard.retry_queue:
+                _mark_recovered(code, guard)
+                recovered += 1
+                m.release_notification(code, item)
             kept.append(item)
             continue
+        if code in guard.retry_queue:
+            guard.retry_queue[code]["last_tried_at"] = m.now_ts()
+            guard.dirty = True
         result = guard.probe(num)
         if result.get("status") == "alive":
             relinked += int(apply_live_url(item, result))
+            m.release_notification(code, item)
             kept.append(item)
+            if code in guard.retry_queue:
+                _mark_recovered(code, guard)
+                recovered += 1
         elif result.get("status") == "dead":
+            _queue_retry(item, result, guard)
+            hold_rejected(code, item, result)
             rejected_404 += 1
             print(f"[MissAV guard] reject_new={code} reason=404")
         else:
-            # New works are fail-closed: if MissAV cannot be verified now, wait for a
-            # later crawl instead of publishing a potentially dead primary link.
+            # New works stay fail-closed, but are queued for a later re-check
+            # instead of being lost once the discovery cursor moves past them.
+            _queue_retry(item, result, guard)
+            hold_rejected(code, item, result)
             rejected_unverified += 1
             print(f"[MissAV guard] defer_new={code} reason={result.get('reason')}")
     print(f"[MissAV guard] new_checked={len(videos)} kept={len(kept)} rejected_404={rejected_404} deferred={rejected_unverified} relinked={relinked}")
+    expired += _trim_retry_queue(guard)
+    print(f"[MissAV guard] retry_checked={retry_checked} recovered={recovered} expired={expired} queued={len(guard.retry_queue)}")
     return kept
 
 
@@ -182,7 +331,7 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
     items = items if isinstance(items, list) else []
     if not items:
         guard.save()
-        return {"checked": 0, "removed": 0, "relinked": 0, "remaining": 0}
+        return {"checked": 0, "removed": 0, "relinked": 0, "protected": 0, "remaining": 0}
 
     def last_checked(item):
         code, _ = _code(item)
@@ -190,17 +339,35 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
         return int(rec.get("checked_at") or 0)
 
     candidates = sorted((item for item in items if _code(item)[1]), key=last_checked)
+    pending = m.load_notify_queue()
+    pending_codes = {row["code"] for row in pending}
     removed = set()
     checked = 0
     unknown = 0
     relinked = 0
+    protected = 0
     for item in candidates[:max(1, limit)]:
         code, num = _code(item)
         result = guard.probe(num, force=True)
         checked += 1
         if result.get("status") == "dead":
-            removed.add(code)
-            print(f"[MissAV guard] remove_saved={code} reason=404")
+            if is_official_confirmed(item):
+                invalidate_missav_link(item)
+                protected += 1
+                print(f"[MissAV guard] protect_saved={code} reason=official_confirmed")
+            else:
+                if code in pending_codes:
+                    m.hold_notification(code, item, "pruned_404")
+                if code in pending_codes and code not in guard.retry_queue:
+                    guard.retry_queue[code] = {
+                        "item": deepcopy(item), "discovery_kind": "recent",
+                        "queued_at": m.now_ts(), "attempts": 0,
+                        "last_reason": "pruned_404", "last_status": "dead",
+                    }
+                    guard.dirty = True
+                    guard.save()
+                removed.add(code)
+                print(f"[MissAV guard] remove_saved={code} reason=404")
         elif result.get("status") == "alive":
             relinked += int(apply_live_url(item, result))
         elif result.get("status") == "unknown":
@@ -210,8 +377,8 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
             if result.get("reason") == "access_limited":
                 break
 
-    if removed or relinked:
-        payload["items"] = [item for item in items if item.get("code") not in removed]
+    if removed or relinked or protected:
+        payload["items"] = [item for item in items if _code(item)[0] not in removed]
         payload["updated_at"] = m.now_jst()
         m.save_json(m.DATA_FILE, payload)
 
@@ -224,14 +391,14 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
 
     guard.state["last_audit"] = {
         "at": m.now_ts(), "checked": checked, "removed": len(removed),
-        "relinked": relinked, "unknown": unknown, "catalog_before": len(items),
+        "relinked": relinked, "protected": protected, "unknown": unknown, "catalog_before": len(items),
         "catalog_after": len(items) - len(removed),
     }
     guard.dirty = True
     guard.save()
-    print(f"[MissAV guard] audit_checked={checked} removed={len(removed)} relinked={relinked} unknown={unknown} remaining={len(items)-len(removed)}")
+    print(f"[MissAV guard] audit_checked={checked} removed={len(removed)} relinked={relinked} protected={protected} unknown={unknown} remaining={len(items)-len(removed)}")
     return {"checked": checked, "removed": len(removed), "relinked": relinked,
-            "remaining": len(items) - len(removed)}
+            "protected": protected, "remaining": len(items) - len(removed)}
 
 
 def run_guarded_monitor():
@@ -252,6 +419,11 @@ def run_guarded_monitor():
         return m.main()
     finally:
         m.get_latest_videos = original
+        history = m.load_json(m.HISTORY_FILE, {"ids": []})
+        for code in guard.recovered.intersection(history.get("ids") or []):
+            if code in guard.retry_queue:
+                del guard.retry_queue[code]
+                guard.dirty = True
         guard.save()
 
 

@@ -41,8 +41,8 @@ def fetch_one(code, row):
     return code, row, num, meta
 
 
-def restore_official_primary_links(items):
-    """Undo generic MissAV relinking for rows confirmed only by FC2 official."""
+def ensure_missav_primary_links(items):
+    """Keep official provenance while directing viewing links to MissAV."""
     changed = 0
     for item in items:
         if item.get("source") != "FC2公式":
@@ -51,15 +51,17 @@ def restore_official_primary_links(items):
         num = str(item.get("code_num") or code.split("-")[-1])
         if not re.fullmatch(r"\d{5,8}", num):
             continue
-        sources = dict(item.get("sources") or {})
-        official = item.get("fc2_market_url") or sources.get("FC2公式") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
-        if item.get("url") != official:
-            item["url"] = official
+        sources = dict(item["sources"]) if isinstance(item.get("sources"), dict) else {}
+        if not sources.get("FC2公式"):
+            sources["FC2公式"] = item.get("fc2_market_url") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
             changed += 1
-        if sources.get("FC2公式") != official:
-            sources["FC2公式"] = official
-            item["sources"] = sources
+        if not isinstance(item.get("url"), str) or m.discovery_source(item["url"]) != "missav":
+            item["url"] = m.missav_detail_urls(num)[0]
             changed += 1
+        if not sources.get("MissAV"):
+            sources["MissAV"] = item["url"]
+            changed += 1
+        item["sources"] = sources
     return changed
 
 
@@ -77,7 +79,7 @@ def main():
     now = m.now_ts()
     stamp = m.now_jst()
 
-    relinked = restore_official_primary_links(items)
+    relinked = ensure_missav_primary_links(items)
     unseen = [(code, rec) for code, rec in cache.items() if code not in existing]
     unseen.sort(key=lambda pair: (
         -int((pair[1] or {}).get("checked_at") or 0),
@@ -120,7 +122,6 @@ def main():
                     m.apply_fc2_market_metadata(row, meta, now)
                     official = meta.get("fc2_market_url") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
                     row.setdefault("sources", {})["FC2公式"] = official
-                    row["url"] = official
                     row["source"] = "FC2公式"
                     row["source_label"] = "FC2公式 / FC2ウォーカー"
                     row["is_new"] = False
@@ -175,7 +176,14 @@ def main():
     if added:
         history = m.load_json(m.HISTORY_FILE, {"ids": []})
         ids = set(history.get("ids") or [])
-        ids.update(added)
+        numbers = [int(match.group(1)) for code in ids
+                   if (match := m.CODE_RE.fullmatch(code))]
+        maximum = max(numbers) if numbers else None
+        # アーカイブ経路で新作を既知にすると通常の新着通知を奪うため、登録前の最大番号までに限る。
+        eligible = [code for code in added if not ids or (
+            maximum is not None and (match := m.CODE_RE.fullmatch(code))
+            and int(match.group(1)) <= maximum)]
+        ids.update(eligible)
         m.save_json(m.HISTORY_FILE, {"updated_at": stamp, "ids": sorted(ids)})
 
     crawl = m.load_json(m.CRAWL_FILE, {})

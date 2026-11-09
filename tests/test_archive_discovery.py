@@ -14,7 +14,7 @@ import fc2_monitor as m
 class ArchiveDiscoveryTests(unittest.TestCase):
     def setUp(self):
         root = self.enterContext(tempfile.TemporaryDirectory())
-        for name in ('DATA_FILE', 'HISTORY_FILE', 'CRAWL_FILE', 'FETCH_STATE_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
+        for name in ('DATA_FILE', 'HISTORY_FILE', 'NOTIFY_QUEUE_FILE', 'CRAWL_FILE', 'FETCH_STATE_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
             self.enterContext(patch.object(m, name, Path(root) / (name + ('.html' if name == 'HTML_FILE' else '.json'))))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
         # These legacy cursor fixtures put the archive boundary at page 9.
