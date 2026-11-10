@@ -46,11 +46,13 @@
   function writeStore(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      return true;
     } catch {
       if (!storageWarning) {
         storageWarning = true;
         toast("ブラウザに保存できません。この画面では操作を続けられます。");
       }
+      return false;
     }
   }
   const readArray = (key) => {
@@ -243,12 +245,16 @@
     return it.is_new || (it._ts > 0 && now - it._ts <= 48 * 3600000);
   }
   const trend = (it) => Number(it["trend_" + state.rise] || 0);
-  const rankValue = (it) => Number(it["missav_rank_" + state.rank] || 0);
+  const rankNumber = (value) => {
+    const n = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+    return Number.isSafeInteger(n) && n > 0 ? n : 0;
+  };
+  const rankValue = (it) => rankNumber(it["missav_rank_" + state.rank]);
   const bestRank = (it) =>
-    it.missav_rank_day ||
-    it.missav_rank_week ||
-    it.missav_rank_month ||
-    it.missav_rank_total ||
+    rankNumber(it.missav_rank_day) ||
+    rankNumber(it.missav_rank_week) ||
+    rankNumber(it.missav_rank_month) ||
+    rankNumber(it.missav_rank_total) ||
     0;
   function hasQuery(it, query) {
     if (!query) return true;
@@ -403,20 +409,20 @@
       .map(([name, u]) => externalLink(u, esc(name), it.code))
       .join(" · ");
     const rank =
-      explicitRank ||
+      rankNumber(explicitRank) ||
       (state.page === "popular" && !["rating", "views"].includes(state.rank)
         ? rankValue(it)
         : state.page === "popular" || state.page === "rising"
           ? index + 1
           : 0);
     const badge = rank
-      ? `<span class="card-badge">#${rank}</span>`
+      ? `<span class="card-badge">#${esc(rank)}</span>`
       : it.is_new
         ? '<span class="card-badge new">新着</span>'
         : "";
     const p = Math.min(1, Math.max(0, Number(progress[it.code]) || 0));
     const thumbButton = `<button class="thumb-link" type="button" data-preview="${code}" aria-label="${esc(it.title)} のプレビューを再生">${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="480" height="270">` : ""}</button>`;
-    return `<article class="video-card" data-code="${code}" aria-label="${code}"><div class="thumb-shell">${thumbButton}<div class="card-badges">${badge}${saved.has(it.code) ? `<span class="card-badge">保存済み</span>` : ""}</div>${it.duration ? `<span class="duration">${esc(it.duration)}</span>` : ""}<button class="quick-later${later.has(it.code) ? " selected" : ""}" data-later="${code}" aria-label="${later.has(it.code) ? "後で見るから外す" : "後で見るに追加"}" title="後で見る">${icon(later.has(it.code) ? "check" : "clock")}</button>${p ? `<span class="progress-bar" style="width:${p * 100}%"></span>` : ""}</div><div class="card-body">${externalLink(url, esc(it.title), it.code, "card-title") || `<div class="card-title">${esc(it.title)}</div>`}<div class="card-code">${code}${watched.has(it.code) ? '<span class="watched-mark">✓ 視聴済み</span>' : ""}</div><div class="card-meta">${[viewsLabel(it.views), relativeTime(it._ts)].filter(Boolean).join(" · ")}</div><div class="card-meta">${metric || (bestRank(it) ? `MissAV ランキング #${bestRank(it)}` : "評価未取得")}</div><div class="source-row">${sources}</div><button class="icon-button card-more" data-more="${code}" aria-label="${code} のメニュー">${icon("more")}</button></div></article>`;
+    return `<article class="video-card" data-code="${code}" aria-label="${code}"><div class="thumb-shell">${thumbButton}<div class="card-badges">${badge}${saved.has(it.code) ? `<span class="card-badge">保存済み</span>` : ""}</div>${it.duration ? `<span class="duration">${esc(it.duration)}</span>` : ""}<button class="quick-later${later.has(it.code) ? " selected" : ""}" data-later="${code}" aria-label="${later.has(it.code) ? "後で見るから外す" : "後で見るに追加"}" title="後で見る">${icon(later.has(it.code) ? "check" : "clock")}</button>${p ? `<span class="progress-bar" style="width:${p * 100}%"></span>` : ""}</div><div class="card-body">${externalLink(url, esc(it.title), it.code, "card-title") || `<div class="card-title">${esc(it.title)}</div>`}<div class="card-code">${code}${watched.has(it.code) ? '<span class="watched-mark">✓ 視聴済み</span>' : ""}</div><div class="card-meta">${[viewsLabel(it.views), relativeTime(it._ts)].filter(Boolean).join(" · ")}</div><div class="card-meta">${metric || (bestRank(it) ? `MissAV ランキング #${esc(bestRank(it))}` : "評価未取得")}</div><div class="source-row">${sources}</div><button class="icon-button card-more" data-more="${code}" aria-label="${code} のメニュー">${icon("more")}</button></div></article>`;
   }
   function measure() {
     const grid = $("grid"),
@@ -820,16 +826,44 @@
     window.scrollTo(0, 0);
     render();
   }
+  function applySetChange(values, code, remove) {
+    const result = new Set(values);
+    remove ? result.delete(code) : result.add(code);
+    return result;
+  }
+  function applyObjectChanges(values, changes) {
+    const result = { ...values, ...changes };
+    for (const [code, value] of Object.entries(changes)) {
+      if (value === undefined) delete result[code];
+    }
+    return result;
+  }
+  function updateStoredSet(set, key, code, remove = false) {
+    let result = applySetChange(readArray(key), code, remove);
+    if (!writeStore(key, [...result]))
+      result = applySetChange(set, code, remove);
+    set.clear();
+    for (const value of result) set.add(value);
+  }
+  function updateStoredObject(object, key, changes) {
+    let result = applyObjectChanges(readObject(key), changes);
+    if (!writeStore(key, result))
+      result = applyObjectChanges(object, changes);
+    for (const code of Object.keys(object)) delete object[code];
+    Object.assign(object, result);
+  }
+  let pendingProgress = {};
+  function flushProgress() {
+    updateStoredObject(progress, "fc2progress", pendingProgress);
+    pendingProgress = {};
+  }
   function markWatched(code) {
-    watched.add(code);
-    watchTimes[code] = Date.now();
-    writeStore("fc2watched", [...watched]);
-    writeStore("fc2watchtimes", watchTimes);
+    updateStoredSet(watched, "fc2watched", code);
+    updateStoredObject(watchTimes, "fc2watchtimes", { [code]: Date.now() });
   }
   function toggleSet(set, key, code, label) {
     const remove = set.has(code);
-    remove ? set.delete(code) : set.add(code);
-    writeStore(key, [...set]);
+    updateStoredSet(set, key, code, remove);
     toast(remove ? `${label}から外しました` : `${label}に追加しました`);
     if (
       ["saved", "later", "library"].includes(state.page) ||
@@ -844,13 +878,19 @@
     returnFocus = document.activeElement;
     if (!dialog.open) dialog.showModal();
   }
+  let menuCard = null;
+  $("menuDialog").addEventListener("close", () => {
+    if (!$("menuDialog").open) menuCard = null;
+  });
   function closeDialog(dialog) {
+    if (dialog === $("menuDialog")) menuCard = null;
     dialog.close();
     if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   }
-  function openMenu(code) {
+  function openMenu(code, card) {
     const it = byCode.get(code);
     if (!it) return;
+    menuCard = card;
     const action = (name, text, sym) =>
       `<button class="menu-row" data-action="${name}" data-code="${esc(code)}">${icon(sym)}${text}</button>`;
     const sourceLinks = Object.entries(it.sources || {})
@@ -880,10 +920,11 @@
       1,
       Math.max(0, video.currentTime / video.duration),
     );
+    pendingProgress[it.code] = progress[it.code];
     if (!progressTimer)
       progressTimer = setTimeout(() => {
         progressTimer = 0;
-        writeStore("fc2progress", progress);
+        flushProgress();
       }, 2000);
     if (progress[it.code] > 0.9 && !watched.has(it.code)) markWatched(it.code);
   }
@@ -1035,7 +1076,7 @@
     playInlinePreview(shell, it, true);
   }
   function startHover(shell) {
-    const it = byCode.get(shell.closest(".video-card")?.dataset.code);
+    const it = byCode.get(shell.closest(".video-card, .ranking-card")?.dataset.code);
     if (
       !it ||
       !previewSources(it).length ||
@@ -1265,7 +1306,7 @@
     }
     if (button.dataset.more) {
       e.preventDefault();
-      openMenu(button.dataset.more);
+      openMenu(button.dataset.more, button.closest(".video-card, .ranking-card"));
       return;
     }
     if (button.dataset.later) {
@@ -1333,10 +1374,12 @@
       action = button.dataset.action;
     if (!action || !byCode.has(code)) return;
     if (action === "preview") {
+      const shell = menuCard?.isConnected
+        ? menuCard.querySelector(".thumb-shell")
+        : document.querySelector(
+            `.video-card[data-code="${CSS.escape(code)}"] .thumb-shell`,
+          );
       closeDialog($("menuDialog"));
-      const shell = document.querySelector(
-        `.video-card[data-code="${CSS.escape(code)}"] .thumb-shell`,
-      );
       if (shell) toggleInlinePreview(code, shell);
       return;
     }
@@ -1345,10 +1388,8 @@
     if (action === "save") toggleSet(saved, "fc2favs", code, "保存済み");
     if (action === "watched") {
       if (watched.has(code)) {
-        watched.delete(code);
-        delete watchTimes[code];
-        writeStore("fc2watched", [...watched]);
-        writeStore("fc2watchtimes", watchTimes);
+        updateStoredSet(watched, "fc2watched", code, true);
+        updateStoredObject(watchTimes, "fc2watchtimes", { [code]: undefined });
         toast("履歴から削除しました");
       } else {
         markWatched(code);
@@ -1386,23 +1427,25 @@
     },
     true,
   );
-  $("grid").addEventListener("pointerover", (e) => {
-    const actionButton = e.target.closest("button");
-    if (
-      e.pointerType !== "mouse" ||
-      !matchMedia("(hover:hover)").matches ||
-      (actionButton && !actionButton.classList.contains("thumb-link"))
-    )
-      return;
-    const shell = e.target.closest(".thumb-shell");
-    if (!shell || shell.contains(e.relatedTarget)) return;
-    clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => startHover(shell), 650);
-  });
-  $("grid").addEventListener("pointerout", (e) => {
-    const shell = e.target.closest(".thumb-shell");
-    if (shell && !shell.contains(e.relatedTarget)) stopHover();
-  });
+  for (const container of [$("grid"), $("rankingRail")]) {
+    container.addEventListener("pointerover", (e) => {
+      const actionButton = e.target.closest("button");
+      if (
+        e.pointerType !== "mouse" ||
+        !matchMedia("(hover:hover)").matches ||
+        (actionButton && !actionButton.classList.contains("thumb-link"))
+      )
+        return;
+      const shell = e.target.closest(".thumb-shell");
+      if (!shell || shell.contains(e.relatedTarget)) return;
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => startHover(shell), 650);
+    });
+    container.addEventListener("pointerout", (e) => {
+      const shell = e.target.closest(".thumb-shell");
+      if (shell && !shell.contains(e.relatedTarget)) stopHover();
+    });
+  }
   document.addEventListener("keydown", (e) => {
     if (
       e.key === "/" &&
@@ -1431,7 +1474,7 @@
     stopActivePreview();
     if (progressTimer) {
       clearTimeout(progressTimer);
-      writeStore("fc2progress", progress);
+      flushProgress();
       progressTimer = 0;
     }
   });
@@ -1466,6 +1509,18 @@
     return !!(activePreview || composing || document.querySelector("dialog[open]") ||
       document.activeElement?.matches("input,textarea,select"));
   }
+  const CATALOG_TIMEOUT_MS = 12000;
+  async function fetchWithTimeout(url, options = {}, timeoutMs = CATALOG_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return await response.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async function checkForCatalogUpdate() {
     if (ready) renderUpdateStatus();
     if (!ready || catalogLoading || checkingUpdates || document.hidden ||
@@ -1475,9 +1530,7 @@
     lastCatalogCheck = Date.now();
     try {
       // Poll a tiny manifest; only download the full catalog when it changes.
-      const response = await fetch(document.body.dataset.updates, { cache: "no-cache" });
-      if (!response.ok) return;
-      const update = await response.json();
+      const update = await fetchWithTimeout(document.body.dataset.updates, { cache: "no-cache" });
       if (update.version && update.version !== catalogVersion)
         await loadCatalog(true, update.version);
     } catch {
@@ -1492,15 +1545,6 @@
   const catalogPaintPause = (ms = 0) => new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, ms)));
   });
-  async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
-  }
   async function fetchCatalogChunks(payload, onChunk = null) {
     const chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
     if (!chunks.length)
@@ -1519,9 +1563,7 @@
           // The version query makes each deploy immutable. Reusing a previously
           // downloaded chunk is much faster than forcing the archive over the
           // wire again on every reload.
-          const response = await fetchWithTimeout(url, { cache: "force-cache" }, mobile ? 12000 : 15000);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const chunk = await response.json();
+          const chunk = await fetchWithTimeout(url, { cache: "force-cache" }, mobile ? CATALOG_TIMEOUT_MS : 15000);
           if (!Array.isArray(chunk.items)) throw new Error("invalid data");
           return chunk.items;
         } catch (err) {
@@ -1644,9 +1686,7 @@
       } else {
         const url = new URL(document.body.dataset.catalog, document.baseURI);
         if (expectedVersion) url.searchParams.set("v", expectedVersion);
-        const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        payload = await response.json();
+        payload = await fetchWithTimeout(url, { cache: "no-cache" });
       }
       if (!Array.isArray(payload.items)) throw new Error("Invalid catalog");
       // Background refresh keeps the old complete feed visible until the new
@@ -1666,10 +1706,10 @@
         : null;
       const anchorCode = anchor?.dataset.code;
       const anchorTop = anchor?.getBoundingClientRect().top;
-      searchTemplates = payload.search_templates || {};
-      updateStatus = payload.update_status || {};
-      catalogUpdatedAt = payload.updated_at || "";
-      items = payload.items.map((it) => ({
+      const nextSearchTemplates = payload.search_templates || {};
+      const nextUpdateStatus = payload.update_status || {};
+      const nextCatalogUpdatedAt = payload.updated_at || "";
+      const nextItems = payload.items.map((it) => ({
         ...it,
         code_num: String(it.code_num || it.code?.split("-").pop() || ""),
         _codeNumber: codeNumber(it.code_num || it.code?.split("-").pop()),
@@ -1679,21 +1719,30 @@
           `${it.code} ${it.title} ${Object.keys(it.sources || {}).join(" ")}`,
         ),
       }));
-      homeRankingCache = Object.fromEntries(
+      const nextHomeRankingCache = Object.fromEntries(
         homePeriods.map((period) => {
           const field = "missav_rank_" + period;
           return [
             period,
-            items
+            nextItems
               .filter((it) => it[field] > 0)
               .sort((a, b) => a[field] - b[field])
               .slice(0, 10),
           ];
         }),
       );
-      homeRankingKey = "";
-      byCode = new Map(items.map((it) => [it.code, it]));
-      catalogVersion = payload.version || "";
+      const nextHomeRankingKey = "";
+      const nextByCode = new Map(nextItems.map((it) => [it.code, it]));
+      const nextCatalogVersion = payload.version || "";
+      // Commit only after the complete replacement state has been built.
+      searchTemplates = nextSearchTemplates;
+      updateStatus = nextUpdateStatus;
+      catalogUpdatedAt = nextCatalogUpdatedAt;
+      items = nextItems;
+      homeRankingCache = nextHomeRankingCache;
+      homeRankingKey = nextHomeRankingKey;
+      byCode = nextByCode;
+      catalogVersion = nextCatalogVersion;
       for (const node of document.querySelectorAll("[data-updated-at]"))
         node.textContent = payload.updated_at || "";
       $("catalogItemCount").textContent = number(payload.item_count || items.length);

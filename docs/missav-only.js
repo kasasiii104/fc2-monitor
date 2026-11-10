@@ -9,6 +9,7 @@
   function directMissavURL(value, code = "") {
     try {
       const url = new URL(value, location.href);
+      if (url.protocol !== "https:" || url.username || url.password) return "";
       if (!MISSAV_HOSTS.has(url.hostname.toLowerCase())) return "";
       const match = url.pathname.match(/(?:^|\/)(?:ja\/)?fc2-ppv-(\d{6,8})(?:\/|$)/i);
       if (!match) return "";
@@ -121,21 +122,66 @@
   }
 
   let queued = false;
-  const observer = new MutationObserver(() => {
+  const pendingMutations = [];
+  const observer = new MutationObserver((mutations) => {
+    pendingMutations.push(...mutations);
     if (queued) return;
     queued = true;
     queueMicrotask(() => {
       queued = false;
-      sanitizeWithoutObserving();
+      pendingMutations.push(...observer.takeRecords());
+      const roots = new Set();
+      const selector = ".video-card, .ranking-card, #menuDialog";
+      let fullScan = false;
+      function collect(node) {
+        if (!(node instanceof Element)) {
+          fullScan = true;
+          return;
+        }
+        const owner = node.closest(selector);
+        const descendants = node.querySelectorAll(selector);
+        if (owner) roots.add(owner);
+        descendants.forEach((root) => roots.add(root));
+        if (!owner && !descendants.length) fullScan = true;
+      }
+      for (const mutation of pendingMutations) {
+        // The target also covers removals and text replacements inside a card.
+        const owner = mutation.target instanceof Element
+          ? mutation.target.closest(selector) : null;
+        if (owner) roots.add(owner);
+        if (mutation.type === "childList") {
+          let addedElement = false;
+          for (const node of mutation.addedNodes) {
+            if (node instanceof Element) {
+              addedElement = true;
+              collect(node);
+            }
+          }
+          if (!owner && !addedElement) fullScan = true;
+        } else if (mutation.type === "attributes") {
+          collect(mutation.target);
+        } else {
+          fullScan = true;
+        }
+      }
+      pendingMutations.length = 0;
+      sanitizeWithoutObserving(fullScan ? null : roots);
     });
   });
 
-  function sanitizeWithoutObserving() {
+  function sanitizeWithoutObserving(roots = null) {
     // Ignore our own writes. Otherwise the observer queues another microtask
     // before the browser can paint or handle a tap, starving the event loop.
     observer.disconnect();
     try {
-      sanitize();
+      if (roots === null) {
+        sanitize();
+      } else {
+        for (const root of roots) {
+          if (root.matches(".video-card, .ranking-card")) sanitizeCard(root);
+          if (root.id === "menuDialog") sanitizeMenu(root);
+        }
+      }
     } finally {
       observer.observe(document.documentElement, { childList: true, subtree: true });
     }
