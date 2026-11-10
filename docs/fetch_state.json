@@ -683776,15 +683776,15 @@
     "last_success_at": null
   },
   "walker_canonical_title_repair": {
-    "last_run": 1794281962,
-    "items": 44386,
-    "pending_before": 621,
+    "last_run": 1794311248,
+    "items": 44390,
+    "pending_before": 623,
     "cache_matches": 0,
     "repaired": 0,
     "rejected_walker_title": 0,
-    "pending_after": 621,
+    "pending_after": 623,
     "chinese_before": 0,
-    "code_only_before": 504,
+    "code_only_before": 506,
     "examples": []
   },
   "walker_official_discovery_checks": {
@@ -692119,9 +692119,9 @@
       "reason": ""
     },
     "FC2-PPV-4866186": {
-      "checked_at": 1792712611,
-      "status": "alive",
-      "reason": ""
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
     },
     "FC2-PPV-4866468": {
       "checked_at": 1793311687,
@@ -901947,64 +901947,209 @@
       "checked_at": 1794281909,
       "status": "failed",
       "reason": "unexpected_page"
+    },
+    "FC2-PPV-4866222": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866224": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866227": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866205": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866203": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866251": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866015": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866189": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866195": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866021": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4866194": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4865916": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4865741": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4862984": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4862970": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4865710": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4865714": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4862201": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4860836": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4862538": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4862190": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4860839": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4862180": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4860808": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4857919": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4858019": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4858014": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4858000": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
+    },
+    "FC2-PPV-4857915": {
+      "checked_at": 1794311242,
+      "status": "failed",
+      "reason": "eKYC"
     }
   },
   "walker_official_fastlane_stats": {
-    "last_run": 1794281909,
+    "last_run": 1794311242,
     "cache_records": 20000,
-    "unseen_before": 17238,
+    "unseen_before": 17082,
     "candidates": 360,
-    "checked": 360,
-    "success": 156,
-    "not_found": 13,
-    "failed": 191,
-    "blocked": 0,
-    "added": 156,
-    "retry_waiting": 3,
-    "rejected_unresolved_title": 0,
+    "checked": 30,
+    "success": 0,
+    "not_found": 0,
+    "failed": 0,
+    "blocked": 30,
+    "added": 0,
+    "retry_waiting": 207,
+    "rejected_unresolved_title": 2,
     "workers": 6,
-    "elapsed_sec": 43.3
+    "elapsed_sec": 3.1
   },
   "code_only_title_repair_v1": {
-    "last_run": 1794281964,
-    "rolled_back_generic_or_ambiguous": 4,
-    "pending_before": 521,
-    "due": 481,
+    "last_run": 1794311250,
+    "rolled_back_generic_or_ambiguous": 0,
+    "pending_before": 519,
+    "due": 519,
     "tried": 40,
     "repaired": 0,
     "stored_repaired": 0,
     "walker_repaired": 0,
     "web_repaired": 0,
-    "pending_after": 521,
+    "pending_after": 519,
     "examples": [],
     "attempts": {
       "FC2-PPV-4994286": 1793911888,
       "FC2-PPV-4994050": 1793911888,
       "FC2-PPV-4993187": 1793911888,
       "FC2-PPV-4991147": 1793911888,
-      "FC2-PPV-4990511": 1794281491,
-      "FC2-PPV-4990430": 1794281491,
-      "FC2-PPV-4989948": 1794281491,
-      "FC2-PPV-4989588": 1794281491,
-      "FC2-PPV-4986734": 1794281491,
-      "FC2-PPV-4984078": 1794281491,
+      "FC2-PPV-4990511": 1794311250,
+      "FC2-PPV-4990430": 1794311250,
+      "FC2-PPV-4989948": 1794311250,
+      "FC2-PPV-4989588": 1794311250,
+      "FC2-PPV-4986734": 1794311250,
+      "FC2-PPV-4984078": 1794311250,
       "FC2-PPV-4981668": 1793214591,
       "FC2-PPV-4981561": 1793290609,
-      "FC2-PPV-4979809": 1794281491,
-      "FC2-PPV-4979379": 1794281491,
-      "FC2-PPV-4978784": 1794281491,
-      "FC2-PPV-4976255": 1794281491,
+      "FC2-PPV-4979809": 1794311250,
+      "FC2-PPV-4979379": 1794311250,
+      "FC2-PPV-4978784": 1794311250,
+      "FC2-PPV-4976255": 1794311250,
       "FC2-PPV-4975798": 1793258171,
-      "FC2-PPV-4975620": 1794281491,
-      "FC2-PPV-4975541": 1794281491,
-      "FC2-PPV-4974654": 1794281491,
+      "FC2-PPV-4975620": 1794311250,
+      "FC2-PPV-4975541": 1794311250,
+      "FC2-PPV-4974654": 1794311250,
       "FC2-PPV-4972817": 1793958831,
       "FC2-PPV-4971620": 1793478125,
-      "FC2-PPV-4971471": 1794281491,
+      "FC2-PPV-4971471": 1794311250,
       "FC2-PPV-4969499": 1793958831,
       "FC2-PPV-4966790": 1793958831,
-      "FC2-PPV-4966335": 1794281491,
-      "FC2-PPV-4964113": 1794281491,
+      "FC2-PPV-4966335": 1794311250,
+      "FC2-PPV-4964113": 1794311250,
       "FC2-PPV-4963849": 1793214591,
       "FC2-PPV-4963424": 1793214591,
       "FC2-PPV-4963332": 1793214591,
@@ -902022,16 +902167,16 @@
       "FC2-PPV-4957254": 1793081994,
       "FC2-PPV-4955809": 1793081994,
       "FC2-PPV-4949533": 1793258171,
-      "FC2-PPV-4948688": 1794281491,
-      "FC2-PPV-4948574": 1794281491,
-      "FC2-PPV-4948493": 1794281491,
-      "FC2-PPV-4946175": 1794281491,
-      "FC2-PPV-4945643": 1794281491,
-      "FC2-PPV-4944163": 1794281491,
+      "FC2-PPV-4948688": 1794311250,
+      "FC2-PPV-4948574": 1794311250,
+      "FC2-PPV-4948493": 1794311250,
+      "FC2-PPV-4946175": 1794311250,
+      "FC2-PPV-4945643": 1794311250,
+      "FC2-PPV-4944163": 1794311250,
       "FC2-PPV-4943074": 1793242399,
       "FC2-PPV-4942297": 1793242399,
       "FC2-PPV-4942095": 1793792151,
-      "FC2-PPV-4941930": 1794281491,
+      "FC2-PPV-4941930": 1794311250,
       "FC2-PPV-4940812": 1793311293,
       "FC2-PPV-4939030": 1793242399,
       "FC2-PPV-4938657": 1793242399,
@@ -902040,7 +902185,7 @@
       "FC2-PPV-4937199": 1793242399,
       "FC2-PPV-4937122": 1793311293,
       "FC2-PPV-4936328": 1793242399,
-      "FC2-PPV-4934366": 1794281491,
+      "FC2-PPV-4934366": 1794311250,
       "FC2-PPV-4933544": 1793838343,
       "FC2-PPV-4933213": 1793311293,
       "FC2-PPV-4933052": 1793311293,
@@ -902094,37 +902239,37 @@
       "FC2-PPV-4910394": 1793349475,
       "FC2-PPV-4909453": 1793147575,
       "FC2-PPV-4908959": 1793311734,
-      "FC2-PPV-4908701": 1794281491,
+      "FC2-PPV-4908701": 1794311250,
       "FC2-PPV-4908423": 1793824599,
       "FC2-PPV-4908416": 1793375655,
       "FC2-PPV-4908412": 1793824599,
-      "FC2-PPV-4907806": 1794281491,
+      "FC2-PPV-4907806": 1794311250,
       "FC2-PPV-4906732": 1793885176,
-      "FC2-PPV-4906444": 1794281491,
+      "FC2-PPV-4906444": 1794311250,
       "FC2-PPV-4904881": 1793824599,
       "FC2-PPV-4903955": 1792970689,
-      "FC2-PPV-4903657": 1794281491,
+      "FC2-PPV-4903657": 1794311250,
       "FC2-PPV-4903051": 1792970689,
-      "FC2-PPV-4902139": 1794281491,
-      "FC2-PPV-4902092": 1794281491,
-      "FC2-PPV-4901921": 1794281491,
+      "FC2-PPV-4902139": 1794311250,
+      "FC2-PPV-4902092": 1794311250,
+      "FC2-PPV-4901921": 1794311250,
       "FC2-PPV-4901451": 1792970689,
-      "FC2-PPV-4901173": 1794281491,
+      "FC2-PPV-4901173": 1794311250,
       "FC2-PPV-4900904": 1793737559,
-      "FC2-PPV-4900512": 1794281491,
+      "FC2-PPV-4900512": 1794311250,
       "FC2-PPV-4899209": 1792970689,
       "FC2-PPV-4897534": 1794210483,
       "FC2-PPV-4897343": 1792970689,
-      "FC2-PPV-4896534": 1794281491,
+      "FC2-PPV-4896534": 1794311250,
       "FC2-PPV-4896108": 1793798129,
-      "FC2-PPV-4895224": 1794281491,
-      "FC2-PPV-4895221": 1794281491,
+      "FC2-PPV-4895224": 1794311250,
+      "FC2-PPV-4895221": 1794311250,
       "FC2-PPV-4894033": 1793798129,
       "FC2-PPV-4892594": 1792970689,
       "FC2-PPV-4887454": 1793798129,
       "FC2-PPV-4887442": 1793798129,
       "FC2-PPV-4886353": 1792970689,
-      "FC2-PPV-4886338": 1794281491,
+      "FC2-PPV-4886338": 1794311250,
       "FC2-PPV-4884922": 1792970689,
       "FC2-PPV-4884736": 1793798129,
       "FC2-PPV-4884522": 1792970689,
@@ -902227,7 +902372,7 @@
       "FC2-PPV-5001885": 1793911888,
       "FC2-PPV-5001646": 1793818631,
       "FC2-PPV-5001004": 1793911888,
-      "FC2-PPV-4979498": 1794281491,
+      "FC2-PPV-4979498": 1794311250,
       "FC2-PPV-4474582": 1794018344,
       "FC2-PPV-4465686": 1794018344,
       "FC2-PPV-4458008": 1794018344,
@@ -902258,7 +902403,9 @@
       "FC2-PPV-4790169": 1794177080,
       "FC2-PPV-4790112": 1794177080,
       "FC2-PPV-4789315": 1794177080,
-      "FC2-PPV-4789202": 1794177080
+      "FC2-PPV-4789202": 1794177080,
+      "FC2-PPV-5004146": 1794311250,
+      "FC2-PPV-5002293": 1794311250
     }
   }
 }
