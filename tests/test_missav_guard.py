@@ -64,6 +64,50 @@ class MissAVGuardTests(unittest.TestCase):
         self.assertEqual(result["status"], "unknown")
         self.assertEqual(result["reason"], "access_limited")
 
+    def test_challenge_at_correct_detail_url_is_unknown(self):
+        live = "https://missav.ws/ja/fc2-ppv-8000001"
+        for status in (200, 206):
+            with self.subTest(status=status), patch.object(
+                g, "_existence_request",
+                return_value=self.probe(status, live, access_limited=True),
+            ) as request:
+                result = g.Guard().probe("8000001", force=True)
+            self.assertEqual(result["status"], "unknown")
+            self.assertEqual(result["reason"], "access_limited")
+            self.assertNotIn("live_url", result)
+            request.assert_called_once()
+
+    def test_normal_200_at_correct_detail_url_is_alive(self):
+        live = "https://missav.ws/ja/fc2-ppv-8000001"
+        with patch.object(g, "_existence_request", return_value=self.probe(200, live)):
+            result = g.Guard().probe("8000001", force=True)
+        self.assertEqual(result["status"], "alive")
+        self.assertEqual(result["live_url"], live)
+
+    def test_prune_saved_keeps_challenged_items_without_invalidating(self):
+        code = "FC2-PPV-8000001"
+        live = "https://missav.ws/ja/fc2-ppv-8000001"
+        for metadata in ({}, {"source": "FC2公式"}):
+            with self.subTest(metadata=metadata):
+                item = {"code": code, "url": live, "sources": {"MissAV": live}, **metadata}
+                payload = {"updated_at": "old", "items": [item]}
+                history = {"ids": [code]}
+                m.save_json(m.DATA_FILE, payload)
+                m.save_json(m.HISTORY_FILE, history)
+                with patch.object(g, "_existence_request", return_value=self.probe(
+                    200, live, access_limited=True,
+                )), patch.object(g, "invalidate_missav_link") as invalidate:
+                    stats = g.prune_saved()
+                invalidate.assert_not_called()
+                self.assertEqual(stats["removed"], 0)
+                self.assertEqual(stats["protected"], 0)
+                self.assertEqual(stats["relinked"], 0)
+                self.assertEqual(m.load_json(m.DATA_FILE, {}), payload)
+                self.assertEqual(m.load_json(m.HISTORY_FILE, {}), history)
+                state = m.load_json(g.STATE_FILE, {})
+                self.assertEqual(state["checks"][code]["status"], "unknown")
+                self.assertEqual(state["last_audit"]["unknown"], 1)
+
     def test_new_items_are_fail_closed_and_live_items_are_relinked(self):
         guard = g.Guard()
         videos = [

@@ -34,6 +34,30 @@ def split_catalog() -> tuple[int, int]:
     if not isinstance(rows, list):
         raise RuntimeError("catalog.json does not contain an items array")
 
+    if payload.get("progressive"):
+        chunks = payload.get("chunks")
+        if not isinstance(chunks, list):
+            raise RuntimeError("progressive catalog does not contain a chunks array")
+        rows = list(rows)
+        seen = set()
+        for entry in chunks:
+            if not isinstance(entry, dict):
+                raise RuntimeError("invalid catalog chunk entry")
+            name = entry.get("url")
+            count = entry.get("count")
+            if (not isinstance(name, str)
+                    or not re.fullmatch(r"catalog-chunk-[0-9]{3,}\.json", name)
+                    or name in seen or type(count) is not int or count < 0):
+                raise RuntimeError("invalid catalog chunk metadata")
+            seen.add(name)
+            chunk = json.loads((DOCS / name).read_text(encoding="utf-8"))
+            part = chunk.get("items") if isinstance(chunk, dict) else None
+            if not isinstance(part, list) or len(part) != count:
+                raise RuntimeError(f"catalog chunk count mismatch: {name}")
+            rows.extend(part)
+        if type(payload.get("item_count")) is not int or len(rows) != payload["item_count"]:
+            raise RuntimeError("catalog item_count mismatch")
+
     for old in DOCS.glob("catalog-chunk-*.json"):
         old.unlink()
 
@@ -61,15 +85,6 @@ HELPERS = r'''
   const catalogPaintPause = (ms = 0) => new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, ms)));
   });
-  async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
-  }
   async function fetchCatalogChunks(payload, onChunk = null) {
     const chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
     if (!chunks.length)
@@ -88,9 +103,7 @@ HELPERS = r'''
           // The version query makes each deploy immutable. Reusing a previously
           // downloaded chunk is much faster than forcing the archive over the
           // wire again on every reload.
-          const response = await fetchWithTimeout(url, { cache: "force-cache" }, mobile ? 12000 : 15000);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const chunk = await response.json();
+          const chunk = await fetchWithTimeout(url, { cache: "force-cache" }, mobile ? CATALOG_TIMEOUT_MS : 15000);
           if (!Array.isArray(chunk.items)) throw new Error("invalid data");
           return chunk.items;
         } catch (err) {
@@ -206,20 +219,12 @@ def patch_site_js() -> None:
             raise RuntimeError("site.js loadCatalog marker changed; refusing unsafe patch")
         source = source.replace(marker, HELPERS + "\n" + marker, 1)
 
-    old = """      const payload = await response.json();\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");"""
-    new = """      const payload = await response.json();\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");\n      // Background refresh keeps the old complete feed visible until the new\n      // version is fully available. A partial deploy must never replace it.\n      if (background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const archive = await fetchCatalogChunks(payload);\n        if (archive.failed) throw new Error(\"Incomplete catalog deployment\");\n        payload.items = payload.items.concat(archive.rows);\n      }"""
+    old = """      const payload = await fetchWithTimeout(url, { cache: \"no-cache\" });\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");"""
+    new = """      const payload = await fetchWithTimeout(url, { cache: \"no-cache\" });\n      if (!Array.isArray(payload.items)) throw new Error(\"Invalid catalog\");\n      // Background refresh keeps the old complete feed visible until the new\n      // version is fully available. A partial deploy must never replace it.\n      if (background && Array.isArray(payload.chunks) && payload.chunks.length) {\n        const archive = await fetchCatalogChunks(payload);\n        if (archive.failed) throw new Error(\"Incomplete catalog deployment\");\n        payload.items = payload.items.concat(archive.rows);\n      }"""
     if old in source:
         source = source.replace(old, new, 1)
     elif "Background refresh keeps the old complete feed visible" not in source:
         raise RuntimeError("site.js payload marker changed; refusing unsafe patch")
-
-    # Bound the small manifest request too. A stalled mobile connection must
-    # fall into the existing retry UI rather than leaving skeletons forever.
-    source = source.replace(
-        '      const response = await fetch(url, { cache: "no-cache" });',
-        '      const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);',
-        1,
-    )
 
     # The manifest knows the real total. Do not make the header look like the
     # catalog only contains the first-paint rows.
@@ -239,10 +244,12 @@ def patch_site_js() -> None:
     SITE_JS.write_text(source, encoding="utf-8")
 
 
-def sync_generated_asset_version() -> str:
+def sync_generated_asset_version(index: Path | None = None, site_js: Path | None = None) -> str:
     """Cache-bust the generated JS using the bytes that are actually deployed."""
-    text = INDEX.read_text(encoding="utf-8")
-    js_version = hashlib.sha256(SITE_JS.read_bytes()).hexdigest()[:12]
+    index = INDEX if index is None else index
+    site_js = SITE_JS if site_js is None else site_js
+    text = index.read_text(encoding="utf-8")
+    js_version = hashlib.sha256(site_js.read_bytes()).hexdigest()[:12]
     text, count = re.subn(r'(site\.js\?v=)[^"\s]+', rf'\g<1>{js_version}', text, count=1)
     if count != 1:
         raise RuntimeError("index.html site.js version marker missing")
@@ -255,7 +262,7 @@ def sync_generated_asset_version() -> str:
         count=1,
         flags=re.S,
     )
-    INDEX.write_text(text, encoding="utf-8")
+    index.write_text(text, encoding="utf-8")
     return js_version
 
 

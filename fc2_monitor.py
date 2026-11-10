@@ -9,7 +9,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit, quote_plus, parse_qs
+from urllib.parse import urljoin, urlsplit, urlparse, quote_plus, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
@@ -123,20 +123,24 @@ def load_json(path: Path, default):
         return json.load(f)
 
 
-def save_json(path: Path, payload) -> None:
+def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
                                          suffix=".tmp", delete=False) as f:
             temporary = Path(f.name)
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+            f.write(text)
+            f.flush()
         temporary.chmod(path.stat().st_mode & 0o777 if path.exists() else 0o644)
-        temporary.replace(path)
+        os.replace(temporary, path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def save_json(path: Path, payload) -> None:
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def send_telegram(text: str, photo=None) -> None:
@@ -188,7 +192,9 @@ def fetch_soup(url: str):
     res = requests.get(url, headers=HEADERS, timeout=30)
     record_source_denial(url, res.status_code)
     res.raise_for_status()
-    return BeautifulSoup(res.text, "html.parser")
+    soup = BeautifulSoup(res.text, "html.parser")
+    soup.__dict__["_response_url"] = str(res.url or url)
+    return soup
 
 
 def fetch_page(url: str) -> dict:
@@ -407,6 +413,20 @@ def extra_sources(code_num: str) -> dict:
     }
 
 
+def _has_other_work_only(text: str, code_num: str, *, path=False) -> bool:
+    """Check explicit identifiers without matching a target inside a longer number."""
+    numbers = re.findall(r"(?<!\d)\d+(?!\d)", text) if path else re.findall(
+        r"FC2[-_ ]?(?:PPV[-_ ]?)?((?<!\d)\d+)(?!\d)", text, re.I)
+    return bool(numbers) and re.search(
+        rf"(?<!\d){re.escape(str(code_num))}(?!\d)", text) is None
+
+
+def _title_response_matches(final_url: str, requested_url: str, code_num: str) -> bool:
+    final, requested = urlsplit(final_url), urlsplit(requested_url)
+    return (final.hostname == requested.hostname
+            and not _has_other_work_only(final.path, code_num, path=True))
+
+
 def extract_page_title(soup, code_num: str) -> str:
     parts = []
     for tag in (soup.find("meta", attrs={"property": "og:title"}), soup.find("meta", attrs={"name": "twitter:title"})):
@@ -417,6 +437,11 @@ def extract_page_title(soup, code_num: str) -> str:
     h1 = soup.find("h1")
     if h1:
         parts.append(h1.get_text(" ", strip=True))
+    if _has_other_work_only(" ".join(parts), code_num):
+        return ""
+    canonical = soup.find("link", rel="canonical", href=True)
+    if canonical and _has_other_work_only(urlsplit(canonical["href"]).path, code_num, path=True):
+        return ""
     for raw in parts:
         title = clean_title(raw, code_num)
         if title_score(title)[0] >= 3:
@@ -818,7 +843,9 @@ def refresh_japanese_titles(items) -> None:
                 soup = fetch_soup(url)
                 host_errors[host] = 0
                 found = (extract_search_title(soup, code_num) if source != "MissAV"
-                         else extract_page_title(soup, code_num))
+                         else (extract_page_title(soup, code_num)
+                               if _title_response_matches(
+                                   soup.__dict__.get("_response_url", url), url, code_num) else ""))
                 if found and not needs_jp_title(found) and is_better_title(found, item.get("title", "")):
                     print(f"[Japanese title] code={code} source={source}")
                     item["title"] = found
@@ -1049,6 +1076,16 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
 
 def scrape_javdb(pages=None, completed_pages=None, report=None):
     """Independent discovery; access denials stop the source's current batch."""
+    def detail_url(anchor):
+        full = urljoin(info.get("final_url") or "https://javdb.com/", anchor.get("href") or "")
+        parsed = urlsplit(full)
+        host = parsed.hostname or ""
+        if (parsed.scheme in ("http", "https")
+                and (host == "javdb.com" or host.endswith(".javdb.com"))
+                and parsed.path.startswith("/v/")):
+            return full
+        return None
+
     collected = {}
     for page_no in (pages or [1, 2]):
         sep = "&" if "?" in JAVDB_URL else "?"
@@ -1065,15 +1102,23 @@ def scrape_javdb(pages=None, completed_pages=None, report=None):
         before = len(collected)
         recognized = False
         for a in soup.find_all("a", href=True):
+            full = detail_url(a)
+            if not full:
+                continue
             href = a.get("href") or ""
-            parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
-            raw = " ".join([a.get("title") or "", a.get_text(" ", strip=True), parent_text, href])
+            raw = " ".join([a.get("title") or "", a.get_text(" ", strip=True), href])
             m = CODE_RE.search(raw)
+            if not m and a.parent:
+                parent_text = a.parent.get_text(" ", strip=True)
+                codes = set(CODE_RE.findall(parent_text))
+                details = [link for link in a.parent.find_all("a", href=True) if detail_url(link)]
+                if len(codes) == 1 and len(details) == 1 and details[0] is a:
+                    raw = parent_text
+                    m = CODE_RE.search(raw)
             if not m:
                 continue
             recognized = True
             num = m.group(1)
-            full = href if href.startswith("http") else urljoin(info.get("final_url") or "https://javdb.com/", href)
             title = clean_title(raw, num)
             cur = collected.get(num)
             if not cur:
@@ -1163,6 +1208,29 @@ def _number_value(raw):
         return None
 
 
+_RATING_NUMBER = r"(?<![\d.])[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?(?![\d.eE])"
+_RATING_CANDIDATE = rf"{_RATING_NUMBER}(?:\s*/\s*{_RATING_NUMBER})?(?!\s*/)"
+
+
+def _rating_value(raw, best_rating=None):
+    """Validate a whole rating without changing shared review-count parsing."""
+    if raw is None or not re.fullmatch(_RATING_CANDIDATE, str(raw).strip()):
+        return None
+    parts = re.split(r"\s*/\s*", str(raw).strip())
+    value = float(parts[0])
+    if not 0 <= value <= 5:
+        return None
+    if len(parts) == 2 and float(parts[1]) != 5:
+        return None
+    if best_rating is not None:
+        try:
+            if float(best_rating) != 5:
+                return None
+        except (TypeError, ValueError):
+            return None
+    return value
+
+
 def extract_fc2_market_rating(soup, text: str):
     """Read FC2 rating from structured data/meta first, then visible text."""
     # Schema.org / JSON-LD is more stable than translated visible labels.
@@ -1180,34 +1248,40 @@ def extract_fc2_market_rating(soup, text: str):
                 continue
             agg = node.get("aggregateRating")
             if isinstance(agg, dict):
-                value = _number_value(agg.get("ratingValue"))
+                value = _rating_value(agg.get("ratingValue"), agg.get("bestRating"))
                 if value is not None and 0 <= value <= 5:
                     return round(value, 2)
-        m = re.search(r'["\']ratingValue["\']\s*:\s*["\']?([0-5](?:\.\d+)?)', body, re.I)
-        if m:
-            return float(m.group(1))
+        scale = re.search(r"[\"']bestRating[\"']\s*:\s*[\"']?([^\s,}\"']+)", body, re.I)
+        for match in re.finditer(
+            rf"[\"']ratingValue[\"']\s*:\s*[\"']?({_RATING_CANDIDATE})", body, re.I
+        ):
+            value = _rating_value(match.group(1), scale.group(1) if scale else None)
+            if value is not None:
+                return value
 
     for attr in (
         {"itemprop": "ratingValue"},
         {"property": "ratingValue"},
         {"name": "ratingValue"},
     ):
-        tag = soup.find(attrs=attr)
-        if tag:
+        for tag in soup.find_all(attrs=attr):
             raw = tag.get("content") or tag.get("value") or tag.get_text(" ", strip=True)
-            value = _number_value(raw)
+            scale = tag.parent.find(attrs={"itemprop": "bestRating"}) if tag.parent else None
+            best = (scale.get("content") or scale.get_text(" ", strip=True)) if scale else None
+            value = _rating_value(raw, best)
             if value is not None and 0 <= value <= 5:
                 return round(value, 2)
 
     patterns = (
-        r"(?:Average\s*Rating|平均評価|評価)\s*[:：]?\s*([0-5](?:\.\d+)?)\s*(?:/\s*5)?",
-        r"([0-5](?:\.\d+)?)\s*/\s*5",
-        r"5\s*点満点(?:中|で)?\s*([0-5](?:\.\d+)?)",
+        rf"(?:Average\s*Rating|平均評価|評価)\s*[:：]?\s*({_RATING_CANDIDATE})(?!\s*(?:件|人|reviews?\b|ratings?\b))",
+        rf"({_RATING_NUMBER}\s*/\s*{_RATING_NUMBER})",
+        rf"5\s*点満点(?:中|で)?\s*({_RATING_CANDIDATE})",
     )
     for pat in patterns:
-        m = re.search(pat, text, re.I)
-        if m:
-            return float(m.group(1))
+        for match in re.finditer(pat, text, re.I):
+            value = _rating_value(match.group(1))
+            if value is not None:
+                return value
     return None
 
 
@@ -1282,8 +1356,12 @@ def fetch_fc2_market(code_num):
     # FC2 can omit the numeric ID from visible text/metadata even while the
     # requested article URL itself is valid. The old check rejected those
     # pages and caused "status=200" followed by updated=0.
-    article_path_ok = f"/article/{code_num}" in final_url
-    code_visible = str(code_num) in (raw_html + " " + text)
+    parsed_url = urlparse(final_url)
+    article_path_ok = (
+        parsed_url.hostname == "adult.contents.fc2.com"
+        and re.match(rf"^/article/{re.escape(str(code_num))}(?:/|$)", parsed_url.path) is not None
+    )
+    code_visible = re.search(rf"(?<!\d){re.escape(str(code_num))}(?!\d)", raw_html + " " + text) is not None
     if not article_path_ok and not code_visible:
         print(f"[FC2 Market] FC2-PPV-{code_num} rejected final_url={final_url}")
         return {**access, "outcome": "failed", "reason": "unexpected_page"}
@@ -1374,7 +1452,18 @@ def _fc2cmadb_title_from_payload(payload, code_num: str) -> str:
     article = _fc2cmadb_article(payload)
     if not isinstance(article, dict):
         return ""
+    for key in ("article_id", "code", "code_num", "fc2_id"):
+        value = article.get(key)
+        if value is not None and _has_other_work_only(str(value), code_num, path=True):
+            return ""
+    for node in (payload, article):
+        for key in ("url", "article_url"):
+            value = node.get(key)
+            if isinstance(value, str) and _has_other_work_only(urlsplit(value).path, code_num, path=True):
+                return ""
     raw = article.get("title") or article.get("name") or ""
+    if _has_other_work_only(str(raw), code_num):
+        return ""
     title = clean_title(str(raw), code_num)
     # The fallback is specifically for Japanese titles. Do not replace a title
     # with Chinese-only text from the mirror.
@@ -1419,7 +1508,7 @@ def fetch_fc2cmadb_title(code_num: str):
             if payload is None:
                 payload = _fc2cmadb_payload_from_html(res.text or "")
             title = _fc2cmadb_title_from_payload(payload, code_num)
-            if title:
+            if title and _title_response_matches(str(res.url or url), url, code_num):
                 print(f"[FC2CMADB] FC2-PPV-{code_num} status=200 title=True")
                 return {"title": title, "url": str(res.url or url)}
         except Exception as e:
@@ -2504,11 +2593,11 @@ def write_site(items, updated_at, new_count, update_status=None):
     payload = catalog_payload(items, updated_at, update_status)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     payload["version"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-    (HTML_FILE.parent / "catalog.json").write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    atomic_write_text(HTML_FILE.parent / "catalog.json",
+                      json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     for name in ("site.css", "site.js"):
         shutil.copyfile(WEB_DIR / name, HTML_FILE.parent / name)
-    HTML_FILE.write_text(render_html(items, updated_at, new_count), encoding="utf-8")
+    atomic_write_text(HTML_FILE, render_html(items, updated_at, new_count))
     save_json(HTML_FILE.parent / "update.json", {
         "version": payload["version"], "updated_at": updated_at,
         "item_count": len(items), "new_count": new_count,

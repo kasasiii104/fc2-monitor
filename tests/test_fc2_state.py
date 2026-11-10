@@ -120,6 +120,44 @@ class OfficialStateTests(unittest.TestCase):
                 self.assertEqual(result['outcome'], outcome)
                 self.assertEqual(result['http_status'], info['status'])
 
+    def fetch_identity_page(self, final_url, body):
+        markup = f'<html><body>{body}</body></html>'
+        info = {'ok': True, 'status': 200, 'final_url': final_url,
+                'text': markup, 'soup': m.BeautifulSoup(markup, 'html.parser')}
+        with patch.object(m, 'fetch_page', return_value=info):
+            return m.fetch_fc2_market('1234')
+
+    def assert_unexpected_identity(self, final_url, body):
+        result = self.fetch_identity_page(final_url, body)
+        self.assertEqual(result['outcome'], 'failed')
+        self.assertEqual(result['reason'], 'unexpected_page')
+        self.assertNotIn('not_found', result)
+
+    def test_market_identity_rejects_longer_article_code(self):
+        self.assert_unexpected_identity('https://adult.contents.fc2.com/article/12345/', '作品 12345')
+
+    def test_market_identity_rejects_embedded_body_code(self):
+        self.assert_unexpected_identity('https://adult.contents.fc2.com/search/', '作品 51234')
+
+    def test_market_identity_accepts_article_with_query(self):
+        result = self.fetch_identity_page('https://adult.contents.fc2.com/article/1234/?lang=ja', '作品 1234')
+        self.assertEqual(result['outcome'], 'success')
+
+    def test_market_identity_accepts_article_without_body_code(self):
+        for suffix in ('', '/', '/?lang=ja'):
+            with self.subTest(suffix=suffix):
+                result = self.fetch_identity_page(f'https://adult.contents.fc2.com/article/1234{suffix}', '作品紹介')
+                self.assertEqual(result['outcome'], 'success')
+
+    def test_market_identity_rejects_other_host_article(self):
+        for host in ('example.com', 'adult.contents.fc2.com.example.com'):
+            with self.subTest(host=host):
+                self.assert_unexpected_identity(f'https://{host}/article/1234/', '作品紹介')
+
+    def test_market_identity_accepts_bounded_body_code(self):
+        result = self.fetch_identity_page('https://adult.contents.fc2.com/search/', '作品 FC2-1234 番号')
+        self.assertEqual(result['outcome'], 'success')
+
     def test_review_only_response_does_not_relabel_fallback_rating(self):
         item = self.item(fc2_rating=4.2, fc2_rating_source='FC2ウォーカー')
         with patch.object(m, 'fetch_fc2_market', return_value={'fc2_review_count': 7}):

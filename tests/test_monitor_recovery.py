@@ -106,12 +106,15 @@ class MonitorRecoveryTests(unittest.TestCase):
 
     def test_blocked_and_unrecognized_pages_are_not_completed(self):
         good = BeautifulSoup('<a href="/fc2-ppv-8000001">サンプル</a>', 'html.parser')
+        javdb_good = BeautifulSoup('<a href="/v/abc">FC2-PPV-8000001 サンプル</a>', 'html.parser')
         empty = BeautifulSoup('<html><body>Unavailable</body></html>', 'html.parser')
 
         def page(url):
             number = int(parse_qs(urlsplit(url).query).get('page', ['1'])[0])
             return {'ok': number != 2, 'status': 403 if number == 2 else 200,
-                    'cloudflare': number == 2, 'soup': good if number == 1 else empty, 'final_url': url}
+                    'cloudflare': number == 2,
+                    'soup': (javdb_good if urlsplit(url).hostname == 'javdb.com' else good) if number == 1 else empty,
+                    'final_url': url}
 
         for scraper in (m.scrape_missav_catalog, m.scrape_javdb):
             completed = set()

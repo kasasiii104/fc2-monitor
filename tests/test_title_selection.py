@@ -84,6 +84,81 @@ class TitleSelectionTests(unittest.TestCase):
         ''', 'html.parser')
         self.assertEqual(m.extract_page_title(soup, '8000001'), 'サンプル作品')
 
+    def test_detail_numberless_titles_ignore_related_work_identifiers(self):
+        soup = BeautifulSoup('''
+            <meta property="og:title" content="サンプル作品">
+            <meta name="twitter:title" content="サンプル作品">
+            <title>サンプル作品</title><h1>サンプル作品</h1>
+            <section><a href="/ja/fc2-ppv-8000002">FC2-PPV-8000002 関連作品</a></section>
+            <h1>FC2-PPV-8000002 関連作品</h1>
+        ''', 'html.parser')
+        self.assertEqual(m.extract_page_title(soup, '8000001'), 'サンプル作品')
+
+    def test_detail_rejects_other_work_in_title_candidates(self):
+        for tag in ('<meta property="og:title" content="FC2-PPV-8000002 サンプル作品">',
+                    '<meta name="twitter:title" content="FC2-PPV-8000002 サンプル作品">',
+                    '<title>FC2-PPV-8000002 サンプル作品</title>',
+                    '<h1>FC2-PPV-8000002 サンプル作品</h1>'):
+            with self.subTest(tag=tag):
+                soup = BeautifulSoup(tag + '<p>FC2-PPV-8000001</p>', 'html.parser')
+                self.assertEqual(m.extract_page_title(soup, '8000001'), '')
+
+    def test_detail_rejects_other_work_canonical_path(self):
+        for path in ('/ja/fc2-ppv-8000002', '/articles/8000002', '/ja/fc2-ppv-18000001'):
+            with self.subTest(path=path):
+                soup = BeautifulSoup(
+                    '<h1>FC2-PPV-8000001 サンプル作品</h1>'
+                    f'<link rel="canonical" href="https://missav.ws{path}?q=8000001">',
+                    'html.parser')
+                self.assertEqual(m.extract_page_title(soup, '8000001'), '')
+        for href in ('/ja/fc2-ppv-8000001', '/ja/detail?q=8000002'):
+            with self.subTest(href=href):
+                soup = BeautifulSoup(
+                    f'<h1>サンプル作品</h1><link rel="canonical" href="{href}">', 'html.parser')
+                self.assertEqual(m.extract_page_title(soup, '8000001'), 'サンプル作品')
+
+    def test_detail_response_identity_and_legacy_numberless_titles(self):
+        for final_url, body, accepted in (
+            ('https://missav.ws/ja/fc2-ppv-8000002', 'サンプル作品', False),
+            ('https://outside.test/ja/fc2-ppv-8000001', 'サンプル作品', False),
+            ('https://missav.ws/ja/fc2-ppv-18000001', 'サンプル作品', False),
+            ('https://missav.ws/ja/fc2-ppv-8000001', 'FC2-PPV-8000002 サンプル作品', False),
+            ('https://missav.ws/ja/fc2-ppv-8000001', 'FC2-PPV-8000001 サンプル作品', True),
+            ('https://missav.ws/ja/detail', 'サンプル作品', True),
+        ):
+            with self.subTest(final_url=final_url, body=body):
+                m.save_json(m.FETCH_STATE_FILE, {})
+                item = self.item()
+                response = Mock(status_code=200, text='<h1>' + body + '</h1>', url=final_url)
+                empty = BeautifulSoup('', 'html.parser')
+                real_fetch = m.fetch_soup
+                with patch.object(m.requests, 'get', return_value=response), patch.object(
+                        m, 'fetch_soup', side_effect=lambda url: real_fetch(url)
+                        if url.startswith('https://missav.ws/') else empty) as fetch:
+                    m.refresh_japanese_titles([item])
+                self.assertEqual(item.get('title_source') == 'MissAV', accepted)
+                self.assertEqual(fetch.call_count, 1 if accepted else 5)
+
+    def test_fc2cmadb_identity_and_numberless_payload(self):
+        for article, path, accepted in (
+            ({'article_id': 8000002}, '/articles/8000001', False),
+            ({'article_id': 18000001}, '/articles/8000001', False),
+            ({'url': '/articles/8000002'}, '/articles/8000001', False),
+            ({'article_id': 8000001}, '/articles/8000002', False),
+            ({'article_id': 8000001}, '/articles/8000001', True),
+            ({}, '/articles/detail', True),
+            ({'id': 99999}, '/articles/detail', True),
+        ):
+            with self.subTest(article=article, path=path):
+                payload = {'props': {'article': dict(article, title='サンプル作品')}}
+                response = Mock(status_code=200, headers={'content-type': 'application/json'},
+                                text='{}', url=m.FC2CMADB_URL + path)
+                response.json.return_value = payload
+                with patch.object(m.requests, 'get', return_value=response) as get:
+                    result = m.fetch_fc2cmadb_title('8000001')
+                self.assertEqual(bool(result and result.get('title')), accepted)
+                self.assertEqual(get.call_count, 1 if accepted else 2)
+
     def test_restores_official_title_without_changing_access_or_other_metadata(self):
         item = self.item('長いサンプル作品の仮タイトル - MissAV | オンラインで無料',
                          fc2_title='公式のサンプル', title_source='MissAV',

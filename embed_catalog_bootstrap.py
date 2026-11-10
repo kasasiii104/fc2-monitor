@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from optimize_public_catalog import sync_generated_asset_version
+
 INDEX = Path("docs/index.html")
 CATALOG = Path("docs/catalog.json")
 SITE_JS = Path("docs/site.js")
@@ -20,16 +22,17 @@ END = "<!-- catalog-bootstrap:end -->"
 BOOTSTRAP_GLOBAL = "__FC2_CATALOG_BOOTSTRAP__"
 
 
-def patch_loader() -> None:
+def patch_loader() -> bool:
     if not SITE_JS.exists():
         raise SystemExit("docs/site.js is missing")
     source = SITE_JS.read_text(encoding="utf-8")
+    original = source
 
     # The old bootstrap temporarily replaced window.fetch and manufactured a
     # Response object. That adds an unnecessary compatibility layer on iOS.
     # Read the already-parsed embedded payload directly for the first paint.
-    marker = '''      const url = new URL(document.body.dataset.catalog, document.baseURI);\n      if (expectedVersion) url.searchParams.set("v", expectedVersion);\n      const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);\n      if (!response.ok) throw new Error("HTTP " + response.status);\n      const payload = await response.json();'''
-    replacement = '''      let payload = null;\n      if (!background && window.__FC2_CATALOG_BOOTSTRAP__ &&\n          Array.isArray(window.__FC2_CATALOG_BOOTSTRAP__.items)) {\n        payload = window.__FC2_CATALOG_BOOTSTRAP__;\n        window.__FC2_CATALOG_BOOTSTRAP__ = null;\n      } else {\n        const url = new URL(document.body.dataset.catalog, document.baseURI);\n        if (expectedVersion) url.searchParams.set("v", expectedVersion);\n        const response = await fetchWithTimeout(url, { cache: "no-cache" }, 12000);\n        if (!response.ok) throw new Error("HTTP " + response.status);\n        payload = await response.json();\n      }'''
+    marker = '''      const url = new URL(document.body.dataset.catalog, document.baseURI);\n      if (expectedVersion) url.searchParams.set("v", expectedVersion);\n      const payload = await fetchWithTimeout(url, { cache: "no-cache" });'''
+    replacement = '''      let payload = null;\n      if (!background && window.__FC2_CATALOG_BOOTSTRAP__ &&\n          Array.isArray(window.__FC2_CATALOG_BOOTSTRAP__.items)) {\n        payload = window.__FC2_CATALOG_BOOTSTRAP__;\n        window.__FC2_CATALOG_BOOTSTRAP__ = null;\n      } else {\n        const url = new URL(document.body.dataset.catalog, document.baseURI);\n        if (expectedVersion) url.searchParams.set("v", expectedVersion);\n        payload = await fetchWithTimeout(url, { cache: "no-cache" });\n      }'''
     if marker in source:
         source = source.replace(marker, replacement, 1)
     elif "window.__FC2_CATALOG_BOOTSTRAP__" not in source:
@@ -49,7 +52,10 @@ def patch_loader() -> None:
         1,
     )
 
+    if source == original:
+        return False
     SITE_JS.write_text(source, encoding="utf-8")
+    return True
 
 
 def main() -> int:
@@ -113,7 +119,8 @@ def main() -> int:
         html = html.replace("</body>", bootstrap + "\n</body>", 1)
     INDEX.write_text(html, encoding="utf-8")
 
-    patch_loader()
+    if patch_loader():
+        sync_generated_asset_version(INDEX, SITE_JS)
     print(
         f"[Catalog bootstrap] embedded_bytes={len(encoded.encode('utf-8'))} "
         f"inline_items={len(payload.get('items') or [])} total={payload.get('item_count')} "

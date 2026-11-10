@@ -36,10 +36,26 @@ def is_code_only(item):
 
 
 def is_generic_page_title(title):
-    value = " ".join(str(title or "").split()).strip()
+    trim_chars = " \t\r\n-|｜–—:：・.…!！"
+    value = " ".join(str(title or "").split()).strip(trim_chars)
+    site_names = {"missav", "fc2", "fc2-ppv", "javdb", "fc2cmadb", "fc2ウォーカー"}
+    separators = list(re.finditer(r"\s*[|｜–—:：・-]\s*", value))
+    # Prefer the longest site name so FC2-PPV's hyphen is not a boundary.
+    separators.sort(key=lambda match: max(
+        len(value[:match.start()]) if value[:match.start()].casefold() in site_names else 0,
+        len(value[match.end():]) if value[match.end():].casefold() in site_names else 0,
+    ), reverse=True)
+    for separator in separators:
+        first, last = value[:separator.start()], value[separator.end():]
+        if first.casefold() in site_names:
+            value = last.strip(trim_chars)
+            break
+        if last.casefold() in site_names:
+            value = first.strip(trim_chars)
+            break
     if not value:
         return False
-    return bool(GENERIC_PAGE_RE.search(value)) or value.casefold() in {
+    return bool(GENERIC_PAGE_RE.fullmatch(value)) or value.casefold() in {
         "missav", "fc2", "fc2-ppv", "home", "search"
     }
 
@@ -123,14 +139,18 @@ def main():
     walker_cache = walker_cache if isinstance(walker_cache, dict) else {}
     now = m.now_ts()
 
-    # Undo false repairs from earlier fallback versions. Generic auth chrome is
-    # always invalid. MissAV repairs made by this lane that contain no kana are
-    # also rolled back because they may be Chinese or site chrome.
+    # Undo false repairs only when this lane's attempt and a repair source remain.
+    # MissAV repairs containing no kana may also be Chinese or site chrome.
     rolled_back = 0
     for item in items:
         code = item.get("code") or ""
         title = item.get("title") or ""
         if not code:
+            continue
+        prior_repair = code in attempts and item.get("title_source") in {
+            "取得元", "FC2ウォーカー", "MissAV"
+        }
+        if not prior_repair:
             continue
         prior_missav_attempt = item.get("title_source") == "MissAV" and code in attempts
         ambiguous_missav = prior_missav_attempt and not KANA_RE.search(title)

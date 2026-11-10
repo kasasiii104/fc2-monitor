@@ -162,6 +162,9 @@ class Guard:
             attempts += 1
             status = int(info.get("status") or 0)
             final_url = str(info.get("final_url") or url)
+            if info.get("access_limited"):
+                result = {"status": "unknown", "reason": "access_limited", "http_status": status}
+                break
             if status in (200, 206) and _correct_detail_destination(final_url, num):
                 result = {
                     "status": "alive",
@@ -173,9 +176,6 @@ class Guard:
             if status in (404, 410):
                 explicit_missing += 1
                 continue
-            if info.get("access_limited"):
-                result = {"status": "unknown", "reason": "access_limited", "http_status": status}
-                break
             if status in (200, 206):
                 result = {"status": "unknown", "reason": "unexpected_destination", "http_status": status}
                 break
