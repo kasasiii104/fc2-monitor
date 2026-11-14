@@ -363,7 +363,8 @@
           newest(a, b)
         );
       if (state.sort === "views")
-        return (b.views || 0) - (a.views || 0) || newest(a, b);
+        return (Number.isInteger(b.views) && b.views >= 0 ? b.views : -1) -
+          (Number.isInteger(a.views) && a.views >= 0 ? a.views : -1) || newest(a, b);
       if (state.sort === "long")
         return (b.duration_sec || 0) - (a.duration_sec || 0) || newest(a, b);
       if (state.sort === "short")
