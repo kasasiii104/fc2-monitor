@@ -50,7 +50,7 @@ class OfficialStateTests(unittest.TestCase):
         self.assertEqual(self.rec(item)['failures'], 1)
         self.assertEqual(item['fc2_rating'], 4.1)
         self.now += m.BACKFILL_RETRY_BASE_SEC
-        with patch.object(m, 'fetch_fc2_market', return_value={'outcome': 'failed', 'http_status': 429}):
+        with patch.object(m, 'fetch_fc2_market', return_value={'outcome': 'failed', 'http_status': 503}):
             m.run_continuous_metadata_backfill([item])
         self.assertEqual(self.rec(item)['failures'], 2)
         self.assertEqual(self.rec(item)['last_route'], 'backfill')
@@ -96,6 +96,81 @@ class OfficialStateTests(unittest.TestCase):
                 self.assertEqual(fetch.call_count, 1)
                 self.assertEqual(self.rec(item)['status'], 'not_found')
 
+    def test_not_found_thirty_day_boundary_and_renewal(self):
+        item = self.item()
+        with patch.object(m, 'fetch_fc2_market', return_value={'outcome': 'not_found'}) as fetch:
+            m.enrich_new_fc2_market([item])
+            self.assertEqual(self.rec(item)['not_found_at'], self.now)
+            self.now += 30 * 86400 - 1
+            m.run_continuous_metadata_backfill([item])
+            self.assertEqual(fetch.call_count, 1)
+            self.now += 1
+            m.run_continuous_metadata_backfill([item])
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(self.rec(item)['not_found_at'], self.now)
+            m.enrich_fc2_market([item])
+            self.assertEqual(fetch.call_count, 2)
+
+    def test_legacy_not_found_wait_and_backfill_limit(self):
+        items = [self.item(str(n), fc2_market_not_found=True) for n in range(100, 103)]
+        m.save_json(m.FETCH_STATE_FILE, {m.BACKFILL_ATTEMPTS_KEY: {
+            items[0]['code']: {'status': 'not_found', 'last_attempt': self.now - 90 * 86400}}})
+        with patch.object(m, 'fetch_fc2_market', return_value={'outcome': 'success', 'fc2_title': '復活作品'}) as fetch:
+            m.run_continuous_metadata_backfill(items)
+            fetch.assert_not_called()
+            for item in items:
+                self.assertEqual(self.rec(item)['not_found_at'], self.now)
+            self.now += 30 * 86400
+            with patch.object(m, 'BACKFILL_OFFICIAL_LIMIT', 1):
+                m.run_continuous_metadata_backfill(items)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(sum(not x['fc2_market_not_found'] for x in items), 1)
+
+    def test_legacy_not_found_without_last_attempt_is_not_selected(self):
+        for record in (None, {'status': 'not_found'}):
+            with self.subTest(record=record):
+                item = self.item(fc2_market_not_found=True)
+                attempts = {} if record is None else {item['code']: record}
+                m.save_json(m.FETCH_STATE_FILE, {m.BACKFILL_ATTEMPTS_KEY: attempts})
+                with patch.object(m, 'fetch_fc2_market') as fetch:
+                    m.run_continuous_metadata_backfill([item])
+                fetch.assert_not_called()
+                self.assertEqual(self.state()[m.CONTINUOUS_BACKFILL_STATS_KEY]['selected'], 0)
+                self.assertEqual(self.rec(item)['not_found_at'], self.now)
+
+    def test_not_found_rechecks_keep_original_stats_population(self):
+        regular = self.item('100')
+        waiting = self.item('101', fc2_market_not_found=True)
+        due = self.item('102', fc2_market_not_found=True)
+        m.save_json(m.FETCH_STATE_FILE, {m.BACKFILL_ATTEMPTS_KEY: {
+            due['code']: {'status': 'not_found', 'last_attempt': self.now - 30 * 86400,
+                          'not_found_at': self.now - 30 * 86400}}})
+        with patch.object(m, 'BACKFILL_OFFICIAL_LIMIT', 0), patch.object(m, 'fetch_fc2_market') as fetch:
+            m.run_continuous_metadata_backfill([regular, waiting, due])
+        fetch.assert_not_called()
+        stats = self.state()[m.CONTINUOUS_BACKFILL_STATS_KEY]
+        for key in ('candidates_before', 'untried_before', 'title_missing_before',
+                    'rating_missing_before', 'review_missing_before', 'remaining_candidates'):
+            self.assertEqual(stats[key], 1, key)
+        for key in ('retry_ready_before', 'retry_waiting_before'):
+            self.assertEqual(stats[key], 0, key)
+        self.assertEqual(stats['not_found_recheck_due'], 1)
+        self.assertEqual(stats['not_found_waiting'], 1)
+
+    def test_legacy_observation_persists_when_loader_caller_does_not_save(self):
+        for record in (None, {'status': 'not_found'}, {'status': 'failed'}):
+            with self.subTest(record=record):
+                item = self.item(fc2_market_not_found=True)
+                attempts = {} if record is None else {item['code']: record}
+                m.save_json(m.FETCH_STATE_FILE, {m.BACKFILL_ATTEMPTS_KEY: attempts})
+                observed = self.now
+                m.load_fc2_market_state([item])
+                self.assertEqual(self.rec(item)['not_found_at'], observed)
+                self.now += 30 * 86400
+                state = m.load_fc2_market_state([item])
+                self.assertTrue(m.fc2_market_due(item, state, self.now))
+                self.assertEqual(self.rec(item)['not_found_at'], observed)
+
     def test_migrates_success_and_newer_failure_without_replaying_access(self):
         items = [self.item('1234567'), self.item('2345678')]
         m.save_json(m.FETCH_STATE_FILE, {'fc2_market_checked': {x['code']: self.now - 60 for x in items},
@@ -112,7 +187,7 @@ class OfficialStateTests(unittest.TestCase):
 
     def test_http_outcomes_and_short_ekyc_redirect(self):
         for info, outcome in [({'status': 404}, 'not_found'), ({'status': 410}, 'not_found'),
-                              ({'status': 429}, 'failed'), ({'status': 403, 'cloudflare': True}, 'failed'),
+                              ({'status': 429}, 'blocked'), ({'status': 403, 'cloudflare': True}, 'blocked'),
                               ({'status': 0, 'error': 'timeout'}, 'failed'),
                               ({'status': 200, 'final_url': 'https://redirect.fc2.com/ekyc_auth'}, 'blocked')]:
             with self.subTest(info=info), patch.object(m, 'fetch_page', return_value=info):

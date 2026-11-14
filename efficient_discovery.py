@@ -38,21 +38,31 @@ def official_due(checks, code, now):
     return not checked or now - checked >= delay
 
 
-def verify_official(row, num, checks, now):
+def verify_official(row, num, checks, now, state=None):
     """Return alive/dead/deferred using FC2 itself as a second existence source."""
+    # Compatibility for standalone/test callers; main always passes its loaded state.
+    state = state if state is not None else m.load_json(m.FETCH_STATE_FILE, {})
+    if m.run_deadline_reached("official fallback", 1):
+        return "deferred", {}
+    if m.fc2_market_blocked(state, now):
+        return "blocked", {}
     try:
         meta = m.fetch_fc2_market(num)
     except Exception as exc:
         meta = {"outcome": "failed", "reason": type(exc).__name__}
     meta = meta or {"outcome": "failed", "reason": "empty_response"}
-    outcome = meta.get("outcome") or "failed"
+    result = m.record_fc2_market_result(row, meta, state, m.now_ts(), "efficient_discovery", candidate=True)
+    outcome = result["status"]
+    if outcome == "deferred":
+        return "deferred", meta
+    if meta.get("http_status") in (403, 429):
+        return "blocked", meta
     checks[row["code"]] = {
         "checked_at": now,
         "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "failed",
         "reason": meta.get("reason") or meta.get("blocked") or "",
     }
     if outcome == "success":
-        m.apply_fc2_market_metadata(row, meta, now)
         official_url = meta.get("fc2_market_url") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
         row.setdefault("sources", {})["FC2公式"] = official_url
         if m.discovery_source(row.get("url")) != "missav":
@@ -67,6 +77,10 @@ def verify_official(row, num, checks, now):
 
 
 def main():
+    m.initialize_run_deadline()
+    if m.run_deadline_reached("efficient_discovery.py"):
+        return 0
+    m.validate_state_files()
     started = time.monotonic()
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") or []
@@ -82,7 +96,7 @@ def main():
         )
     except Exception as exc:
         recent_pages = 0
-        print(f"[Walker discovery] recent_error={type(exc).__name__}")
+        print(f"[Walker discovery] recent_error={type(exc).__name__} count=1")
 
     state = m.load_json(m.FETCH_STATE_FILE, {})
     cache = state.get(m.H_WALKER_CACHE_KEY)
@@ -107,8 +121,11 @@ def main():
     rejected_missav_404 = cached_dead_skipped = deferred_unverified = verified = 0
     official_checked = official_added = official_not_found = official_deferred = 0
     official_blocked = False
+    official_carried = 0
     budget_exhausted = False
     for code, rec in unseen:
+        if m.run_deadline_reached("efficient_discovery.py", max(0, len(unseen) - verified)):
+            break
         if len(added) >= DISCOVERY_LIMIT:
             break
         if time.monotonic() - started >= DISCOVERY_BUDGET_SEC:
@@ -150,12 +167,13 @@ def main():
         # work when FC2 official confirms that the article still exists.
         can_official = (
             not official_blocked
+            and not m.fc2_market_blocked(state, m.now_ts())
             and official_checked < OFFICIAL_FALLBACK_LIMIT
             and official_due(official_checks, code, now)
         )
         if can_official:
             official_checked += 1
-            official_status, _ = verify_official(row, num, official_checks, now)
+            official_status, _ = verify_official(row, num, official_checks, now, state)
             if official_status == "alive":
                 items.append(row)
                 existing.add(code)
@@ -176,6 +194,8 @@ def main():
             deferred_unverified += 1
             continue
 
+        if m.fc2_market_blocked(state, m.now_ts()) and official_due(official_checks, code, now):
+            official_carried += 1
         if missav_dead_cached:
             # It is already known absent on MissAV and either official fallback
             # is not due or this run exhausted its bounded official budget.
@@ -185,6 +205,8 @@ def main():
             rejected_missav_404 += 1
             continue
 
+    if m.fc2_market_blocked(state, m.now_ts()):
+        m.log_fc2_carryover(state, official_carried)
     guard.save()
     # Keep official verification evidence bounded to currently useful history.
     official_checks = {

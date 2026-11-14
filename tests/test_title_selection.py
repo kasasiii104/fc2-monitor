@@ -14,6 +14,8 @@ import fc2_monitor as m
 
 class TitleSelectionTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
+        self.enterContext(patch.object(m, "_RUN_STARTED", None))
         directory = self.enterContext(tempfile.TemporaryDirectory())
         for name, filename in (('DATA_FILE', 'data.json'), ('FETCH_STATE_FILE', 'fetch.json'),
                                ('HTML_FILE', 'index.html')):
@@ -25,6 +27,16 @@ class TitleSelectionTests(unittest.TestCase):
 
     def item(self, title='中文測試作品', **extra):
         return {'code': 'FC2-PPV-8000001', 'code_num': '8000001', 'title': title, **extra}
+
+    def test_deadline_between_sources_does_not_record_failure(self):
+        item = self.item()
+        with patch.object(m, 'run_deadline_reached', side_effect=[False, False, True]), patch.object(m, 'fetch_soup', return_value=BeautifulSoup('', 'html.parser')) as fetch:
+            m.refresh_japanese_titles([item])
+        state = m.load_json(m.FETCH_STATE_FILE, {})
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(state['japanese_title_stats']['requests'], 1)
+        self.assertEqual(state['japanese_title_stats']['tried'], 0)
+        self.assertNotIn(item['code'], state['title_fail'])
 
     def test_chinese_hints_do_not_count_as_japanese(self):
         for title in ('无码人妻視頻在線觀看', '这个女孩们推荐作品', '中文字幕處女調教', '到11/18 1500分【150cm，巨乳】F罩杯25歲，剛成為藥劑師', '第一次拍照和露臉！陽光般光芒四射的東方美人', 'SNS粉絲數超過30萬！大腦錯誤。背部和傳教士'):
@@ -353,6 +365,47 @@ class TitleSelectionTests(unittest.TestCase):
         notify.assert_not_called()
         stats = m.load_json(m.FETCH_STATE_FILE, {})['japanese_title_repair_stats']
         self.assertEqual(stats['restored_from_snapshot'], 1)
+
+    def test_priority_helper_preserves_attempt_history(self):
+        import prioritize_title_backfill as helper
+        item = self.item()
+        rec = dict(last_attempt=1, attempts=7, failures=2, status='failed', next_retry_at=2)
+        m.save_json(m.DATA_FILE, {'items': [item]})
+        m.save_json(m.FETCH_STATE_FILE, {m.BACKFILL_ATTEMPTS_KEY: {item['code']: rec}})
+        helper.main()
+        state = m.load_json(m.FETCH_STATE_FILE, {})
+        self.assertEqual(state[m.BACKFILL_ATTEMPTS_KEY][item['code']], {**rec, 'title_priority': True})
+        m.validate_crawl_state(m.FETCH_STATE_FILE, state)
+
+    def test_priority_selection_respects_cooldown_and_limit(self):
+        items = [self.item(code=f'FC2-PPV-{n}', code_num=str(n)) for n in range(8000001, 8000005)]
+        records = {items[0]['code']: dict(last_attempt=1, title_priority=True),
+                   items[1]['code']: dict(last_attempt=m.now_ts(), next_retry_at=m.now_ts()+100, title_priority=True)}
+        m.save_json(m.FETCH_STATE_FILE, {m.BACKFILL_ATTEMPTS_KEY: records})
+        with patch.object(m, 'BACKFILL_OFFICIAL_LIMIT', 1), patch.object(m, 'fetch_fc2_market', return_value={'outcome': 'failed'}) as fetch:
+            m.run_continuous_metadata_backfill(items)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(fetch.call_args.args[0], '8000001')
+        saved = m.load_json(m.FETCH_STATE_FILE, {})[m.BACKFILL_ATTEMPTS_KEY]
+        self.assertNotIn('title_priority', saved[items[0]['code']])
+        self.assertTrue(saved[items[1]['code']]['title_priority'])
+
+    def test_priority_cleared_only_after_actual_attempt(self):
+        for meta in ({'outcome': 'success'}, {'outcome': 'failed'}, {'outcome': 'not_found'},
+                     {'http_status': 403}, {'http_status': 429}, {'outcome': 'deferred'}):
+            with self.subTest(meta=meta), patch.object(m, '_FC2_STOPPED_THIS_RUN', False):
+                item = self.item()
+                state = {m.BACKFILL_ATTEMPTS_KEY: {item['code']: {'title_priority': True}}}
+                with patch.object(m, 'fetch_fc2_market', return_value=meta):
+                    m.attempt_fc2_market(item, state, 'backfill')
+                self.assertEqual(bool(state[m.BACKFILL_ATTEMPTS_KEY][item['code']].get('title_priority')),
+                                 meta.get('outcome') == 'deferred' or meta.get('http_status') in (403, 429))
+        for blocked in (False, True):
+            state = {m.BACKFILL_ATTEMPTS_KEY: {item['code']: {'title_priority': True}}}
+            with patch.object(m, 'run_deadline_reached', return_value=not blocked), patch.object(m, 'fc2_market_blocked', return_value=blocked), patch.object(m, 'fetch_fc2_market') as fetch:
+                self.assertIsNone(m.attempt_fc2_market(item, state, 'backfill'))
+            fetch.assert_not_called()
+            self.assertTrue(state[m.BACKFILL_ATTEMPTS_KEY][item['code']]['title_priority'])
 
 
 if __name__ == '__main__':

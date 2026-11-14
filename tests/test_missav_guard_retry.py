@@ -10,6 +10,8 @@ import missav_guard as g
 
 class MissAVGuardRetryTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
+        self.enterContext(patch.object(m, "_RUN_STARTED", None))
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)

@@ -99,8 +99,10 @@ def candidate_from_html(text, item):
     return usable[0]
 
 
-def fetch_title(item):
+def fetch_title(item, state=None):
     num = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
+    if state is None:
+        state = m.load_json(m.FETCH_STATE_FILE, {})
     urls = []
     for url in (
         item.get("url") or "",
@@ -108,26 +110,39 @@ def fetch_title(item):
         f"https://missav.live/ja/fc2-ppv-{num}",
         f"https://missav.ai/ja/fc2-ppv-{num}",
     ):
+        if urlsplit(url).hostname == m.FC2_MARKET_HOST and m.fc2_market_blocked(state, m.now_ts()):
+            continue
         if url and url not in urls:
             urls.append(url)
-    for url in urls:
-        try:
-            res = requests.get(url, headers=m.HEADERS, timeout=12, allow_redirects=True)
-            text = res.text or ""
-            if res.status_code != 200 or len(text) < 1500:
+    with m.failure_summary() as failures:
+        for url in urls:
+            if m.run_deadline_reached("code-only request", 1):
+                return None, None
+            try:
+                res = requests.get(url, headers=m.HEADERS, timeout=12, allow_redirects=True)
+                if urlsplit(url).hostname == m.FC2_MARKET_HOST and res.status_code in (403, 429):
+                    m.record_fc2_host_stop(state, res.status_code, res.headers.get("Retry-After"), m.now_ts())
+                    m.log_fc2_carryover(state, 1)
+                    continue
+                text = res.text or ""
+                if res.status_code != 200 or len(text) < 1500:
+                    continue
+                final_path = (urlsplit(str(res.url or url)).path or "").lower()
+                if f"fc2-ppv-{num}" not in final_path and num not in text:
+                    continue
+                title = candidate_from_html(text, item)
+                if title:
+                    return title, str(res.url or url)
+            except Exception as exc:
+                failures[("code-only title", type(exc).__name__)] += 1
                 continue
-            final_path = (urlsplit(str(res.url or url)).path or "").lower()
-            if f"fc2-ppv-{num}" not in final_path and num not in text:
-                continue
-            title = candidate_from_html(text, item)
-            if title:
-                return title, str(res.url or url)
-        except Exception:
-            continue
     return "", ""
 
 
 def main():
+    m.initialize_run_deadline()
+    if m.run_deadline_reached("repair_code_only_titles.py"):
+        return 0
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") if isinstance(payload, dict) else []
     if not isinstance(items, list):
@@ -171,10 +186,9 @@ def main():
     repaired = stored_repaired = walker_repaired = web_repaired = tried = 0
     examples = []
     for item in due[:LIMIT]:
+        if m.run_deadline_reached("code-only repair", max(0, len(due) - tried)):
+            break
         code = item.get("code") or ""
-        tried += 1
-        attempts[code] = now
-
         title = valid_candidate(item.get("source_title") or "", item)
         source_url = ""
         source = "取得元"
@@ -188,10 +202,14 @@ def main():
             if title:
                 walker_repaired += 1
             else:
-                title, source_url = fetch_title(item)
+                title, source_url = fetch_title(item, state)
                 source = "MissAV"
                 if title:
                     web_repaired += 1
+        if title is None:
+            break
+        tried += 1
+        attempts[code] = now
         if not title:
             continue
 

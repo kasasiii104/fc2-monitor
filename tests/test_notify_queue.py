@@ -11,6 +11,8 @@ import walker_official_fastlane as fast
 
 class NotifyQueueTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
+        self.enterContext(patch.object(m, "_RUN_STARTED", None))
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         for name in ('DATA_FILE', 'HISTORY_FILE', 'NOTIFY_QUEUE_FILE', 'CRAWL_FILE',
                      'FETCH_STATE_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
@@ -39,6 +41,30 @@ class NotifyQueueTests(unittest.TestCase):
     def pending(self):
         return m.load_json(m.NOTIFY_QUEUE_FILE, {})['pending']
 
+    def test_merged_recent_notifies_but_archive_only_does_not(self):
+        archive = dict(self.item('8000001'), discovery_kind='archive')
+        recent = dict(archive, source='JavDB', discovery_kind='recent')
+        archive_only = dict(self.item('8000002'), discovery_kind='archive')
+        self.latest.return_value = (m.merge_videos([[archive, archive_only], [recent]]), {})
+        self.assertEqual(m.main(), 0)
+        self.send.assert_called_once()
+        self.assertIn(archive['code'], self.send.call_args.args[0])
+        self.assertEqual(self.pending(), [])
+
+    def test_known_catalog_item_is_not_renotified_when_merge_turns_recent(self):
+        # FC-06 only changes the same-run merge. A code already in the history
+        # must stay un-notified even if an archive+recent merge now says recent.
+        old = dict(self.item('8000001'), discovery_kind='archive')
+        m.save_json(m.DATA_FILE, {'items': [old]})
+        m.save_json(m.HISTORY_FILE, {'ids': [old['code']]})
+        recent = dict(old, source='JavDB', discovery_kind='recent')
+        self.latest.return_value = (m.merge_videos([[dict(old)], [recent]]), {})
+        self.assertEqual(m.main(), 0)
+        saved = m.load_json(m.DATA_FILE, {})['items'][0]
+        self.assertFalse(saved['is_new'])
+        self.send.assert_not_called()
+        self.assertEqual(self.pending(), [])
+
     def test_discovery_then_normal_notifies_known_pending_with_latest_title(self):
         self.assertEqual(m.main(discovery_only=True), 0)
         self.send.assert_not_called()
@@ -53,6 +79,58 @@ class NotifyQueueTests(unittest.TestCase):
         self.assertEqual(self.send.call_count, 2)
         self.assertIn('8000001', self.send.call_args_list[0].args[0])
         self.assertIn('補完された作品タイトル', self.send.call_args_list[0].args[0])
+
+    def test_deadline_notifications_send_and_failed_pending_retries(self):
+        self.send.side_effect = TimeoutError("offline")
+        with patch.object(m, "run_deadline_reached", return_value=True):
+            self.assertEqual(m.main(), 0)
+        self.send.assert_called_once()
+        rows = self.pending()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(not row.get("held") for row in rows))
+        self.send.reset_mock(side_effect=True)
+        self.latest.return_value = ([], {})
+        with patch.object(m, "run_deadline_reached", return_value=True):
+            self.assertEqual(m.main(), 0)
+        self.assertEqual(self.send.call_count, 2)
+        self.assertEqual(self.pending(), [])
+
+    def test_notification_failure_logs_safely_and_keeps_zero_return_and_pending(self):
+        self.send.side_effect = TimeoutError("https://webhook.example/SECRET-TOKEN private-title")
+        self.assertEqual(m.main(), 0)
+        self.send.assert_called_once()
+        self.assertEqual(len(self.pending()), 2)
+        output = self.output.getvalue()
+        self.assertIn("::warning::New item notification failed (TimeoutError); continuing with saved/partial metadata count=1", output)
+        self.assertNotIn("SECRET-TOKEN", output)
+        self.assertNotIn("https://webhook.example", output)
+        self.assertNotIn("private-title", output)
+
+    def test_discovery_stderr_omits_exception_secrets(self):
+        self.latest.side_effect = RuntimeError("https://webhook.example/SECRET-TOKEN private-title")
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(m.main(), 1)
+        self.assertEqual(stderr.getvalue(), '[main discovery] error=RuntimeError count=1\n')
+        for secret in ('https://webhook.example', 'SECRET-TOKEN', 'private-title'):
+            self.assertNotIn(secret, self.output.getvalue() + stderr.getvalue())
+
+    def test_error_notification_runs_after_deadline(self):
+        self.latest.side_effect = RuntimeError("discovery failed")
+        with patch.object(m, "run_deadline_reached", return_value=True):
+            self.assertEqual(m.main(), 1)
+        self.send.assert_called_once_with("監視エラー: ページ取得に失敗しました")
+
+    def test_expired_guard_preserves_discovery_pending_for_next_run(self):
+        import missav_guard
+        self.assertEqual(m.main(discovery_only=True), 0)
+        before = self.pending()
+        with patch.object(m, "run_deadline_reached", return_value=True), patch.object(missav_guard, "run_guarded_monitor") as monitor:
+            self.assertEqual(missav_guard.main(), 0)
+        monitor.assert_not_called()
+        self.assertEqual(self.pending(), before)
+        self.assertEqual(m.main(), 0)
+        self.assertEqual(self.send.call_count, 2)
+        self.assertEqual(self.pending(), [])
 
     def test_failure_keeps_unsent_and_success_is_not_repeated(self):
         self.send.side_effect = [None, TimeoutError('offline')]

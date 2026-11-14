@@ -86,6 +86,10 @@ def repair_primary_links(items):
 
 
 def main():
+    m.initialize_run_deadline()
+    if m.run_deadline_reached("aggressive_discovery.py"):
+        return 0
+    m.validate_state_files()
     started = time.monotonic()
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") or []
@@ -106,7 +110,7 @@ def main():
         )
     except Exception as exc:
         recent_pages = 0
-        print(f"[Walker discovery] recent_error={type(exc).__name__}")
+        print(f"[Walker discovery] recent_error={type(exc).__name__} count=1")
 
     state = m.load_json(m.FETCH_STATE_FILE, {})
     cache = state.get(m.H_WALKER_CACHE_KEY)
@@ -131,6 +135,8 @@ def main():
     rejected_missav_404 = deferred_unverified = verified = 0
     budget_exhausted = False
     for code, rec in unseen:
+        if m.run_deadline_reached("aggressive_discovery.py", max(0, len(unseen) - verified)):
+            break
         if len(added) >= DISCOVERY_LIMIT:
             break
         if time.monotonic() - started >= DISCOVERY_BUDGET_SEC:

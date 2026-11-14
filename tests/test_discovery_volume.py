@@ -23,6 +23,17 @@ class DiscoveryVolumeTests(unittest.TestCase):
         self.enterContext(patch.object(m.requests, 'post', side_effect=AssertionError('No external notifications')))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
+    def test_merge_discovery_kind_recent_wins_in_either_order(self):
+        for kinds in (('archive', 'recent'), ('recent', 'archive'), ('archive', 'archive')):
+            with self.subTest(kinds=kinds):
+                rows = [dict(m.enrich('8000002', 'テスト作品', source,
+                                     'https://example.test/' + source), discovery_kind=kind)
+                        for source, kind in zip(('MissAV', 'JavDB'), kinds)]
+                merged = m.merge_videos([[rows[0]], [rows[1]]])
+                self.assertEqual(merged[0]['discovery_kind'],
+                                 'recent' if 'recent' in kinds else 'archive')
+                self.assertEqual([r['discovery_kind'] for r in rows], list(kinds))
+
     def scan(self, denied_page=None):
         def fetch(url):
             page = int(parse_qs(urlsplit(url).query).get('page', ['1'])[0])

@@ -9,6 +9,8 @@ import walker_official_fastlane as fast
 
 class WalkerOfficialFastlaneTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
+        self.enterContext(patch.object(m, "_RUN_STARTED", None))
         directory = self.enterContext(tempfile.TemporaryDirectory())
         root = Path(directory)
         for name, filename in (
@@ -100,6 +102,32 @@ class WalkerOfficialFastlaneTests(unittest.TestCase):
                 self.assertEqual(item["url"], m.missav_detail_urls("8000001")[0])
                 self.assertEqual(item["sources"]["MissAV"], item["url"])
                 self.assertIn("FC2公式", item["sources"])
+
+    def test_not_found_candidate_is_skipped_on_second_run(self):
+        code = "FC2-PPV-8000001"
+        m.save_json(m.FETCH_STATE_FILE, {m.H_WALKER_CACHE_KEY: {code: self.record("8000001")}})
+        with patch.object(m, "fetch_fc2_market", return_value={"outcome": "not_found"}) as fetch:
+            fast.main()
+            with patch.object(m, "now_ts", return_value=1_800_000_000 + fast.NOT_FOUND_RETRY_SEC - 1):
+                fast.main()
+        fetch.assert_called_once()
+
+    def test_http_denial_candidate_is_retried_after_stop(self):
+        for status in (403, 429):
+            with self.subTest(status=status), patch.object(m, "_FC2_STOPPED_THIS_RUN", False):
+                code = "FC2-PPV-8000001"
+                m.save_json(m.FETCH_STATE_FILE, {m.H_WALKER_CACHE_KEY: {code: self.record("8000001")}})
+                with patch.object(m, "fetch_fc2_market", return_value={"http_status": status, "retry_after": "90"}) as fetch:
+                    fast.main()
+                    state = m.load_json(m.FETCH_STATE_FILE, {})
+                    self.assertEqual(state["walker_official_fastlane_stats"]["blocked"], 1)
+                    self.assertNotIn(code, state[fast.CHECK_KEY])
+                    fast.main()
+                    fetch.assert_called_once()
+                m._FC2_STOPPED_THIS_RUN = False
+                with patch.object(m, "now_ts", return_value=1_800_000_090), patch.object(m, "fetch_fc2_market", return_value={"outcome": "not_found"}) as fetch:
+                    fast.main()
+                    fetch.assert_called_once()
 
 
 if __name__ == "__main__":

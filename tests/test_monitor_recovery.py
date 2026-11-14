@@ -13,6 +13,8 @@ import fc2_monitor as m
 
 class MonitorRecoveryTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
+        self.enterContext(patch.object(m, "_RUN_STARTED", None))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)

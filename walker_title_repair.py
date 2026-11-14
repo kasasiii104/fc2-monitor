@@ -59,6 +59,8 @@ def repair_titles(items, cache):
         "examples": [],
     }
     for item in items:
+        if m.run_deadline_reached("walker title repair", len(items) - stats["repaired"]):
+            break
         if not needs_walker_repair(item):
             continue
         stats["pending_before"] += 1
@@ -93,6 +95,9 @@ def repair_titles(items, cache):
 
 
 def main():
+    m.initialize_run_deadline()
+    if m.run_deadline_reached("walker_title_repair.py"):
+        return 0
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") if isinstance(payload, dict) else []
     if not isinstance(items, list):

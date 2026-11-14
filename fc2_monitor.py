@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import html
+from contextlib import contextmanager
+from collections import Counter
 import hashlib
 import shutil
 import json
@@ -7,12 +9,92 @@ import os
 import re
 import sys
 import tempfile
+import time
+import math
+from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urlparse, quote_plus, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
+from public_catalog_values import public_views
+
+@contextmanager
+def failure_summary():
+    """Emit bounded diagnostics even when a fallback returns from a loop."""
+    failures = Counter()
+    try:
+        yield failures
+    finally:
+        for (operation, error_type), count in failures.items():
+            print(f"[{operation}] error={error_type} count={count}")
+
+
+DEFAULT_RUN_DEADLINE_SEC = 2700
+RUN_DEADLINE_FILENAME = "fc2-monitor-run-deadline.json"
+_RUN_STARTED = None
+_RUN_BUDGET = DEFAULT_RUN_DEADLINE_SEC
+_DEADLINE_LOGGED = set()
+
+
+class RunDeadlineReached(RuntimeError):
+    """An access was deferred, rather than attempted and failed."""
+
+
+def initialize_run_deadline():
+    """Explicit execution entry only: imports must not start the job clock."""
+    global _RUN_STARTED, _RUN_BUDGET
+    if _RUN_STARTED is not None:
+        return
+    started, wall = time.monotonic(), time.time()
+    try:
+        budget = float(os.environ.get("RUN_DEADLINE_SEC", DEFAULT_RUN_DEADLINE_SEC))
+        if not math.isfinite(budget) or budget <= 0:
+            raise ValueError("invalid budget")
+    except (ValueError, OverflowError):
+        budget = DEFAULT_RUN_DEADLINE_SEC
+    _RUN_STARTED, _RUN_BUDGET = started, budget
+    root, run_id = os.environ.get("RUNNER_TEMP"), os.environ.get("GITHUB_RUN_ID")
+    if not root or not run_id:
+        return
+    run = f"{run_id}-{os.environ.get('GITHUB_RUN_ATTEMPT', '')}"
+    path = Path(root) / RUN_DEADLINE_FILENAME
+    record = {"run": run, "started_monotonic": started, "started_wall": wall}
+    try:
+        # Exclusive creation lets the first process own the origin.
+        with path.open("x", encoding="utf-8") as handle:
+            json.dump(record, handle)
+    except FileExistsError:
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            mono, epoch = saved["started_monotonic"], saved["started_wall"]
+            valid = (saved["run"] == run and type(mono) in (int, float)
+                     and type(epoch) in (int, float) and math.isfinite(mono)
+                     and math.isfinite(epoch) and 0 <= mono <= started and 0 < epoch <= wall)
+            if valid:
+                _RUN_STARTED = mono
+                return
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        try:
+            atomic_write_text(path, json.dumps(record))
+        except OSError:
+            pass  # Keep the local deadline if replacing the origin fails.
+    except OSError:
+        pass  # Local deadline remains available if sharing is unavailable.
+
+
+def run_time_left():
+    return math.inf if _RUN_STARTED is None else max(0, _RUN_BUDGET - (time.monotonic() - _RUN_STARTED))
+
+
+def run_deadline_reached(stage="fetch", carried=0):
+    reached = run_time_left() <= 0
+    if reached and stage not in _DEADLINE_LOGGED:
+        print(f"[Run deadline] stage={stage} carried={carried}")
+        _DEADLINE_LOGGED.add(stage)
+    return reached
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
@@ -116,11 +198,107 @@ def parse_jst(text: str):
     return None
 
 
-def load_json(path: Path, default):
+class StateStructureError(SystemExit):
+    """意図的に Exception 派生にしない。握りつぶし箇所を素通りさせるため。"""
+
+
+_STATE_WARNINGS_SEEN = set()
+
+
+def validate_crawl_state(path: Path, state):
+    """Reject broken containers, but only warn about uncertain scalar types."""
+    warnings = {}
+
+    def check(value, expected, key, fatal=False):
+        if type(value) is expected or (expected is float and type(value) is int):
+            return
+        message = f"{path.name}: {key}: expected {expected.__name__}, got {type(value).__name__}"
+        if fatal:
+            raise StateStructureError(message)
+        identity = (str(path), re.sub(r"\[\d+\]", "[]", key), expected.__name__, type(value).__name__)
+        first, count = warnings.get(identity, (message, 0))
+        warnings[identity] = (first, count + 1)
+
+    def fields(obj, schema, prefix):
+        check(obj, dict, prefix, fatal=True)
+        for key, value in obj.items():
+            location = f"{prefix}.{key}"
+            expected = schema.get(key)
+            if expected is not None:
+                check(value, expected, location, fatal=expected in (dict, list))
+
+    def typed_rows(rows, schema, prefix):
+        for index, row in enumerate(rows):
+            fields(row, schema, f"{prefix}[{index}]")
+
+    root_schema = dict.fromkeys(("missav_page", "supjav_page", "javdb_page", "missav_cycle"), int)
+    root_schema.update(missav_cycle_completed_at=str, recovery_until=dict,
+                       source_retry_at=dict, last_discovery=dict, missav_repeated_pages=list)
+    fields(state, root_schema, "$")
+    for key in ("source_retry_at", "recovery_until"):
+        for name, value in state.get(key, {}).items():
+            check(value, int, f"$.{key}.{name}")
+    typed_rows(state.get("missav_repeated_pages", []),
+               dict(page=int, at=str, reason=str), "$.missav_repeated_pages")
+    metric_names = (
+        "found_unique previous_total new_to_catalog recent_added archive_added total_after "
+        "walker_recent_added walker_archive_added walker_discovery_added walker_unseen_before "
+        "walker_missav_verified walker_rejected_missav_404 walker_cached_dead_skipped "
+        "walker_deferred_unverified walker_official_checked walker_official_added "
+        "walker_official_not_found walker_official_deferred walker_budget_sec primary_links_repaired "
+        "walker_official_fastlane_added walker_official_fastlane_checked walker_official_fastlane_success "
+        "walker_official_fastlane_failed walker_official_fastlane_not_found walker_official_fastlane_relinked"
+    )
+    discovery_schema = dict.fromkeys(metric_names.split(), int)
+    discovery_schema.update(checked_at=str, sources=dict, walker_budget_exhausted=bool, walker_elapsed_sec=float)
+    discovery = state.get("last_discovery", {})
+    fields(discovery, discovery_schema, "$.last_discovery")
+    source_schema = dict.fromkeys((
+        "archive_from max_page stopped_page restart_page search_items catalog_items recent_page_limit "
+        "archive_page_limit recent_pages archive_pages next_page items"
+    ).split(), int)
+    source_schema.update(pages=list, status=str, cycle_completed=bool, last_archive=dict)
+    for source, report in discovery.get("sources", {}).items():
+        prefix = f"$.last_discovery.sources.{source}"
+        if source not in ("missav", "javdb", "supjav"):
+            continue
+        fields(report, source_schema, prefix)
+        typed_rows(report.get("pages", []), dict(page=int, current_page=int, items=int,
+                   fingerprint=str, added_to_batch=int), prefix + ".pages")
+        if "last_archive" in report:
+            fields(report["last_archive"], dict(page=int, fingerprint=str, head_fingerprint=str),
+                   prefix + ".last_archive")
+
+    for identity, (message, count) in warnings.items():
+        if identity not in _STATE_WARNINGS_SEEN:
+            _STATE_WARNINGS_SEEN.add(identity)
+            suffix = f" (count={count})" if count > 1 else ""
+            print(f"::warning::{message}{suffix}", file=sys.stderr)
+
+
+def load_json(path: Path, default, *, allow_non_dict=False):
     if not path.exists():
         return default
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        payload = json.load(f)
+    # Notification queue row validation/recovery remains owned by H1.
+    is_queue = path == NOTIFY_QUEUE_FILE or path.name == "notify_queue.json"
+    if isinstance(default, dict) and not is_queue and not allow_non_dict and type(payload) is not dict:
+        raise StateStructureError(f"{path.name}: $: expected dict, got {type(payload).__name__}")
+    if path == CRAWL_FILE or path.name == "crawl_state.json":
+        validate_crawl_state(path, payload)
+    return payload
+
+
+def validate_state_files():
+    """Check persisted inputs before discovery can save cooldowns or metadata."""
+    inputs = {}
+    guard_path = Path(os.environ.get("MISSAV_GUARD_STATE_FILE", "docs/missav_guard_state.json"))
+    for path in (CRAWL_FILE, FETCH_STATE_FILE, DATA_FILE, HISTORY_FILE, VIEWS_HISTORY_FILE, guard_path):
+        payload = load_json(path, {}, allow_non_dict=path == VIEWS_HISTORY_FILE or path == guard_path)
+        if path in (DATA_FILE, HISTORY_FILE):
+            inputs[path] = payload
+    return inputs
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -185,6 +363,8 @@ def save_discovery_cooldowns():
 
 
 def fetch_soup(url: str):
+    if run_deadline_reached("fetch_soup"):
+        raise RunDeadlineReached("run deadline; no request made")
     if source_in_cooldown(url):
         response = requests.Response()
         response.status_code = 403
@@ -198,6 +378,9 @@ def fetch_soup(url: str):
 
 
 def fetch_page(url: str) -> dict:
+    if run_deadline_reached("fetch_page"):
+        return {"ok": False, "status": 0, "final_url": url, "soup": None,
+                "size": 0, "title": "", "cloudflare": False, "error": "run_deadline"}
     if source_in_cooldown(url):
         return {"ok": False, "status": 0, "final_url": url, "soup": None,
                 "size": 0, "title": "", "cloudflare": False, "error": "source_cooldown"}
@@ -207,7 +390,8 @@ def fetch_page(url: str) -> dict:
         try:
             soup = BeautifulSoup(text, "html.parser")
             title = soup.title.get_text(" ", strip=True) if soup.title else ""
-        except Exception:
+        except Exception as exc:
+            print(f"[fetch_page] error={type(exc).__name__} count=1")
             soup = None
             title = ""
         low = text.lower()
@@ -223,6 +407,7 @@ def fetch_page(url: str) -> dict:
         return {
             "ok": res.status_code == 200 and not challenge and len(text) > 2000,
             "status": res.status_code,
+            "retry_after": res.headers.get("Retry-After"),
             "final_url": str(res.url),
             "text": text,
             "soup": soup,
@@ -232,6 +417,7 @@ def fetch_page(url: str) -> dict:
             "error": None,
         }
     except Exception as e:
+        print(f"[fetch_page] error={type(e).__name__} count=1")
         return {
             "ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
             "size": 0, "title": "", "cloudflare": False, "error": str(e),
@@ -490,9 +676,14 @@ def parse_supjav_card_views(node):
 def harvest_supjav_views(pages=None) -> dict:
     found = {}
     debug_left = 3
-    for page in (pages or [1, 2, 3]):
+    requested_pages = pages or [1, 2, 3]
+    for page_index, page in enumerate(requested_pages):
+        if run_deadline_reached("harvest_supjav_views", len(requested_pages) - page_index):
+            break
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            break
         extra = " keeping_previous_views=true" if info.get("cloudflare") or info.get("status") == 403 else ""
         print(f"[Supjav] page={page} status={info.get('status')} title={(info.get('title') or '')[:60]!r} cloudflare={info.get('cloudflare')}{extra}")
         if not info.get("ok") or not info.get("soup"):
@@ -555,14 +746,23 @@ def scrape_missav_fc2_rankings() -> dict:
     """Return one independently verified snapshot/outcome per period."""
     hosts = ["https://missav.ws", "https://missav.live", "https://missav.ai"]
     periods = {}
-    for period, sort in RANK_PERIODS.items():
+    for period_index, (period, sort) in enumerate(RANK_PERIODS.items()):
+        if run_deadline_reached("scrape_missav_fc2_rankings", len(RANK_PERIODS) - period_index):
+            break
         outcome = {"status": "fetch_failed", "reason": "unavailable"}
-        for host in hosts:
+        deferred = False
+        for source_index, host in enumerate(hosts):
+            if run_deadline_reached("scrape_missav_fc2_rankings", len(hosts) - source_index):
+                deferred = True
+                break
             url = f"{host}/ja/fc2?sort={sort}"
             if source_in_cooldown(url):
                 outcome = {"status": "access_limited", "reason": "source_cooldown"}
                 break
             page = fetch_page(url)
+            if page.get("error") == "run_deadline":
+                deferred = True
+                break
             if page_access_limited(page):
                 record_source_denial(url, page.get("status"), page.get("cloudflare", False))
                 outcome = {"status": "access_limited", "reason": "access_denied"}
@@ -597,6 +797,8 @@ def scrape_missav_fc2_rankings() -> dict:
                 outcome = {"status": "ok", "codes": codes}
                 break
             outcome = {"status": "invalid_response", "reason": "no_ranked_works"}
+        if deferred:
+            break
         if outcome["status"] == "access_limited":
             outcome["next_retry_at"] = int(SOURCE_RETRY_AT.get("missav") or 0)
         periods[period] = outcome
@@ -656,6 +858,8 @@ def apply_missav_ranks(items, ranks, stamp):
         periods = {}
     known = {item.get("code") for item in items}
     for period in RANK_PERIODS:
+        if period not in periods:
+            continue  # Unattempted version-2 periods retain their successful snapshot.
         result = periods.get(period) if isinstance(periods.get(period), dict) else {"status": "fetch_failed"}
         previous = snapshots.get(period) if isinstance(snapshots.get(period), dict) else {}
         codes = result.get("codes") or []
@@ -718,7 +922,9 @@ def fill_missing_views(items) -> None:
     now, updated = now_ts(), set()
     stats = {"checked_at": now_jst(), "status": "ok", "requests": 0, "tried": 0,
              "updated": 0, "failed": 0, "next_retry_at": 0}
-    for item in items:
+    for item_index, item in enumerate(items):
+        if run_deadline_reached("fill_missing_views", len(items) - item_index):
+            break
         item["views_updated"] = False
 
     def request(url):
@@ -727,6 +933,10 @@ def fill_missing_views(items) -> None:
             return None
         stats["requests"] += 1
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            stats["requests"] -= 1
+            stats["status"] = "run_deadline"
+            return None
         if page_access_limited(info):
             record_source_denial(url, info.get("status"), info.get("cloudflare", False))
             stats["status"] = "access_limited"
@@ -753,7 +963,9 @@ def fill_missing_views(items) -> None:
         stats["status"] = "access_limited"
     else:
         by_code = {x["code"]: x for x in items}
-        for page in (1, 2, 3):
+        for page_index, page in enumerate(range(1, 4)):
+            if run_deadline_reached("fill_missing_views", 3 - page_index):
+                break
             url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
             soup = request(url)
             if soup is not None:
@@ -771,16 +983,20 @@ def fill_missing_views(items) -> None:
                         and now >= int((attempts.get(x["code"]) or {}).get("next_retry_at") or 0)),
                        key=lambda x: (int((attempts.get(x["code"]) or {}).get("last_attempt") or 0),
                                       not bool(x.get("is_new")), x.get("first_seen") or "", x["code"]))
-        for item in queue:
+        for item_index, item in enumerate(queue):
+            if run_deadline_reached("fill_missing_views", len(queue) - item_index):
+                break
             if stats["status"] == "access_limited" or stats["tried"] >= VIEW_FETCH_LIMIT or stats["failed"] >= 3:
                 break
             url = supjav_detail_url(item)
             if not url:
                 continue
             rec = attempts.get(item["code"]) or {}
+            soup = request(url)
+            if stats["status"] == "run_deadline":
+                break
             item["last_views_attempt"] = now
             stats["tried"] += 1
-            soup = request(url)
             value = supjav_work_views(soup, item.get("code_num") or item["code"].split("-")[-1])
             if value is not None:
                 record_success(item, value)
@@ -820,59 +1036,70 @@ def refresh_japanese_titles(items) -> None:
     historical.sort(key=lambda x: (int(fails.get(x.get("code")) or 0),
                                     x.get("first_seen") or "", x.get("code") or ""))
     ordered = new_targets + historical
-    for item in ordered:
-        code = item.get("code") or ""
-        last_fail = int(fails.get(code) or 0)
-        if last_fail and now - last_fail < FAIL_SKIP_SEC:
-            continue
-        if not item.get("is_new") and historical_tried >= TITLE_FETCH_LIMIT:
-            break
-        code_num = item.get("code_num") or str(code).split("-")[-1]
-        sources = [("MissAV", url) for url in missav_detail_urls(code_num)] + [
-            ("Supjav", f"https://supjav.com/ja/?s=FC2PPV+{code_num}"),
-            ("123AV", f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}"),
-        ]
-        attempted = False
-        for source, url in sources:
-            host = urlsplit(url).netloc
-            if now - int(blocked.get(host) or 0) < FAIL_SKIP_SEC or host_errors.get(host, 0) >= 3:
+    with failure_summary() as _failures:
+        for item_index, item in enumerate(ordered):
+            if run_deadline_reached("refresh_japanese_titles", len(ordered) - item_index):
+                break
+            code = item.get("code") or ""
+            last_fail = int(fails.get(code) or 0)
+            if last_fail and now - last_fail < FAIL_SKIP_SEC:
                 continue
-            attempted = True
-            requests_made += 1
-            try:
-                soup = fetch_soup(url)
-                host_errors[host] = 0
-                found = (extract_search_title(soup, code_num) if source != "MissAV"
-                         else (extract_page_title(soup, code_num)
-                               if _title_response_matches(
-                                   soup.__dict__.get("_response_url", url), url, code_num) else ""))
-                if found and not needs_jp_title(found) and is_better_title(found, item.get("title", "")):
-                    print(f"[Japanese title] code={code} source={source}")
-                    item["title"] = found
-                    item["title_source"] = source
-                    updated += 1
-                    fails.pop(code, None)
+            if not item.get("is_new") and historical_tried >= TITLE_FETCH_LIMIT:
+                break
+            code_num = item.get("code_num") or str(code).split("-")[-1]
+            sources = [("MissAV", url) for url in missav_detail_urls(code_num)] + [
+                ("Supjav", f"https://supjav.com/ja/?s=FC2PPV+{code_num}"),
+                ("123AV", f"https://123av.com/ja/search?keyword=FC2-PPV-{code_num}"),
+            ]
+            attempted = False
+            for source_index, (source, url) in enumerate(sources):
+                if run_deadline_reached("refresh_japanese_titles", len(sources) - source_index):
+                    attempted = False
                     break
-                if found and title_score(found)[0] >= 3:
-                    fails.pop(code, None)
+                host = urlsplit(url).netloc
+                if now - int(blocked.get(host) or 0) < FAIL_SKIP_SEC or host_errors.get(host, 0) >= 3:
+                    continue
+                attempted = True
+                requests_made += 1
+                try:
+                    soup = fetch_soup(url)
+                    host_errors[host] = 0
+                    found = (extract_search_title(soup, code_num) if source != "MissAV"
+                             else (extract_page_title(soup, code_num)
+                                   if _title_response_matches(
+                                       soup.__dict__.get("_response_url", url), url, code_num) else ""))
+                    if found and not needs_jp_title(found) and is_better_title(found, item.get("title", "")):
+                        print(f"[Japanese title] code={code} source={source}")
+                        item["title"] = found
+                        item["title_source"] = source
+                        updated += 1
+                        fails.pop(code, None)
+                        break
+                    if found and title_score(found)[0] >= 3:
+                        fails.pop(code, None)
+                        break
+                except RunDeadlineReached:
+                    requests_made -= 1
+                    attempted = False
                     break
-            except Exception as e:
-                status = getattr(getattr(e, "response", None), "status_code", None)
-                if status in (403, 429):
-                    blocked[host] = now
-                    print(f"[Japanese titles] host={host} blocked={status}")
-                elif (status and status >= 500) or isinstance(e, (requests.Timeout, requests.ConnectionError)):
-                    host_errors[host] = host_errors.get(host, 0) + 1
-                    if host_errors[host] >= 3:
-                        print(f"[Japanese titles] host={host} unavailable=true stop_for_run=true")
-        if attempted:
-            tried += 1
-            if item.get("is_new"):
-                new_tried += 1
-            else:
-                historical_tried += 1
-        if attempted and needs_jp_title(item.get("title", "")):
-            fails[code] = now
+                except Exception as e:
+                    _failures[("refresh_japanese_titles", type(e).__name__)] += 1
+                    status = getattr(getattr(e, "response", None), "status_code", None)
+                    if status in (403, 429):
+                        blocked[host] = now
+                        print(f"[Japanese titles] host={host} blocked={status}")
+                    elif (status and status >= 500) or isinstance(e, (requests.Timeout, requests.ConnectionError)):
+                        host_errors[host] = host_errors.get(host, 0) + 1
+                        if host_errors[host] >= 3:
+                            print(f"[Japanese titles] host={host} unavailable=true stop_for_run=true")
+            if attempted:
+                tried += 1
+                if item.get("is_new"):
+                    new_tried += 1
+                else:
+                    historical_tried += 1
+            if attempted and needs_jp_title(item.get("title", "")):
+                fails[code] = now
     pending = [x for x in items if needs_jp_title(x.get("title", ""))]
     pending_codes = {x.get("code") for x in pending}
     state["title_fail"] = {code: stamp for code, stamp in fails.items() if code in pending_codes}
@@ -901,9 +1128,14 @@ def enrich(code_num, title, source, url, duration="", views=None):
 
 def scrape_missav(pages=None):
     collected = {}
-    for page in (pages or list(range(1, PAGES + 1))):
+    requested_pages = pages or list(range(1, PAGES + 1))
+    for page_index, page in enumerate(requested_pages):
+        if run_deadline_reached("scrape_missav", len(requested_pages) - page_index):
+            break
         url = MISSAV_URL if page == 1 else f"{MISSAV_URL}?page={page}"
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            break
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
             print(f"MissAV {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
             break
@@ -992,15 +1224,25 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
     previous_archive = report.get("last_archive") or {}
     head_fingerprint = None
     bases = ["https://missav.ws/ja/fc2", "https://missav.live/ja/fc2", "https://missav.ai/ja/fc2"]
-    for page_no in (pages or [1, 2]):
+    requested_pages = pages or [1, 2]
+    for page_index, page_no in enumerate(requested_pages):
+        if run_deadline_reached("scrape_missav_catalog", len(requested_pages) - page_index):
+            break
         if report.get("max_page") and page_no > report["max_page"]:
             report.update(status="page_limit", stopped_page=page_no)
             break
+        deferred = False
         soup = None
         final = ""
-        for base in bases:
+        for source_index, base in enumerate(bases):
+            if run_deadline_reached("scrape_missav_catalog", len(bases) - source_index):
+                deferred = True
+                break
             url = base if page_no == 1 else f"{base}?page={page_no}"
             info = fetch_page(url)
+            if info.get("error") == "run_deadline":
+                deferred = True
+                break
             print(f"[MissAV /ja/fc2] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')}")
             if info.get("ok") and info.get("status") == 200 and not info.get("cloudflare"):
                 soup, final = info.get("soup"), info.get("final_url") or base
@@ -1008,6 +1250,8 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
             if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
                 report.update(status="access_limited", stopped_page=page_no)
                 break  # Do not switch domains to get around an access denial.
+        if deferred:
+            break
         if soup is None:
             if report["status"] == "ok":
                 report.update(status="fetch_failed", stopped_page=page_no)
@@ -1087,10 +1331,15 @@ def scrape_javdb(pages=None, completed_pages=None, report=None):
         return None
 
     collected = {}
-    for page_no in (pages or [1, 2]):
+    requested_pages = pages or [1, 2]
+    for page_index, page_no in enumerate(requested_pages):
+        if run_deadline_reached("scrape_javdb", len(requested_pages) - page_index):
+            break
         sep = "&" if "?" in JAVDB_URL else "?"
         url = JAVDB_URL if page_no == 1 else f"{JAVDB_URL}{sep}page={page_no}"
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            break
         print(f"[JavDB] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')} size={info.get('size')}")
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
             if report is not None:
@@ -1332,8 +1581,12 @@ def extract_fc2_market_review_count(soup, text: str):
 def fetch_fc2_market(code_num):
     url = f"https://adult.contents.fc2.com/article/{code_num}/?lang=ja"
     info = fetch_page(url)
+    if info.get("error") == "run_deadline":
+        return {"outcome": "deferred"}
     print(f"[FC2 Market] FC2-PPV-{code_num} status={info.get('status')} cloudflare={info.get('cloudflare')}")
-    access = {"http_status": info.get("status") or 0}
+    access = {"http_status": info.get("status") or 0, "retry_after": info.get("retry_after")}
+    if info.get("status") in (403, 429):
+        return {**access, "outcome": "blocked", "reason": "access_limited"}
     if "redirect.fc2.com/ekyc_auth" in (info.get("final_url") or ""):
         print(f"[FC2 Market] FC2-PPV-{code_num} blocked_by=eKYC")
         return {**access, "outcome": "blocked", "blocked": "eKYC", "reason": "eKYC"}
@@ -1492,7 +1745,9 @@ def fetch_fc2cmadb_title(code_num: str):
     ]
 
     last_status = 0
-    for headers in attempts:
+    for item_index, headers in enumerate(attempts):
+        if run_deadline_reached("fetch_fc2cmadb_title", len(attempts) - item_index):
+            return {"outcome": "deferred"}
         try:
             res = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
             last_status = res.status_code
@@ -1533,15 +1788,19 @@ def refresh_fc2cmadb_titles(items) -> None:
         if needs_jp_title(x.get("title", "")) and x.get("title_source") != "FC2公式"
     ]
     tried = updated = 0
-    for item in rotate_items(targets, cursor):
+    for item_index, item in enumerate(rotate_items(targets, cursor)):
+        if run_deadline_reached("refresh_fc2cmadb_titles", len(targets) - item_index):
+            break
         if tried >= FC2CMADB_FETCH_LIMIT:
             break
         code = item.get("code") or ""
         if now - int(failed.get(code) or 0) < FAIL_SKIP_SEC:
             continue
-        tried += 1
         num = item.get("code_num") or code.split("-")[-1]
         meta = fetch_fc2cmadb_title(num)
+        if meta and meta.get("outcome") == "deferred":
+            break
+        tried += 1
         if meta and meta.get("blocked"):
             state["fc2cmadb_blocked_at"] = now
             print("[FC2CMADB] host_blocked=true fallback=FC2ウォーカー")
@@ -1560,7 +1819,8 @@ def refresh_fc2cmadb_titles(items) -> None:
             print(f"FC2CMADBタイトル更新: {code} -> {title[:60]}")
         failed.pop(code, None)
 
-    state["fc2cmadb_cursor"] = (cursor + max(tried, 1)) % max(len(targets), 1)
+    advance = tried if run_deadline_reached("refresh_fc2cmadb_titles", max(0, len(targets) - tried)) else max(tried, 1)
+    state["fc2cmadb_cursor"] = (cursor + advance) % max(len(targets), 1)
     state["fc2cmadb_failed"] = failed
     save_json(FETCH_STATE_FILE, state)
     print(f"[FC2CMADB] tried={tried} title_updated={updated}")
@@ -1599,6 +1859,8 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
     next_url = url
 
     while next_url and pages_done < limit:
+        if run_deadline_reached("scrape_hwalker_market", 1):
+            break
         url = next_url
         if url in visited:
             print(f"[FC2 Walker] pagination_cycle url={url}")
@@ -1606,6 +1868,8 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
             break
         visited.add(url)
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            break
         if not (info.get("status") == 200 and not info.get("cloudflare") and info.get("soup") is not None):
             print(f"[FC2 Walker] page={pages_done + 1} status={info.get('status')} items=0 url={url}")
             # Keep the cursor on the failed page so a later run can retry it.
@@ -1798,6 +2062,16 @@ def load_fc2_market_state(items):
             }
             # A migrated timestamp supersedes any retry deadline from an older record.
             attempts[code].pop("next_retry_at", None)
+    initialized_not_found = False
+    for code, rec in attempts.items():
+        if isinstance(rec, dict) and (rec.get("status") == "not_found"
+                                     or item_map.get(code, {}).get("fc2_market_not_found")):
+            if not rec.get("not_found_at"):
+                fc2_not_found_due(rec, now_ts())
+                initialized_not_found = True
+    # Some callers only load state; persist first observation even without a batch.
+    if initialized_not_found:
+        save_json(FETCH_STATE_FILE, state)
     # Recover successful metadata if a previous run saved access state but was
     # interrupted before the final data.json write. No extra network attempt.
     for code, item in item_map.items():
@@ -1812,21 +2086,66 @@ def load_fc2_market_state(items):
     return state
 
 
+FC2_NOT_FOUND_RECHECK_SEC = 30 * 86400
+
+
+def fc2_not_found_due(rec, now, timestamp_key="not_found_at"):
+    """Start the wait on first observation of legacy records without a timestamp."""
+    if not rec.get(timestamp_key):
+        rec[timestamp_key] = now
+    return now >= int(rec[timestamp_key]) + FC2_NOT_FOUND_RECHECK_SEC
+
+
 def fc2_retry_delay(failures):
     return min(BACKFILL_RETRY_MAX_SEC, BACKFILL_RETRY_BASE_SEC * 2 ** min(max(0, failures - 1), 6))
 
 
+FC2_MARKET_HOST = "adult.contents.fc2.com"
+FC2_RETRY_AFTER_MAX_SEC = 86400
+_FC2_STOPPED_THIS_RUN = False
+
+
+def fc2_retry_after(raw, now):
+    try:
+        value = str(raw).strip()
+        if value.isdigit():
+            seconds = int(value)
+        else:
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            seconds = int(date.timestamp()) - now
+        return max(0, min(FC2_RETRY_AFTER_MAX_SEC, seconds))
+    except (TypeError, ValueError, OverflowError):
+        return min(FAIL_SKIP_SEC, FC2_RETRY_AFTER_MAX_SEC)
+
+
 def fc2_market_blocked(state, now):
+    stop = state.get("fc2_market_host_stop") or {}
     blocked_at = int(state.get("fc2_market_ekyc_blocked_at") or 0)
-    return bool(blocked_at and now - blocked_at < FAIL_SKIP_SEC)
+    return bool(_FC2_STOPPED_THIS_RUN or now < int(stop.get("until") or 0)
+                or (blocked_at and now - blocked_at < FAIL_SKIP_SEC))
+
+
+def log_fc2_carryover(state, count):
+    stop = state.get("fc2_market_host_stop") or {}
+    if stop:
+        print(f"[FC2 stop] host={FC2_MARKET_HOST} status={stop['status']} seconds={stop['seconds']} carried={count}")
 
 
 def fc2_market_due(item, state, now):
-    if item.get("fc2_market_not_found") or fc2_market_blocked(state, now):
+    if fc2_market_blocked(state, now):
         return False
     rec = _fc2_map(state, BACKFILL_ATTEMPTS_KEY).get(item.get("code")) or {}
-    if rec.get("status") == "not_found":
-        return False
+    if rec.get("status") == "not_found" or item.get("fc2_market_not_found"):
+        if not rec:
+            rec = {"status": "not_found"}
+            _fc2_map(state, BACKFILL_ATTEMPTS_KEY)[item.get("code")] = rec
+        if not fc2_not_found_due(rec, now):
+            return False
+        # A failed/blocked recheck still observes its normal retry deadline.
+        if rec.get("status") == "not_found":
+            return now >= int(rec.get("next_retry_at") or 0)
     last = int(rec.get("last_attempt") or 0)
     if not last:
         return True
@@ -1863,12 +2182,42 @@ def apply_fc2_market_metadata(item, meta, now):
     return counts
 
 
-def record_fc2_market_result(item, meta, state, now, route):
+def record_fc2_host_stop(state, http_status, retry_after, now):
+    """Persist host cooldown without consuming a product metadata attempt."""
+    global _FC2_STOPPED_THIS_RUN
+    _FC2_STOPPED_THIS_RUN = True
+    seconds = fc2_retry_after(retry_after, now)
+    previous = state.get("fc2_market_host_stop")
+    until = previous.get("until") if isinstance(previous, dict) else None
+    if not (type(until) in (int, float) and math.isfinite(until) and until > now + seconds):
+        state["fc2_market_host_stop"] = {"host": FC2_MARKET_HOST, "status": int(http_status),
+                                         "seconds": seconds, "until": now + seconds}
+    save_json(FETCH_STATE_FILE, state)
+
+
+def record_fc2_market_result(item, meta, state, now, route, *, candidate=False):
     """Record every actual official article access, including blocks and failures.
 
     Failure never erases a good title/rating. Blocks are global access failures,
     not product failures, so they do not increase the per-product failure count.
     """
+    if meta and meta.get("outcome") == "deferred":
+        return {"status": "deferred", "title_updated": 0, "rating_updated": 0, "review_updated": 0}
+    meta = meta or {"outcome": "failed", "reason": "empty_response"}
+    if meta.get("http_status") in (403, 429):
+        record_fc2_host_stop(state, meta["http_status"], meta.get("retry_after"), now)
+        return {"status": "blocked", "title_updated": 0, "rating_updated": 0, "review_updated": 0}
+    # Deferred results and host stops carry the product over with its priority;
+    # every access that counts as a product attempt consumes it.
+    rec = _fc2_map(state, BACKFILL_ATTEMPTS_KEY).get(item.get("code"))
+    if isinstance(rec, dict):
+        rec.pop("title_priority", None)
+    status = meta.get("outcome") or ("blocked" if meta.get("blocked") else "not_found" if meta.get("not_found") else "success")
+    if candidate and status != "success":
+        # Rejected discovery candidates never enter the shared catalog ledger.
+        if status == "blocked":
+            state["fc2_market_ekyc_blocked_at"] = now
+        return {"status": status, "title_updated": 0, "rating_updated": 0, "review_updated": 0}
     code = item["code"]
     attempts = _fc2_map(state, BACKFILL_ATTEMPTS_KEY)
     checked = _fc2_map(state, "fc2_market_checked")
@@ -1885,14 +2234,15 @@ def record_fc2_market_result(item, meta, state, now, route):
     counts = {"title_updated": 0, "rating_updated": 0, "review_updated": 0}
     item["fc2_market_last_attempt"] = now
     if status == "blocked":
-        state["fc2_market_ekyc_blocked_at"] = now
-        rec["next_retry_at"] = now + FAIL_SKIP_SEC
+        if meta.get("http_status") not in (403, 429):
+            state["fc2_market_ekyc_blocked_at"] = now
+        rec["next_retry_at"] = (state.get("fc2_market_host_stop") or {}).get("until", now + FAIL_SKIP_SEC)
     elif status == "failed":
         rec["failures"] += 1
         rec["next_retry_at"] = now + fc2_retry_delay(rec["failures"])
         failed[code] = now
     elif status == "not_found":
-        rec.update(failures=0, next_retry_at=None)
+        rec.update(failures=0, not_found_at=now, next_retry_at=None)
         item["fc2_market_not_found"] = True
         item["fc2_market_url"] = ""
         item["fc2_market_checked_at"] = now
@@ -1911,6 +2261,8 @@ def record_fc2_market_result(item, meta, state, now, route):
 
 
 def attempt_fc2_market(item, state, route):
+    if run_deadline_reached("official article", 1) or fc2_market_blocked(state, now_ts()):
+        return None
     num = str(item.get("code_num") or item.get("code", "").split("-")[-1])
     if not num.isdigit():
         return None
@@ -1925,12 +2277,14 @@ def _fc2_batch(items, state, route, limit):
     counts = dict(tried=0, success=0, not_found=0, transient_failed=0,
                   official_blocked=False, title_updated=0, rating_updated=0, review_updated=0)
     for item in items:
+        if run_deadline_reached("_fc2_batch", max(0, len(items) - counts["tried"])):
+            break
         if counts["tried"] >= limit or fc2_market_blocked(state, now_ts()):
             break
         if not fc2_market_due(item, state, now_ts()):
             continue
         result = attempt_fc2_market(item, state, route)
-        if result is None:
+        if result is None or result.get("status") == "deferred":
             continue
         counts["tried"] += 1
         status = result["status"]
@@ -1946,6 +2300,8 @@ def _fc2_batch(items, state, route, limit):
         if counts["tried"] % 25 == 0 or status == "blocked":
             save_json(FETCH_STATE_FILE, state)
     counts["official_blocked"] = fc2_market_blocked(state, now_ts())
+    if counts["official_blocked"]:
+        log_fc2_carryover(state, max(0, min(len(items), limit) - counts["tried"]))
     save_json(FETCH_STATE_FILE, state)
     return counts
 
@@ -1968,18 +2324,28 @@ def run_continuous_metadata_backfill(items) -> None:
     state = load_fc2_market_state(items)
     attempts = state[BACKFILL_ATTEMPTS_KEY]
     now = now_ts()
-    candidates = [x for x in items if not x.get("fc2_market_not_found")
-                  and (attempts.get(x.get("code")) or {}).get("status") != "not_found"
-                  and _needs_fc2_metadata(x)]
+    def not_found(item):
+        return (item.get("fc2_market_not_found")
+                or (attempts.get(item.get("code")) or {}).get("status") == "not_found")
+    candidates = [x for x in items if not not_found(x) and _needs_fc2_metadata(x)]
+    rechecks = [x for x in items if not_found(x)]
+    recheck_ready = [x for x in rechecks if fc2_market_due(x, state, now)]
     candidates.sort(key=lambda x: int(x.get("code_num") or 0), reverse=True)
     def last(item):
         return int((attempts.get(item.get("code")) or {}).get("last_attempt") or 0)
     untried = [x for x in candidates if not last(x)]
     retry_ready = sorted([x for x in candidates if last(x) and fc2_market_due(x, state, now)], key=last)
-    batch = (untried + retry_ready)[:max(0, BACKFILL_OFFICIAL_LIMIT)]
+    # Rechecks share the existing budget and never enter the untried fast lane.
+    ready = sorted(retry_ready + recheck_ready, key=last)
+    # Stable sorting preserves the existing order within each priority group.
+    eligible = untried + ready
+    eligible.sort(key=lambda x: not bool((attempts.get(x.get("code")) or {}).get("title_priority")))
+    batch = eligible[:max(0, BACKFILL_OFFICIAL_LIMIT)]
     stats = {
         "last_run": now, "candidates_before": len(candidates), "untried_before": len(untried),
         "retry_ready_before": len(retry_ready),
+        "not_found_recheck_due": len(recheck_ready),
+        "not_found_waiting": len(rechecks) - len(recheck_ready),
         "retry_waiting_before": len(candidates) - len(untried) - len(retry_ready),
         "selected": len(batch),
         "title_missing_before": sum(needs_jp_title(x.get("title", "")) for x in candidates),
@@ -2017,6 +2383,8 @@ def _absolute_fc2_asset(raw) -> str:
 
 
 def fetch_fc2_sample_assets(code_num: str):
+    if run_deadline_reached("FC2 sample", 1):
+        return {"outcome": "deferred"}
     url = f"https://adult.contents.fc2.com/api/v2/videos/{code_num}/sample"
     headers = {
         **HEADERS,
@@ -2030,6 +2398,8 @@ def fetch_fc2_sample_assets(code_num: str):
         print(f"[FC2 sample] FC2-PPV-{code_num} error={type(e).__name__}")
         return None
 
+    if res.status_code in (403, 429):
+        return {"outcome": "blocked", "http_status": res.status_code, "retry_after": res.headers.get("Retry-After")}
     final_url = str(res.url or url)
     if res.status_code != 200 or "redirect.fc2.com/ekyc_auth" in final_url:
         print(f"[FC2 sample] FC2-PPV-{code_num} status={res.status_code} usable=False")
@@ -2161,9 +2531,19 @@ def refresh_fc2_previews(items) -> None:
     batch = pending[:backfill_count] + confirmed[:refresh_count]
     tried = updated = unavailable = 0
     for item in batch:
+        if run_deadline_reached("refresh_fc2_previews", max(0, len(batch) - tried)):
+            break
+        if fc2_market_blocked(state, now_ts()):
+            break
         num = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
-        tried += 1
         meta = fetch_fc2_sample_assets(num)
+        if meta and meta.get("http_status") in (403, 429):
+            record_fc2_host_stop(state, meta["http_status"], meta.get("retry_after"), now_ts())
+            log_fc2_carryover(state, max(0, len(batch) - tried))
+            break
+        if meta and meta.get("outcome") == "deferred":
+            break
+        tried += 1
         before = (item.get("preview"), item.get("preview_source"))
         apply_fc2_sample_result(item, meta, now)
         item["preview_checked_at"] = now
@@ -2185,19 +2565,28 @@ def refresh_fc2_previews(items) -> None:
 
 
 def enrich_fc2_sample_assets(items) -> None:
+    state = load_json(FETCH_STATE_FILE, {})
     now = now_ts()
     tried = updated = 0
     # Keep a small recent-item lane without re-fetching the same samples through
     # the thumbnail/preview lanes, or refreshing successful URLs every two hours.
-    for item in items:
-        if tried >= FC2_SAMPLE_FETCH_LIMIT:
+    for item_index, item in enumerate(items):
+        if run_deadline_reached("enrich_fc2_sample_assets", len(items) - item_index):
+            break
+        if tried >= FC2_SAMPLE_FETCH_LIMIT or fc2_market_blocked(state, now_ts()):
             break
         code = item.get("code") or ""
         num = str(item.get("code_num") or code.split("-")[-1])
         if not code or not num.isdigit() or not sample_retry_due(item, now):
             continue
-        tried += 1
         meta = fetch_fc2_sample_assets(num)
+        if meta and meta.get("http_status") in (403, 429):
+            record_fc2_host_stop(state, meta["http_status"], meta.get("retry_after"), now_ts())
+            log_fc2_carryover(state, max(0, len(items) - tried))
+            break
+        if meta and meta.get("outcome") == "deferred":
+            break
+        tried += 1
         apply_fc2_sample_result(item, meta, now)
         if not meta:
             continue
@@ -2237,11 +2626,21 @@ def run_thumbnail_backfill(items) -> None:
 
     tried = poster_updated = preview_updated = failed = 0
     for item in batch:
+        if run_deadline_reached("run_thumbnail_backfill", max(0, len(batch) - tried)):
+            break
+        if fc2_market_blocked(state, now_ts()):
+            break
         code = item.get("code") or ""
         num = str(item.get("code_num") or code.split("-")[-1])
+        meta = fetch_fc2_sample_assets(num)
+        if meta and meta.get("http_status") in (403, 429):
+            record_fc2_host_stop(state, meta["http_status"], meta.get("retry_after"), now_ts())
+            log_fc2_carryover(state, max(0, len(batch) - tried))
+            break
+        if meta and meta.get("outcome") == "deferred":
+            break
         tried += 1
         attempts[code] = now
-        meta = fetch_fc2_sample_assets(num)
         old_preview = item.get("preview")
         old_poster = (item.get("thumb"), item.get("thumb_source"))
         apply_fc2_sample_result(item, meta, now)
@@ -2291,9 +2690,14 @@ def enrich_fc2_market(items):
 
 def scrape_supjav(pages=None):
     items, seen = [], set()
-    for page in (pages or list(range(1, PAGES + 1))):
+    requested_pages = pages or list(range(1, PAGES + 1))
+    for page_index, page in enumerate(requested_pages):
+        if run_deadline_reached("scrape_supjav", len(requested_pages) - page_index):
+            break
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            break
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
             print(f"Supjav {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
             break
@@ -2332,6 +2736,8 @@ def merge_videos(groups):
                 order.append(code)
             else:
                 merged[code]["sources"][item["source"]] = item["url"]
+                if item.get("discovery_kind") == "recent":
+                    merged[code]["discovery_kind"] = "recent"
                 if item["source"] == "MissAV":
                     merged[code]["url"] = item["url"]
                 if is_better_title(item["title"], merged[code]["title"]):
@@ -2395,6 +2801,7 @@ def get_latest_videos():
             recent_pages=sum(page <= recent_count for page in missav_completed),
             archive_pages=sum(page > recent_count for page in missav_completed), next_page=mp)
     except Exception as e:
+        print(f"[get_latest_videos] source=missav error={type(e).__name__} count=1")
         errors.append(f"MissAV: {e}")
         reports["missav"].update(status="error", error=str(e))
     try:
@@ -2405,6 +2812,7 @@ def get_latest_videos():
         state["javdb_page"] = jp
         reports["javdb"].update(items=len(items), archive_pages=sum(page > 2 for page in javdb_completed), next_page=jp)
     except Exception as e:
+        print(f"[get_latest_videos] source=javdb error={type(e).__name__} count=1")
         errors.append(f"JavDB: {e}")
         reports["javdb"].update(status="error", error=str(e))
     try:
@@ -2412,6 +2820,7 @@ def get_latest_videos():
         found.append(items)
         reports["supjav"] = {"items": len(items), "status": "access_limited" if SOURCE_RETRY_AT.get("supjav", 0) > now_ts() else "checked"}
     except Exception as e:
+        print(f"[get_latest_videos] source=supjav error={type(e).__name__} count=1")
         reports["supjav"] = {"status": "error", "error": str(e)}
     for key, end in list(recovery.items()):
         if int(state.get(key, 0)) >= int(end):
@@ -2424,7 +2833,7 @@ def get_latest_videos():
     videos = merge_videos(found)
     state["last_discovery"] = {"checked_at": now_jst(), "found_unique": len(videos), "sources": reports}
     print("[Discovery] " + json.dumps(state["last_discovery"], ensure_ascii=False))
-    if not videos and errors:
+    if not videos and errors and not run_deadline_reached("discovery"):
         raise RuntimeError(" / ".join(errors))
     return videos, state
 
@@ -2447,7 +2856,7 @@ def calc_trend(points, current, hours, now):
 
 
 def update_views_history(items) -> None:
-    hist = load_json(VIEWS_HISTORY_FILE, {"items": {}})
+    hist = load_json(VIEWS_HISTORY_FILE, {"items": {}}, allow_non_dict=True)
     store = hist.get("items") if isinstance(hist, dict) else {}
     if not isinstance(store, dict):
         store = {}
@@ -2487,7 +2896,7 @@ def public_item(item):
         "preview_fallbacks": previews[1:],
         "duration": item.get("duration") or "",
         "duration_sec": duration_seconds(item.get("duration") or ""),
-        "views": item.get("views") if isinstance(item.get("views"), int) else None,
+        "views": public_views(item.get("views")),
         "views_source": item.get("views_source") or "",
         "first_seen": item.get("first_seen") or "",
         "last_seen": item.get("last_seen") or "",
@@ -2619,6 +3028,8 @@ def rebuild_site():
 
 def refresh_update_metadata():
     """Repair rankings/refresh views without new discoveries or notifications."""
+    initialize_run_deadline()
+    validate_state_files()
     payload = load_json(DATA_FILE, {"items": []})
     items = payload.get("items") or []
     if not items:
@@ -2640,6 +3051,8 @@ def refresh_update_metadata():
 
 def repair_saved_titles():
     """Repair the saved catalog without discoveries or notifications."""
+    initialize_run_deadline()
+    validate_state_files()
     payload = load_json(DATA_FILE, {"items": []})
     items = payload.get("items", [])
     before = {x.get("code"): x.get("title", "") for x in items}
@@ -2671,14 +3084,17 @@ def repair_saved_titles():
     return 0
 
 
-def run_optional_step(label, action, *args, **kwargs):
+def run_optional_step(label, action, *args, needs_network=True, **kwargs):
     """A supplementary source or notification cannot discard discoveries."""
+    if needs_network and run_deadline_reached(label, len(args[0]) if args and isinstance(args[0], list) else 0):
+        return False
     try:
         action(*args, **kwargs)
         return True
     except Exception as exc:
         # Do not include response bodies or URLs (notification URLs contain secrets).
-        print(f"::warning::{label} failed ({type(exc).__name__}); continuing with saved/partial metadata")
+        count = len(args[0]) if args and isinstance(args[0], list) else 1
+        print(f"::warning::{label} failed ({type(exc).__name__}); continuing with saved/partial metadata count={count}")
         return False
 
 
@@ -2764,24 +3180,33 @@ def release_notification(code, item=None):
 
 
 def main(discovery_only=False) -> int:
+    initialize_run_deadline()
     print(f"[{now_jst()}] チェック開始")
     try:
+        state_inputs = validate_state_files()
+    except (StateStructureError, json.JSONDecodeError) as exc:
+        print(f"状態読込失敗: {exc}", file=sys.stderr)
+        return 1
+    try:
         latest, crawl_state = get_latest_videos()
+    except StateStructureError as exc:
+        print(f"状態読込失敗: {exc}", file=sys.stderr)
+        return 1
     except Exception as e:
         save_discovery_cooldowns()
-        print(f"取得失敗: {e}", file=sys.stderr)
+        print(f"[main discovery] error={type(e).__name__} count=1", file=sys.stderr)
         if not discovery_only:
-            run_optional_step("Error notification", send_telegram, "監視エラー: ページ取得に失敗しました")
+            run_optional_step("Error notification", send_telegram, "監視エラー: ページ取得に失敗しました", needs_network=False)
         return 1
     save_discovery_cooldowns()
-    if not latest:
+    if not latest and not run_deadline_reached("discovery"):
         if not discovery_only:
-            run_optional_step("Error notification", send_telegram, "監視エラー: 動画リストを抽出できませんでした。")
+            run_optional_step("Error notification", send_telegram, "監視エラー: 動画リストを抽出できませんでした。", needs_network=False)
         return 1
 
-    history = load_json(HISTORY_FILE, {"ids": []})
+    history = state_inputs.pop(HISTORY_FILE)
     known = set(history.get("ids", []))
-    existing = load_json(DATA_FILE, {"items": []})
+    existing = state_inputs.pop(DATA_FILE)
     existing_map = {item["code"]: item for item in existing.get("items", [])}
     first_run = not known
     pending = load_notify_queue()
@@ -2883,7 +3308,7 @@ def main(discovery_only=False) -> int:
         run_optional_step(action.__name__, action, merged)
     if not discovery_only:
         run_optional_step("MissAV rankings", lambda: apply_missav_ranks(merged, scrape_missav_rankings(), now_jst()))
-        run_optional_step("Views history", update_views_history, merged)
+        run_optional_step("Views history", update_views_history, merged, needs_network=False)
     additions = [item for item in latest if item["code"] not in existing_map]
     if "last_discovery" in crawl_state:
         crawl_state["last_discovery"].update(previous_total=len(existing_map), new_to_catalog=len(additions),
@@ -2906,8 +3331,10 @@ def main(discovery_only=False) -> int:
         print("Discovery-only run: metadata enrichment and notifications skipped")
         return 0
 
+    # Notifications are part of persistence: history already records discoveries.
+    # Keep sending after the acquisition deadline; failures remain in pending.
     if first_run:
-        run_optional_step("Startup notification", send_telegram, "監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]))
+        run_optional_step("Startup notification", send_telegram, "監視を開始しました。\n今後の新着だけ通知します。\n\n現在の最新:\n" + "\n".join(f"- {v['code']}" for v in latest[:8]), needs_network=False)
         print("初回保存完了")
         return 0
 
@@ -2943,7 +3370,7 @@ def main(discovery_only=False) -> int:
             pending.remove(row)
             save_notify_queue(pending)
             continue
-        sent = run_optional_step("New item notification", send_telegram, message, photo=video.get("thumb"))
+        sent = run_optional_step("New item notification", send_telegram, message, photo=video.get("thumb"), needs_network=False)
         if sent:
             pending.remove(row)
             save_notify_queue(pending)
@@ -2956,11 +3383,18 @@ def main(discovery_only=False) -> int:
 
 def audit_discovery() -> int:
     """Read-only pagination diagnostics; never fetch video files or send notices."""
+    initialize_run_deadline()
+    validate_state_files()
     state = load_json(CRAWL_FILE, {})
     base = "https://missav.ws/ja/fc2"
-    for page in dict.fromkeys([1, 2, int(state.get("missav_page") or 3)]):
+    requested_pages = dict.fromkeys([1, 2, int(state.get('missav_page') or 3)])
+    for page_index, page in enumerate(requested_pages):
+        if run_deadline_reached("audit_discovery", len(requested_pages) - page_index):
+            break
         url = base if page == 1 else f"{base}?page={page}"
         info = fetch_page(url)
+        if info.get("error") == "run_deadline":
+            break
         soup = info.get("soup")
         if not info.get("ok") or soup is None:
             print(json.dumps({"pagination_audit": page, "status": info.get("status"),

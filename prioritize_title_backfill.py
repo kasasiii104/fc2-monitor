@@ -3,7 +3,7 @@
 
 The main metadata queue also contains rating/review-only work. This helper does
 not bypass retry cooldowns; it only marks title-repair records that are already
-due as untried so the existing 500-request official batch selects them first.
+due with an explicit priority flag for the existing official batch.
 """
 
 import re
@@ -44,7 +44,7 @@ def main():
             continue
         if not m.needs_jp_title(item.get("title", "")):
             continue
-        if rec.get("last_attempt") and not m.fc2_market_due(item, state, now):
+        if not m.fc2_market_due(item, state, now):
             continue
         due.append(item)
 
@@ -59,9 +59,8 @@ def main():
             attempts[code] = rec
         if priority(item)[0] == 0:
             chinese_or_code += 1
-        # Keep status/failure history and next_retry_at. These records are only
-        # selected here when their existing retry window is already due.
-        rec["last_attempt"] = 0
+        # Preserve the complete attempt history and retry window.
+        rec["title_priority"] = True
 
     state[m.BACKFILL_ATTEMPTS_KEY] = attempts
     m.save_json(m.FETCH_STATE_FILE, state)

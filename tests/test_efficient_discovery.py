@@ -30,7 +30,7 @@ class EfficientDiscoveryTests(unittest.TestCase):
             with self.subTest(url=url):
                 row = e.base.make_item(f"FC2-PPV-{num}", {"title": "サンプル作品"}, "", recent=False)
                 row["url"] = url
-                with patch.object(e.m, "fetch_fc2_market", return_value={"outcome": "success", "fc2_market_url": official}):
+                with patch.object(e.m, "load_json", return_value={}), patch.object(e.m, "save_json"), patch.object(e.m, "fetch_fc2_market", return_value={"outcome": "success", "fc2_market_url": official}):
                     status, _ = e.verify_official(row, num, {}, 123)
                 self.assertEqual(status, "alive")
                 self.assertEqual(row["url"], url if e.m.discovery_source(url) == "missav" else template)

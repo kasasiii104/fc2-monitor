@@ -43,6 +43,8 @@ def _correct_detail_destination(url, num):
 
 def _existence_request(url):
     """Check only response status/destination; never download the detail HTML body."""
+    if m.run_deadline_reached("MissAV request", 1):
+        return {"status": 0, "final_url": url, "error": "run_deadline"}
     if m.source_in_cooldown(url):
         return {"status": 0, "final_url": url, "access_limited": True, "error": "source_cooldown"}
     headers = {**m.HEADERS, "Range": "bytes=0-0", "Accept": "text/html,*/*;q=0.8"}
@@ -103,7 +105,7 @@ def apply_live_url(item, result):
 
 class Guard:
     def __init__(self):
-        raw = m.load_json(STATE_FILE, {"checks": {}})
+        raw = m.load_json(STATE_FILE, {"checks": {}}, allow_non_dict=True)
         self.state = raw if isinstance(raw, dict) else {"checks": {}}
         self.checks = self.state.get("checks") if isinstance(self.state.get("checks"), dict) else {}
         self.state["checks"] = self.checks
@@ -158,7 +160,11 @@ class Guard:
         attempts = 0
         result = None
         for url in urls:
+            if m.run_deadline_reached("MissAV probe", 1):
+                return {"status": "unknown", "reason": "run_deadline"}
             info = _existence_request(url)
+            if info.get("error") == "run_deadline":
+                return {"status": "unknown", "reason": "run_deadline"}
             attempts += 1
             status = int(info.get("status") or 0)
             final_url = str(info.get("final_url") or url)
@@ -211,6 +217,9 @@ def _queue_retry(item, result, guard):
         "item": deepcopy(item), "discovery_kind": item.get("discovery_kind") if isinstance(item.get("discovery_kind"), str) else "recent",
         "queued_at": m.now_ts(), "attempts": 0,
     })
+    if result.get("reason") == "run_deadline":
+        guard.dirty = True
+        return
     row.update(last_tried_at=m.now_ts(), attempts=row["attempts"] + 1,
                last_reason=str(result.get("reason") or ""),
                last_status=str(result.get("status") or ""))
@@ -295,6 +304,9 @@ def filter_unseen(videos, existing_codes, guard):
                 m.release_notification(code, item)
             kept.append(item)
             continue
+        if m.run_deadline_reached("MissAV filter", 1):
+            _queue_retry(item, {"status": "unknown", "reason": "run_deadline"}, guard)
+            continue
         if code in guard.retry_queue:
             guard.retry_queue[code]["last_tried_at"] = m.now_ts()
             guard.dirty = True
@@ -347,6 +359,8 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
     relinked = 0
     protected = 0
     for item in candidates[:max(1, limit)]:
+        if m.run_deadline_reached("MissAV prune", max(0, len(candidates) - checked)):
+            break
         code, num = _code(item)
         result = guard.probe(num, force=True)
         checked += 1
@@ -402,6 +416,7 @@ def prune_saved(guard=None, limit=AUDIT_LIMIT):
 
 
 def run_guarded_monitor():
+    m.validate_state_files()
     guard = Guard()
     prune_saved(guard)
     current = m.load_json(m.DATA_FILE, {"items": []})
@@ -428,10 +443,14 @@ def run_guarded_monitor():
 
 
 def main():
+    m.initialize_run_deadline()
+    if m.run_deadline_reached("missav_guard.py"):
+        return 0
     parser = argparse.ArgumentParser()
     parser.add_argument("--prune-only", action="store_true")
     args = parser.parse_args()
     if args.prune_only:
+        m.validate_state_files()
         prune_saved()
         return 0
     return run_guarded_monitor()

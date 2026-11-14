@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
+from public_catalog_values import public_views
 
 DOCS = Path("docs")
 CATALOG = DOCS / "catalog.json"
@@ -48,7 +49,7 @@ def public_from_saved(item):
         "preview_fallbacks": item.get("preview_fallbacks") if isinstance(item.get("preview_fallbacks"), list) else [],
         "duration": item.get("duration") or "",
         "duration_sec": duration_seconds(item.get("duration") or ""),
-        "views": item.get("views") if isinstance(item.get("views"), int) else 0,
+        "views": public_views(item.get("views")),
         "views_source": item.get("views_source") or "",
         "first_seen": item.get("first_seen") or "",
         "is_new": bool(item.get("is_new")),
@@ -90,6 +91,11 @@ def direct_missav(url, expected=""):
 
 def compact_item(item):
     item = dict(item)
+    views = public_views(item.get("views"))
+    if views is None:
+        item.pop("views", None)
+    else:
+        item["views"] = views
     expected = code_num(item)
     original_sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
     missav = direct_missav(original_sources.get("MissAV"), expected) or direct_missav(item.get("url"), expected)

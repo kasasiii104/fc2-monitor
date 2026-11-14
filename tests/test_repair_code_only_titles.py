@@ -1,17 +1,56 @@
 import contextlib
+import copy
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import repair_code_only_titles as repair
 
 
 class CodeOnlyTitleRepairTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch.dict(repair.m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
+        self.enterContext(patch.object(repair.m, "_RUN_STARTED", None))
+
     def test_generic_page_punctuation_and_site_names(self):
         for title in ("Just a moment...", "ログイン | MissAV", "Sign In - FC2",
                       "検索結果 - MissAV", "！ログイン…", "FC2-PPV | ログイン"):
             with self.subTest(title=title):
                 self.assertTrue(repair.is_generic_page_title(title))
+
+    def test_main_preserves_host_stop_without_reloading_state_per_item(self):
+        items = [
+            {"code": f"FC2-PPV-{num}", "code_num": num,
+             "title": f"FC2-PPV-{num}",
+             "url": f"https://{repair.m.FC2_MARKET_HOST}/article/{num}/"}
+            for num in ("8000002", "8000001")
+        ]
+        # Copy on read/write models separate JSON loads and persisted snapshots.
+        files = {repair.m.DATA_FILE: {"items": items}, repair.m.FETCH_STATE_FILE: {}}
+
+        def load(path, default):
+            return copy.deepcopy(files.get(path, default))
+
+        def save(path, value):
+            files[path] = copy.deepcopy(value)
+
+        response = Mock(status_code=403, headers={"Retry-After": "90"}, text="")
+        with patch.object(repair.m, "_FC2_STOPPED_THIS_RUN", False), \
+                patch.object(repair.m, "load_json", side_effect=load) as loads, \
+                patch.object(repair.m, "save_json", side_effect=save), \
+                patch.object(repair.m, "now_ts", return_value=100000), \
+                patch.object(repair.requests, "get", return_value=response) as get, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(repair.main(), 0)
+            saved = files[repair.m.FETCH_STATE_FILE]
+            self.assertEqual(saved["fc2_market_host_stop"]["until"], 100090)
+            repair.m._FC2_STOPPED_THIS_RUN = False
+            self.assertTrue(repair.m.fc2_market_blocked(saved, 100001))
+            self.assertEqual(sum(call.args[0] == repair.m.FETCH_STATE_FILE
+                                 for call in loads.call_args_list), 1)
+            official_calls = [call for call in get.call_args_list
+                              if repair.m.FC2_MARKET_HOST in call.args[0]]
+            self.assertEqual(len(official_calls), 1)
 
     def test_normal_titles_with_site_names_are_not_generic(self):
         for title in ("ログインして見たい素人", "ログインして見たい素人の…",

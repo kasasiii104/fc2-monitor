@@ -18,6 +18,7 @@ import fc2_monitor as m
 
 CHECK_LIMIT = max(1, int(os.environ.get("WALKER_OFFICIAL_FAST_LIMIT", "240")))
 WORKERS = max(1, min(8, int(os.environ.get("WALKER_OFFICIAL_FAST_WORKERS", "4"))))
+# FC-03/09 以降は未使用（投入は WORKERS 単位）
 BATCH_SIZE = max(WORKERS, int(os.environ.get("WALKER_OFFICIAL_FAST_BATCH", "24")))
 NOT_FOUND_RETRY_SEC = max(86400, int(os.environ.get("WALKER_OFFICIAL_NOT_FOUND_RETRY_SEC", str(30 * 86400))))
 FAILED_RETRY_SEC = max(3600, int(os.environ.get("WALKER_OFFICIAL_FAILED_RETRY_SEC", str(12 * 3600))))
@@ -32,7 +33,9 @@ def due(checks, code, now):
     return not checked or now - checked >= delay
 
 
-def fetch_one(code, row):
+def fetch_one(code, row, state=None):
+    if m.run_deadline_reached("fastlane worker", 1) or (state is not None and m.fc2_market_blocked(state, m.now_ts())):
+        return code, row, code.split("-")[-1], {"outcome": "deferred"}
     num = code.split("-")[-1]
     try:
         meta = m.fetch_fc2_market(num) or {"outcome": "failed", "reason": "empty_response"}
@@ -66,6 +69,10 @@ def ensure_missav_primary_links(items):
 
 
 def main():
+    m.initialize_run_deadline()
+    if m.run_deadline_reached("walker_official_fastlane.py"):
+        return 0
+    m.validate_state_files()
     started = time.monotonic()
     payload = m.load_json(m.DATA_FILE, {"items": []})
     items = payload.get("items") if isinstance(payload, dict) else []
@@ -104,22 +111,28 @@ def main():
     checked = success = not_found = failed = blocked = 0
     stop = False
     with ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="fc2-official") as pool:
-        for offset in range(0, len(candidates), BATCH_SIZE):
-            if stop:
+        for offset in range(0, len(candidates), WORKERS):
+            if m.run_deadline_reached("fastlane submission", len(candidates) - offset) or stop or m.fc2_market_blocked(state, m.now_ts()):
                 break
-            batch = candidates[offset:offset + BATCH_SIZE]
-            futures = [pool.submit(fetch_one, code, row) for code, row in batch]
+            batch = candidates[offset:offset + WORKERS]
+            futures = []
+            for code, row in batch:
+                if m.run_deadline_reached("fastlane submission", len(candidates) - offset - len(futures)):
+                    break
+                futures.append(pool.submit(fetch_one, code, row, state))
             for future in as_completed(futures):
                 code, row, num, meta = future.result()
+                if meta.get("outcome") == "deferred":
+                    continue
                 checked += 1
-                outcome = meta.get("outcome") or "failed"
-                checks[code] = {
-                    "checked_at": now,
-                    "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "failed",
-                    "reason": meta.get("reason") or meta.get("blocked") or "",
-                }
+                outcome = m.record_fc2_market_result(row, meta, state, m.now_ts(), "official_fastlane", candidate=True)["status"]
+                if meta.get("http_status") not in (403, 429):
+                    checks[code] = {
+                        "checked_at": now,
+                        "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "failed",
+                        "reason": meta.get("reason") or meta.get("blocked") or "",
+                    }
                 if outcome == "success":
-                    m.apply_fc2_market_metadata(row, meta, now)
                     official = meta.get("fc2_market_url") or f"https://adult.contents.fc2.com/article/{num}/?lang=ja"
                     row.setdefault("sources", {})["FC2公式"] = official
                     row["source"] = "FC2公式"
@@ -142,6 +155,9 @@ def main():
             # remaining requests more aggressive.
             if blocked:
                 stop = True
+
+    if m.fc2_market_blocked(state, m.now_ts()):
+        m.log_fc2_carryover(state, len(candidates) - checked)
 
     # Keep shared evidence bounded and reusable by efficient_discovery.py.
     checks = {
