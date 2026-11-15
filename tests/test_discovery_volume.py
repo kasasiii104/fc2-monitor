@@ -35,7 +35,7 @@ class DiscoveryVolumeTests(unittest.TestCase):
                 self.assertEqual([r['discovery_kind'] for r in rows], list(kinds))
 
     def scan(self, denied_page=None):
-        def fetch(url):
+        def fetch(url, purpose=None):
             page = int(parse_qs(urlsplit(url).query).get('page', ['1'])[0])
             if page == denied_page:
                 return {'ok': False, 'status': 403, 'cloudflare': True, 'soup': None}

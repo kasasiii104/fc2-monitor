@@ -143,7 +143,7 @@ class RunDeadlineTests(unittest.TestCase):
         original = deepcopy(state)
         first = next(iter(m.RANK_PERIODS))
         soup = BeautifulSoup('<a href="/ja/fc2-ppv-1234568">作品</a>', 'html.parser')
-        with patch.object(m, "run_deadline_reached", side_effect=[False, False, True]), patch.object(m, "source_in_cooldown", return_value=False), patch.object(m, "fetch_page", side_effect=lambda url: {"ok": True, "status": 200, "soup": soup, "final_url": url}):
+        with patch.object(m, "run_deadline_reached", side_effect=[False, False, True]), patch.object(m, "source_in_cooldown", return_value=False), patch.object(m, "fetch_page", side_effect=lambda url, purpose=None: {"ok": True, "status": 200, "soup": soup, "final_url": url}):
             ranks = m.scrape_missav_fc2_rankings()
         self.assertEqual(set(ranks["periods"]), {first})
         items = [{"code": "FC2-PPV-1234567"}, {"code": "FC2-PPV-1234568"}]
@@ -219,7 +219,7 @@ class RunDeadlineTests(unittest.TestCase):
     def test_unprocessed_archive_page_is_not_completed(self):
         m._RUN_STARTED = 0
         clock = [0]
-        def fetch(url):
+        def fetch(url, purpose=None):
             clock[0] = 2700
             return {"ok": True, "status": 200, "final_url": url,
                     "soup": BeautifulSoup('<a href="/ja/fc2-ppv-1234567">作品</a>', 'html.parser')}

@@ -12,6 +12,7 @@ import tempfile
 import time
 import math
 from email.utils import parsedate_to_datetime
+from http.cookies import SimpleCookie, CookieError
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urlparse, quote_plus, parse_qs
@@ -133,6 +134,201 @@ FC2_MARKET_REFRESH_SEC = int(os.environ.get("FC2_MARKET_REFRESH_SEC", str(7 * 86
 FC2CMADB_URL = os.environ.get("FC2CMADB_URL", "https://fc2cmadb.com").rstrip("/")
 FC2CMADB_FETCH_LIMIT = int(os.environ.get("FC2CMADB_FETCH_LIMIT", "24"))
 H_WALKER_URL = os.environ.get("H_WALKER_URL", "https://fc2cm.h-walker.net").rstrip("/")
+
+# Purpose names are explicit so fetch anchors cannot inherit media permissions.
+PURPOSE_MISSAV = "missav"
+PURPOSE_JAVDB = "javdb"
+PURPOSE_SUPJAV = "supjav"
+PURPOSE_AV123 = "av123"
+PURPOSE_FC2CMADB = "fc2cmadb"
+PURPOSE_WALKER = "walker"
+PURPOSE_FC2_OFFICIAL = "fc2_official"
+PURPOSE_MEDIA = "media"
+DEFAULT_PURPOSE_HOSTS = {
+    PURPOSE_MISSAV: frozenset(("missav.ws", "missav.live", "missav.ai")),
+    PURPOSE_JAVDB: frozenset(("javdb.com",)),
+    PURPOSE_SUPJAV: frozenset(("supjav.com",)),
+    PURPOSE_AV123: frozenset(("123av.com",)),
+    PURPOSE_FC2CMADB: frozenset(("fc2cmadb.com",)),
+    PURPOSE_WALKER: frozenset(("fc2cm.h-walker.net",)),
+    PURPOSE_FC2_OFFICIAL: frozenset(("adult.contents.fc2.com",)),
+    PURPOSE_MEDIA: frozenset(("fourhoi.com",)),
+}
+SUBDOMAIN_PURPOSES = frozenset((PURPOSE_MISSAV, PURPOSE_JAVDB, PURPOSE_SUPJAV))
+MEDIA_HOST_SUFFIXES = (".contents.fc2.com", ".fc2.com")
+LINK_ONLY_HOSTS = frozenset((
+    "missav.ws", "supjav.com", "javdb.com", "adult.contents.fc2.com",
+    "fc2cmadb.com", "123av.com", "javfc2.xyz",
+))
+
+
+def _allowlist_url_parts(url):
+    """Return a normalized HTTPS host/port, or None for unusable input."""
+    if not isinstance(url, str) or not url or any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in url):
+        return None
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower().rstrip(".")
+        port = parts.port
+        if not re.fullmatch(r"[A-Za-z0-9.-]+", parts.hostname or "", re.ASCII):
+            return None
+        if (parts.scheme != "https" or not host
+                or parts.username is not None or parts.password is not None):
+            return None
+        return host, port
+    except (ValueError, TypeError):
+        return None
+
+
+def build_host_allowlists(env_values):
+    """Build independent rules from URL environment values without reading env.
+
+    Each rule contains allowed hosts and explicit override host/port pairs.
+    Nonstandard ports apply only to the exact override host, not subdomains.
+    """
+    hosts = {purpose: set(values) for purpose, values in DEFAULT_PURPOSE_HOSTS.items()}
+    ports = {purpose: set() for purpose in hosts}
+    for env_name, purpose in (
+        ("MISSAV_URL", PURPOSE_MISSAV), ("JAVDB_URL", PURPOSE_JAVDB),
+        ("SUPJAV_URL", PURPOSE_SUPJAV), ("FC2CMADB_URL", PURPOSE_FC2CMADB),
+        ("H_WALKER_URL", PURPOSE_WALKER),
+    ):
+        parsed = _allowlist_url_parts(env_values.get(env_name))
+        if parsed is not None:
+            host, port = parsed
+            hosts[purpose].add(host)
+            if port is not None:
+                ports[purpose].add((host, port))
+    return {purpose: (frozenset(values), frozenset(ports[purpose]))
+            for purpose, values in hosts.items()}
+
+
+HOST_ALLOWLISTS = build_host_allowlists({
+    "MISSAV_URL": MISSAV_URL, "JAVDB_URL": JAVDB_URL, "SUPJAV_URL": SUPJAV_URL,
+    "FC2CMADB_URL": FC2CMADB_URL, "H_WALKER_URL": H_WALKER_URL,
+})
+
+
+def url_allowed_for(url, purpose, allowlists=None) -> bool:
+    """Check a purpose boundary; unknown purposes are programming errors.
+
+    Media rules authorize adoption of asset URLs, not fetching those URLs.
+    The optional rules argument supports isolated override checks.
+    """
+    if purpose not in DEFAULT_PURPOSE_HOSTS:
+        raise ValueError("unknown URL purpose")
+    hosts, explicit_ports = (HOST_ALLOWLISTS if allowlists is None else allowlists)[purpose]
+    parsed = _allowlist_url_parts(url)
+    if parsed is None:
+        return False
+    host, port = parsed
+    if port not in (None, 443):
+        return (host, port) in explicit_ports
+    if host in hosts:
+        return True
+    if purpose in SUBDOMAIN_PURPOSES:
+        return any(host.endswith("." + value) for value in hosts)
+    return purpose == PURPOSE_MEDIA and host.endswith(MEDIA_HOST_SUFFIXES)
+
+
+MAX_FETCH_REDIRECTS = 5
+
+
+class HostNotAllowed(Exception):
+    """A fetch boundary rejection, retaining no URL or query."""
+    def __init__(self, purpose, host, hop, reason="host_rejected"):
+        self.reason = reason
+        self.host = host
+        self.hop = hop
+        self.purpose = purpose
+        super().__init__(f"purpose={purpose} host={host} hop={hop} reason={reason}")
+        print(f"[Host rejected] {self}")
+
+
+def _fetch_host(url):
+    try:
+        return (urlsplit(url).hostname or "").lower().rstrip(".")
+    except (ValueError, TypeError, AttributeError):
+        return ""
+
+
+def resolve_fetch_purpose(url):
+    """Resolve once; media adoption rules never authorize a fetch."""
+    for purpose in DEFAULT_PURPOSE_HOSTS:
+        if purpose != PURPOSE_MEDIA and url_allowed_for(url, purpose):
+            return purpose
+    raise HostNotAllowed("auto", _fetch_host(url), 0)
+
+
+def guarded_get(url, purpose=None, *, headers, timeout, stream=False):
+    purpose = resolve_fetch_purpose(url) if purpose is None else purpose
+    current = url
+    request_headers = dict(headers)
+    jar = requests.cookies.RequestsCookieJar()
+    for hop in range(MAX_FETCH_REDIRECTS + 1):
+        if not url_allowed_for(current, purpose):
+            raise HostNotAllowed(purpose, _fetch_host(current), hop)
+        try:
+            prepared = requests.Request("GET", current).prepare()
+            identity = lambda u: (u.scheme, u.hostname, u.port, u.username, u.password)
+            if identity(urlsplit(current)) != identity(urlsplit(prepared.url)) or not url_allowed_for(prepared.url, purpose):
+                raise ValueError()
+        except Exception:
+            raise HostNotAllowed(purpose, _fetch_host(current), hop) from None
+        outgoing_headers = dict(request_headers)
+        cookie_header = requests.cookies.get_cookie_header(jar, prepared)
+        if cookie_header:
+            cookies = SimpleCookie()
+            try:
+                for key, value in request_headers.items():
+                    if key.lower() == "cookie":
+                        cookies.load(value)
+                cookies.load(cookie_header)
+            except CookieError:
+                pass
+            else:
+                outgoing_headers = {k: v for k, v in request_headers.items() if k.lower() != "cookie"}
+                outgoing_headers["Cookie"] = "; ".join(m.OutputString() for m in cookies.values())
+        res = requests.get(current, headers=outgoing_headers, timeout=timeout,
+                           stream=stream, allow_redirects=False)
+        location = (getattr(res, "headers", None) or {}).get("Location")
+        if res.status_code not in (301, 302, 303, 307, 308) or not location:
+            if not getattr(res, "url", None):
+                res.url = current
+            return res
+        try:
+            try:
+                try:
+                    location = location.encode("latin1").decode("utf8")
+                except (UnicodeError, AttributeError):
+                    pass
+                if any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in location):
+                    raise ValueError()
+                target = urljoin(current, location)
+            except (ValueError, TypeError):
+                raise HostNotAllowed(purpose, "", hop + 1) from None
+            if not url_allowed_for(target, purpose):
+                raise HostNotAllowed(purpose, _fetch_host(target), hop + 1)
+            if hop == MAX_FETCH_REDIRECTS:
+                raise HostNotAllowed(purpose, _fetch_host(target), hop + 1, "too_many_redirects")
+            if _fetch_host(current) != _fetch_host(target):
+                request_headers = {key: value for key, value in request_headers.items()
+                                   if key.lower() not in ("cookie", "authorization")}
+                jar.clear()
+            else:
+                response_cookies = getattr(res, "cookies", None)
+                if isinstance(response_cookies, requests.cookies.RequestsCookieJar):
+                    try:
+                        jar.update(response_cookies)
+                    except Exception:
+                        pass
+            current = target
+        finally:
+            close = getattr(res, "close", None)
+            if callable(close):
+                close()
+
+
 H_WALKER_PAGES = int(os.environ.get("H_WALKER_PAGES", "20"))
 H_WALKER_CURSOR_KEY = "hwalker_next_url"
 H_WALKER_STATS_KEY = "hwalker_crawl_stats"
@@ -255,7 +451,7 @@ def validate_crawl_state(path: Path, state):
     fields(discovery, discovery_schema, "$.last_discovery")
     source_schema = dict.fromkeys((
         "archive_from max_page stopped_page restart_page search_items catalog_items recent_page_limit "
-        "archive_page_limit recent_pages archive_pages next_page items"
+        "archive_page_limit recent_pages archive_pages next_page items href_rejected"
     ).split(), int)
     source_schema.update(pages=list, status=str, cycle_completed=bool, last_archive=dict)
     for source, report in discovery.get("sources", {}).items():
@@ -337,8 +533,8 @@ def send_telegram(text: str, photo=None) -> None:
 
 def discovery_source(url):
     host = (urlsplit(url).hostname or "").lower()
-    for source, hosts in {"missav": ("missav.ws", "missav.live", "missav.ai"),
-                          "javdb": ("javdb.com",), "supjav": ("supjav.com",)}.items():
+    for source in (PURPOSE_MISSAV, PURPOSE_JAVDB, PURPOSE_SUPJAV):
+        hosts = DEFAULT_PURPOSE_HOSTS[source]
         if any(host == value or host.endswith("." + value) for value in hosts):
             return source
     return ""
@@ -362,14 +558,14 @@ def save_discovery_cooldowns():
         save_json(CRAWL_FILE, state)
 
 
-def fetch_soup(url: str):
+def fetch_soup(url: str, purpose=None):
     if run_deadline_reached("fetch_soup"):
         raise RunDeadlineReached("run deadline; no request made")
     if source_in_cooldown(url):
         response = requests.Response()
         response.status_code = 403
         raise requests.HTTPError("source cooldown; no request made", response=response)
-    res = requests.get(url, headers=HEADERS, timeout=30)
+    res = guarded_get(url, purpose, headers=HEADERS, timeout=30)
     record_source_denial(url, res.status_code)
     res.raise_for_status()
     soup = BeautifulSoup(res.text, "html.parser")
@@ -377,7 +573,7 @@ def fetch_soup(url: str):
     return soup
 
 
-def fetch_page(url: str) -> dict:
+def fetch_page(url: str, purpose=None) -> dict:
     if run_deadline_reached("fetch_page"):
         return {"ok": False, "status": 0, "final_url": url, "soup": None,
                 "size": 0, "title": "", "cloudflare": False, "error": "run_deadline"}
@@ -385,7 +581,7 @@ def fetch_page(url: str) -> dict:
         return {"ok": False, "status": 0, "final_url": url, "soup": None,
                 "size": 0, "title": "", "cloudflare": False, "error": "source_cooldown"}
     try:
-        res = requests.get(url, headers=HEADERS, timeout=30, allow_redirects=True)
+        res = guarded_get(url, purpose, headers=HEADERS, timeout=30)
         text = res.text or ""
         try:
             soup = BeautifulSoup(text, "html.parser")
@@ -416,6 +612,10 @@ def fetch_page(url: str) -> dict:
             "cloudflare": challenge,
             "error": None,
         }
+    except HostNotAllowed as exc:
+        return {"ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
+                "size": 0, "title": "", "cloudflare": False, "error": exc.reason,
+                "rejected_host": exc.host}
     except Exception as e:
         print(f"[fetch_page] error={type(e).__name__} count=1")
         return {
@@ -681,7 +881,7 @@ def harvest_supjav_views(pages=None) -> dict:
         if run_deadline_reached("harvest_supjav_views", len(requested_pages) - page_index):
             break
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="supjav")
         if info.get("error") == "run_deadline":
             break
         extra = " keeping_previous_views=true" if info.get("cloudflare") or info.get("status") == 403 else ""
@@ -731,6 +931,9 @@ VIEW_ATTEMPTS_KEY = "views_refresh_v2_attempts"
 VIEW_STATS_KEY = "views_refresh_v2_stats"
 
 
+REJECTION_REASONS = frozenset(("host_rejected", "too_many_redirects"))
+
+
 def page_access_limited(info):
     return bool(info.get("status") in (401, 403, 429) or info.get("cloudflare")
                 or info.get("error") == "source_cooldown")
@@ -744,6 +947,7 @@ def missav_route_path(path):
 
 def scrape_missav_fc2_rankings() -> dict:
     """Return one independently verified snapshot/outcome per period."""
+    href_rejected = 0
     hosts = ["https://missav.ws", "https://missav.live", "https://missav.ai"]
     periods = {}
     for period_index, (period, sort) in enumerate(RANK_PERIODS.items()):
@@ -759,7 +963,7 @@ def scrape_missav_fc2_rankings() -> dict:
             if source_in_cooldown(url):
                 outcome = {"status": "access_limited", "reason": "source_cooldown"}
                 break
-            page = fetch_page(url)
+            page = fetch_page(url, purpose="missav")
             if page.get("error") == "run_deadline":
                 deferred = True
                 break
@@ -768,6 +972,8 @@ def scrape_missav_fc2_rankings() -> dict:
                 outcome = {"status": "access_limited", "reason": "access_denied"}
                 break
             if not page.get("ok") or page.get("soup") is None or page.get("status") != 200:
+                if page.get("error") in REJECTION_REASONS:
+                    outcome = {"status": "fetch_failed", "reason": page["error"]}
                 continue
             try:
                 final = urlsplit(page.get("final_url") or url)
@@ -783,12 +989,20 @@ def scrape_missav_fc2_rankings() -> dict:
                 continue
             codes = []
             for link in page["soup"].find_all("a", href=True):
+                # Strip first so the same value drives the join, the strict
+                # check and the adopted code (surrounding whitespace is benign).
+                raw = link["href"].strip()
                 try:
-                    target = urlsplit(urljoin(url, link["href"]))
+                    target = urlsplit(urljoin(url, raw))
                 except ValueError:
                     continue
                 match = re.fullmatch(r"/(?:ja/)?fc2-ppv-(\d{6,8})/?", missav_route_path(target.path), re.I)
-                if not match or discovery_source(target.geturl()) != "missav":
+                if match and any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in raw):
+                    href_rejected += 1
+                    continue
+                if match and not url_allowed_for(target.geturl(), PURPOSE_MISSAV):
+                    href_rejected += 1
+                if not match or discovery_source(target.geturl()) != "missav" or not url_allowed_for(target.geturl(), PURPOSE_MISSAV):
                     continue
                 code = f"FC2-PPV-{match.group(1)}"
                 if code not in codes:
@@ -803,6 +1017,8 @@ def scrape_missav_fc2_rankings() -> dict:
             outcome["next_retry_at"] = int(SOURCE_RETRY_AT.get("missav") or 0)
         periods[period] = outcome
         print(f"[MissAV FC2 rank {period}] status={outcome['status']} count={len(outcome.get('codes', []))}")
+    if href_rejected:
+        print(f"[Href rejected] source=missav count={href_rejected}")
     return {"version": 2, "periods": periods}
 
 
@@ -921,21 +1137,29 @@ def fill_missing_views(items) -> None:
     attempts = state.setdefault(VIEW_ATTEMPTS_KEY, {})
     now, updated = now_ts(), set()
     stats = {"checked_at": now_jst(), "status": "ok", "requests": 0, "tried": 0,
-             "updated": 0, "failed": 0, "next_retry_at": 0}
+             "updated": 0, "failed": 0, "rejected": 0, "next_retry_at": 0}
     for item_index, item in enumerate(items):
         if run_deadline_reached("fill_missing_views", len(items) - item_index):
             break
         item["views_updated"] = False
 
+    rejection = None
+
     def request(url):
+        nonlocal rejection
+        rejection = None
         if source_in_cooldown(url):
             stats["status"] = "access_limited"
             return None
         stats["requests"] += 1
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="supjav")
         if info.get("error") == "run_deadline":
             stats["requests"] -= 1
             stats["status"] = "run_deadline"
+            return None
+        if info.get("error") in REJECTION_REASONS:
+            rejection = info["error"]
+            stats["rejected"] += 1
             return None
         if page_access_limited(info):
             record_source_denial(url, info.get("status"), info.get("cloudflare", False))
@@ -1000,6 +1224,9 @@ def fill_missing_views(items) -> None:
             value = supjav_work_views(soup, item.get("code_num") or item["code"].split("-")[-1])
             if value is not None:
                 record_success(item, value)
+            elif rejection:
+                attempts[item["code"]] = {**rec, "last_attempt": now, "status": "rejected",
+                                         "reason": rejection, "next_retry_at": now + FAIL_SKIP_SEC}
             else:
                 failures = int(rec.get("failures") or 0) + 1
                 delay = DISCOVERY_RETRY_SEC if stats["status"] == "access_limited" else min(3 * 86400, FAIL_SKIP_SEC * 2 ** min(failures - 1, 3))
@@ -1027,7 +1254,7 @@ def refresh_japanese_titles(items) -> None:
     blocked = state.get("title_hosts_blocked") if isinstance(state.get("title_hosts_blocked"), dict) else {}
     host_errors = {}
     now = now_ts()
-    updated = tried = new_tried = historical_tried = requests_made = 0
+    updated = tried = new_tried = historical_tried = requests_made = rejected = 0
     targets = [x for x in items if needs_jp_title(x.get("title", ""))]
     new_targets = [x for x in targets if x.get("is_new")]
     historical = [x for x in targets if not x.get("is_new")]
@@ -1062,7 +1289,7 @@ def refresh_japanese_titles(items) -> None:
                 attempted = True
                 requests_made += 1
                 try:
-                    soup = fetch_soup(url)
+                    soup = fetch_soup(url, purpose={"MissAV": "missav", "Supjav": "supjav", "123AV": "av123"}[source])
                     host_errors[host] = 0
                     found = (extract_search_title(soup, code_num) if source != "MissAV"
                              else (extract_page_title(soup, code_num)
@@ -1082,6 +1309,9 @@ def refresh_japanese_titles(items) -> None:
                     requests_made -= 1
                     attempted = False
                     break
+                except HostNotAllowed:
+                    rejected += 1
+                    continue
                 except Exception as e:
                     _failures[("refresh_japanese_titles", type(e).__name__)] += 1
                     status = getattr(getattr(e, "response", None), "status_code", None)
@@ -1108,7 +1338,7 @@ def refresh_japanese_titles(items) -> None:
     stats = {"last_run": now, "pending_before": len(targets), "pending_after": len(pending),
              "new_pending": sum(bool(x.get("is_new")) for x in pending),
              "tried": tried, "new_tried": new_tried, "historical_tried": historical_tried,
-             "requests": requests_made, "title_updated": updated,
+             "requests": requests_made, "title_updated": updated, "rejected": rejected,
              "untried": sum(not fails.get(x.get("code")) for x in pending)}
     state["japanese_title_stats"] = stats
     save_json(FETCH_STATE_FILE, state)
@@ -1127,17 +1357,18 @@ def enrich(code_num, title, source, url, duration="", views=None):
 
 
 def scrape_missav(pages=None):
+    href_rejected = 0
     collected = {}
     requested_pages = pages or list(range(1, PAGES + 1))
     for page_index, page in enumerate(requested_pages):
         if run_deadline_reached("scrape_missav", len(requested_pages) - page_index):
             break
         url = MISSAV_URL if page == 1 else f"{MISSAV_URL}?page={page}"
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="missav")
         if info.get("error") == "run_deadline":
             break
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
-            print(f"MissAV {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
+            print(f"MissAV {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')} reason={info.get('error') if info.get('error') in REJECTION_REASONS else 'fetch_failed'}")
             break
         soup = info["soup"]
         before = len(collected)
@@ -1146,7 +1377,12 @@ def scrape_missav(pages=None):
             if not match:
                 continue
             code_num = match.group(1)
-            full_url = a["href"] if a["href"].startswith("http") else urljoin("https://missav.live", a["href"])
+            href = a["href"].strip()  # HTML permits surrounding whitespace in href
+            full_url = href if href.startswith("http") else urljoin("https://missav.live", href)
+            if (any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in href)
+                    or not url_allowed_for(full_url, PURPOSE_MISSAV)):
+                href_rejected += 1
+                continue
             img = a.find("img")
             raw = " ".join([a.get("title") or "", (img.get("alt") if img else "") or "", a.get_text(" ", strip=True)])
             title = clean_title(raw, code_num)
@@ -1164,6 +1400,8 @@ def scrape_missav(pages=None):
         print(f"MissAV {page}ページ: {len(collected) - before}件追加 / 合計{len(collected)}")
         if len(collected) == before:
             break
+    if href_rejected:
+        print(f"[Href rejected] source=missav count={href_rejected}")
     return list(collected.values())
 
 
@@ -1216,6 +1454,7 @@ def listing_pagination(soup):
 
 def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
     """Validate page identity and limits before marking any archive page complete."""
+    href_rejected = 0
     report = report if report is not None else {}
     report.setdefault("pages", [])
     report.setdefault("status", "ok")
@@ -1232,6 +1471,7 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
             report.update(status="page_limit", stopped_page=page_no)
             break
         deferred = False
+        rejection_reason = None
         soup = None
         final = ""
         for source_index, base in enumerate(bases):
@@ -1239,10 +1479,12 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
                 deferred = True
                 break
             url = base if page_no == 1 else f"{base}?page={page_no}"
-            info = fetch_page(url)
+            info = fetch_page(url, purpose="missav")
             if info.get("error") == "run_deadline":
                 deferred = True
                 break
+            if info.get("error") in REJECTION_REASONS:
+                rejection_reason = info["error"]
             print(f"[MissAV /ja/fc2] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')}")
             if info.get("ok") and info.get("status") == 200 and not info.get("cloudflare"):
                 soup, final = info.get("soup"), info.get("final_url") or base
@@ -1255,6 +1497,8 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
         if soup is None:
             if report["status"] == "ok":
                 report.update(status="fetch_failed", stopped_page=page_no)
+                if rejection_reason:
+                    report["reason"] = rejection_reason
             break
         pagination = listing_pagination(soup)
         if pagination.get("max_page"):
@@ -1285,7 +1529,7 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
         before = len(collected)
         recognized = False
         for a in soup.find_all("a", href=True):
-            href = a.get("href") or ""
+            href = (a.get("href") or "").strip()
             img = a.find("img")
             # Use href only to identify the FC2 code. Do not feed it into the
             # title candidate, otherwise relative/absolute URLs can leak into
@@ -1297,6 +1541,10 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
             recognized = True
             num = m.group(1)
             full = href if href.startswith("http") else urljoin(final, href)
+            if (any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in href)
+                    or not url_allowed_for(full, PURPOSE_MISSAV)):
+                href_rejected += 1
+                continue
             title = clean_title(raw, num)
             cur = collected.get(num)
             if not cur:
@@ -1315,19 +1563,29 @@ def scrape_missav_catalog(pages=None, completed_pages=None, report=None):
         if not recognized:
             report.update(status="unrecognized", stopped_page=page_no)
             break
+    if href_rejected:
+        report["href_rejected"] = href_rejected
+        print(f"[Href rejected] source=missav count={href_rejected}")
     return list(collected.values())
 
 
 def scrape_javdb(pages=None, completed_pages=None, report=None):
     """Independent discovery; access denials stop the source's current batch."""
-    def detail_url(anchor):
-        full = urljoin(info.get("final_url") or "https://javdb.com/", anchor.get("href") or "")
+    href_rejected = 0
+    def detail_url(anchor, count_rejection=False):
+        nonlocal href_rejected
+        raw = (anchor.get("href") or "").strip()
+        full = urljoin(info.get("final_url") or "https://javdb.com/", raw)
+        if any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in raw):
+            if count_rejection and "/v/" in raw:
+                href_rejected += 1
+            return None
         parsed = urlsplit(full)
-        host = parsed.hostname or ""
-        if (parsed.scheme in ("http", "https")
-                and (host == "javdb.com" or host.endswith(".javdb.com"))
+        if (url_allowed_for(full, PURPOSE_JAVDB)
                 and parsed.path.startswith("/v/")):
             return full
+        if count_rejection and parsed.path.startswith("/v/") and not url_allowed_for(full, PURPOSE_JAVDB):
+            href_rejected += 1
         return None
 
     collected = {}
@@ -1337,12 +1595,14 @@ def scrape_javdb(pages=None, completed_pages=None, report=None):
             break
         sep = "&" if "?" in JAVDB_URL else "?"
         url = JAVDB_URL if page_no == 1 else f"{JAVDB_URL}{sep}page={page_no}"
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="javdb")
         if info.get("error") == "run_deadline":
             break
         print(f"[JavDB] page={page_no} status={info.get('status')} cloudflare={info.get('cloudflare')} size={info.get('size')}")
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
             if report is not None:
+                if info.get("error") in REJECTION_REASONS:
+                    report["reason"] = info["error"]
                 report.update(status="access_limited" if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown" else "fetch_failed", stopped_page=page_no)
             if info.get("status") in (401, 403, 429) or info.get("cloudflare") or info.get("error") == "source_cooldown":
                 break
@@ -1351,7 +1611,7 @@ def scrape_javdb(pages=None, completed_pages=None, report=None):
         before = len(collected)
         recognized = False
         for a in soup.find_all("a", href=True):
-            full = detail_url(a)
+            full = detail_url(a, count_rejection=True)
             if not full:
                 continue
             href = a.get("href") or ""
@@ -1378,6 +1638,10 @@ def scrape_javdb(pages=None, completed_pages=None, report=None):
         print(f"[JavDB] page={page_no} +{len(collected)-before} total={len(collected)}")
         if recognized and completed_pages is not None:
             completed_pages.add(page_no)
+    if href_rejected:
+        if report is not None:
+            report["href_rejected"] = href_rejected
+        print(f"[Href rejected] source=javdb count={href_rejected}")
     return list(collected.values())
 
 
@@ -1580,16 +1844,19 @@ def extract_fc2_market_review_count(soup, text: str):
 
 def fetch_fc2_market(code_num):
     url = f"https://adult.contents.fc2.com/article/{code_num}/?lang=ja"
-    info = fetch_page(url)
+    info = fetch_page(url, purpose="fc2_official")
     if info.get("error") == "run_deadline":
         return {"outcome": "deferred"}
     print(f"[FC2 Market] FC2-PPV-{code_num} status={info.get('status')} cloudflare={info.get('cloudflare')}")
     access = {"http_status": info.get("status") or 0, "retry_after": info.get("retry_after")}
     if info.get("status") in (403, 429):
         return {**access, "outcome": "blocked", "reason": "access_limited"}
-    if "redirect.fc2.com/ekyc_auth" in (info.get("final_url") or ""):
+    if (info.get("rejected_host") == "redirect.fc2.com"
+            or "redirect.fc2.com/ekyc_auth" in (info.get("final_url") or "")):
         print(f"[FC2 Market] FC2-PPV-{code_num} blocked_by=eKYC")
         return {**access, "outcome": "blocked", "blocked": "eKYC", "reason": "eKYC"}
+    if info.get("error") in REJECTION_REASONS:
+        return {"outcome": "rejected", "reason": info["error"], "http_status": 0}
     if info.get("status") in (404, 410):
         return {**access, "outcome": "not_found", "not_found": True}
     if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
@@ -1616,7 +1883,7 @@ def fetch_fc2_market(code_num):
     )
     code_visible = re.search(rf"(?<!\d){re.escape(str(code_num))}(?!\d)", raw_html + " " + text) is not None
     if not article_path_ok and not code_visible:
-        print(f"[FC2 Market] FC2-PPV-{code_num} rejected final_url={final_url}")
+        print(f"[FC2 Market] FC2-PPV-{code_num} rejected host={_fetch_host(final_url)}")
         return {**access, "outcome": "failed", "reason": "unexpected_page"}
 
     rating = extract_fc2_market_rating(soup, text)
@@ -1749,7 +2016,7 @@ def fetch_fc2cmadb_title(code_num: str):
         if run_deadline_reached("fetch_fc2cmadb_title", len(attempts) - item_index):
             return {"outcome": "deferred"}
         try:
-            res = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
+            res = guarded_get(url, "fc2cmadb", headers=headers, timeout=25)
             last_status = res.status_code
             if res.status_code != 200:
                 continue
@@ -1766,6 +2033,8 @@ def fetch_fc2cmadb_title(code_num: str):
             if title and _title_response_matches(str(res.url or url), url, code_num):
                 print(f"[FC2CMADB] FC2-PPV-{code_num} status=200 title=True")
                 return {"title": title, "url": str(res.url or url)}
+        except HostNotAllowed as exc:
+            return {"outcome": "rejected", "reason": exc.reason}
         except Exception as e:
             print(f"[FC2CMADB] FC2-PPV-{code_num} error={type(e).__name__}")
     print(f"[FC2CMADB] FC2-PPV-{code_num} status={last_status} title=False")
@@ -1787,7 +2056,7 @@ def refresh_fc2cmadb_titles(items) -> None:
         x for x in items
         if needs_jp_title(x.get("title", "")) and x.get("title_source") != "FC2公式"
     ]
-    tried = updated = 0
+    tried = updated = rejected = 0
     for item_index, item in enumerate(rotate_items(targets, cursor)):
         if run_deadline_reached("refresh_fc2cmadb_titles", len(targets) - item_index):
             break
@@ -1805,8 +2074,10 @@ def refresh_fc2cmadb_titles(items) -> None:
             state["fc2cmadb_blocked_at"] = now
             print("[FC2CMADB] host_blocked=true fallback=FC2ウォーカー")
             break
-        if not meta:
+        if not meta or meta.get("outcome") == "rejected":
             failed[code] = now
+            if meta and meta.get("outcome") == "rejected":
+                rejected += 1
             continue
         title = meta.get("title") or ""
         if title and item.get("title") != title:
@@ -1823,7 +2094,7 @@ def refresh_fc2cmadb_titles(items) -> None:
     state["fc2cmadb_cursor"] = (cursor + advance) % max(len(targets), 1)
     state["fc2cmadb_failed"] = failed
     save_json(FETCH_STATE_FILE, state)
-    print(f"[FC2CMADB] tried={tried} title_updated={updated}")
+    print(f"[FC2CMADB] tried={tried} title_updated={updated} rejected={rejected}")
 
 
 
@@ -1843,7 +2114,7 @@ def _hwalker_next_url(soup, current_url: str) -> str:
     for a in soup.find_all("a", href=True):
         label = re.sub(r"\s+", "", a.get_text(" ", strip=True))
         if "次の50件" in label or label.startswith("次の"):
-            nxt = urljoin(current_url, a.get("href") or "")
+            nxt = urljoin(current_url, (a.get("href") or "").strip())
             if urlsplit(nxt).netloc == urlsplit(H_WALKER_URL).netloc:
                 return nxt
     return ""
@@ -1863,15 +2134,15 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
             break
         url = next_url
         if url in visited:
-            print(f"[FC2 Walker] pagination_cycle url={url}")
+            print(f"[FC2 Walker] pagination_cycle host={_fetch_host(url)}")
             next_url = ""
             break
         visited.add(url)
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="walker")
         if info.get("error") == "run_deadline":
             break
         if not (info.get("status") == 200 and not info.get("cloudflare") and info.get("soup") is not None):
-            print(f"[FC2 Walker] page={pages_done + 1} status={info.get('status')} items=0 url={url}")
+            print(f"[FC2 Walker] page={pages_done + 1} status={info.get('status')} items=0 host={_fetch_host(url)} reason={info.get('error') if info.get('error') in REJECTION_REASONS else 'fetch_failed'}")
             # Keep the cursor on the failed page so a later run can retry it.
             next_url = url
             break
@@ -1936,7 +2207,7 @@ def scrape_hwalker_market(start_url=None, page_limit=None):
         if not page_found:
             # A challenge, changed layout or empty response is not a completed
             # page. Retry this position instead of skipping its records.
-            print(f"[FC2 Walker] unrecognized_page=true url={url}")
+            print(f"[FC2 Walker] unrecognized_page=true host={_fetch_host(url)}")
             next_url = url
             break
         pages_done += 1
@@ -2150,7 +2421,7 @@ def fc2_market_due(item, state, now):
     if not last:
         return True
     delay = (BACKFILL_RETRY_BASE_SEC if _needs_fc2_metadata(item) else FC2_MARKET_REFRESH_SEC) if rec.get("status") == "success" else (
-        FAIL_SKIP_SEC if rec.get("status") == "blocked" else fc2_retry_delay(int(rec.get("failures") or 1))
+        FAIL_SKIP_SEC if rec.get("status") in ("blocked", "rejected") else fc2_retry_delay(int(rec.get("failures") or 1))
     )
     return now >= int(rec.get("next_retry_at") or last + delay)
 
@@ -2210,7 +2481,7 @@ def record_fc2_market_result(item, meta, state, now, route, *, candidate=False):
     # Deferred results and host stops carry the product over with its priority;
     # every access that counts as a product attempt consumes it.
     rec = _fc2_map(state, BACKFILL_ATTEMPTS_KEY).get(item.get("code"))
-    if isinstance(rec, dict):
+    if isinstance(rec, dict) and meta.get("outcome") != "rejected":
         rec.pop("title_priority", None)
     status = meta.get("outcome") or ("blocked" if meta.get("blocked") else "not_found" if meta.get("not_found") else "success")
     if candidate and status != "success":
@@ -2233,7 +2504,10 @@ def record_fc2_market_result(item, meta, state, now, route, *, candidate=False):
     }
     counts = {"title_updated": 0, "rating_updated": 0, "review_updated": 0}
     item["fc2_market_last_attempt"] = now
-    if status == "blocked":
+    if status == "rejected":
+        rec["next_retry_at"] = now + FAIL_SKIP_SEC
+        rec["rejections"] = int(previous.get("rejections") or 0) + 1
+    elif status == "blocked":
         if meta.get("http_status") not in (403, 429):
             state["fc2_market_ekyc_blocked_at"] = now
         rec["next_retry_at"] = (state.get("fc2_market_host_stop") or {}).get("until", now + FAIL_SKIP_SEC)
@@ -2274,7 +2548,7 @@ def attempt_fc2_market(item, state, route):
 
 
 def _fc2_batch(items, state, route, limit):
-    counts = dict(tried=0, success=0, not_found=0, transient_failed=0,
+    counts = dict(tried=0, success=0, not_found=0, transient_failed=0, rejected=0,
                   official_blocked=False, title_updated=0, rating_updated=0, review_updated=0)
     for item in items:
         if run_deadline_reached("_fc2_batch", max(0, len(items) - counts["tried"])):
@@ -2288,7 +2562,7 @@ def _fc2_batch(items, state, route, limit):
             continue
         counts["tried"] += 1
         status = result["status"]
-        if status in ("success", "not_found"):
+        if status in ("success", "not_found", "rejected"):
             counts[status] += 1
         elif status == "failed":
             counts["transient_failed"] += 1
@@ -2372,12 +2646,11 @@ def _absolute_fc2_asset(raw) -> str:
     if not isinstance(raw, str):
         return ""
     value = raw.strip()
-    if not value:
+    if not value or any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in value):
         return ""
     try:
         absolute = urljoin("https://adult.contents.fc2.com/", value)
-        parsed = urlsplit(absolute)
-        return absolute if parsed.scheme in ("http", "https") and parsed.hostname else ""
+        return absolute if url_allowed_for(absolute, PURPOSE_MEDIA) else ""
     except ValueError:
         return ""
 
@@ -2393,7 +2666,12 @@ def fetch_fc2_sample_assets(code_num: str):
         "Cookie": "wei6H=1; GDPRCHECK=true",
     }
     try:
-        res = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
+        res = guarded_get(url, "fc2_official", headers=headers, timeout=25)
+    except HostNotAllowed as exc:
+        if exc.host == "redirect.fc2.com":
+            print(f"[FC2 sample] FC2-PPV-{code_num} status=0 usable=False")
+            return None
+        return {"outcome": "rejected", "reason": exc.reason}
     except Exception as e:
         print(f"[FC2 sample] FC2-PPV-{code_num} error={type(e).__name__}")
         return None
@@ -2422,6 +2700,9 @@ def fetch_fc2_sample_assets(code_num: str):
         f"[FC2 sample] FC2-PPV-{code_num} status=200 "
         f"preview={bool(preview)} poster={bool(poster)}"
     )
+    raw_preview = next((data.get(k) for k in ("path", "sample_path") if data.get(k)), None)
+    if isinstance(raw_preview, str) and raw_preview and not preview:
+        return {"outcome": "rejected", "reason": "media_host_rejected", "poster": poster}
     if not usable:
         return None
     return {"preview": preview, "poster": poster}
@@ -2446,11 +2727,7 @@ def preview_source_urls(item, additional=()):
         if not isinstance(raw, str):
             continue
         value = raw.strip()
-        try:
-            parsed = urlsplit(value)
-            valid = parsed.scheme in ("https", "http") and parsed.hostname and not parsed.username and not parsed.password
-        except ValueError:
-            valid = False
+        valid = url_allowed_for(value, PURPOSE_MEDIA)
         if valid and value not in urls:
             urls.append(value)
     # This is the original provider URL already used by enrich(), not a proxy
@@ -2485,7 +2762,13 @@ def sample_backfill_order(item, previous_attempt=0):
 def apply_fc2_sample_result(item, meta, now):
     """Share result/cooldown across recent, preview and thumbnail acquisition."""
     item["fc2_sample_checked_at"] = now
-    if meta and meta.get("preview"):
+    if meta and meta.get("outcome") == "rejected":
+        if meta.get("reason") == "media_host_rejected" and url_allowed_for(meta.get("poster"), PURPOSE_MEDIA):
+            item["thumb"] = meta["poster"]
+            item["thumb_source"] = "FC2公式"
+        item["fc2_sample_retry_at"] = now + FAIL_SKIP_SEC
+        return
+    if meta and url_allowed_for(meta.get("preview"), PURPOSE_MEDIA):
         previous = preview_source_urls(item)
         item["preview"] = meta["preview"]
         item["preview_fallbacks"] = [url for url in preview_source_urls(item, previous)
@@ -2502,7 +2785,7 @@ def apply_fc2_sample_result(item, meta, now):
         )
         # An unavailable response does not prove a saved sample was removed.
         # Keep the URL, but do not repeatedly spend repair slots on this item.
-    if meta and meta.get("poster"):
+    if meta and url_allowed_for(meta.get("poster"), PURPOSE_MEDIA):
         item["thumb"] = meta["poster"]
         item["thumb_source"] = "FC2公式"
 
@@ -2529,7 +2812,7 @@ def refresh_fc2_previews(items) -> None:
     backfill_count = min(len(pending), limit - refresh_count)
     refresh_count = min(len(confirmed), limit - backfill_count)
     batch = pending[:backfill_count] + confirmed[:refresh_count]
-    tried = updated = unavailable = 0
+    tried = updated = unavailable = rejected = 0
     for item in batch:
         if run_deadline_reached("refresh_fc2_previews", max(0, len(batch) - tried)):
             break
@@ -2547,6 +2830,9 @@ def refresh_fc2_previews(items) -> None:
         before = (item.get("preview"), item.get("preview_source"))
         apply_fc2_sample_result(item, meta, now)
         item["preview_checked_at"] = now
+        if meta and meta.get("outcome") == "rejected":
+            rejected += 1
+            continue
         if not meta or not meta.get("preview"):
             unavailable += 1
             continue
@@ -2555,7 +2841,7 @@ def refresh_fc2_previews(items) -> None:
     state.pop(PREVIEW_REFRESH_CURSOR_KEY, None)
     state[PREVIEW_REFRESH_STATS_KEY] = {
         "last_run": now, "candidates": len(candidates), "processed": tried,
-        "updated": updated, "unavailable": unavailable,
+        "updated": updated, "unavailable": unavailable, "rejected": rejected,
         "backfill_processed": backfill_count, "refresh_processed": refresh_count,
         "never_checked_remaining": sum(not sample_checked_at(item) for item in items),
         "remaining_unconfirmed": sum(not has_official_preview(item) for item in items),
@@ -2567,7 +2853,7 @@ def refresh_fc2_previews(items) -> None:
 def enrich_fc2_sample_assets(items) -> None:
     state = load_json(FETCH_STATE_FILE, {})
     now = now_ts()
-    tried = updated = 0
+    tried = updated = rejected = 0
     # Keep a small recent-item lane without re-fetching the same samples through
     # the thumbnail/preview lanes, or refreshing successful URLs every two hours.
     for item_index, item in enumerate(items):
@@ -2588,10 +2874,13 @@ def enrich_fc2_sample_assets(items) -> None:
             break
         tried += 1
         apply_fc2_sample_result(item, meta, now)
+        if meta and meta.get("outcome") == "rejected":
+            rejected += 1
+            continue
         if not meta:
             continue
         updated += 1
-    print(f"[FC2 sample] tried={tried} updated={updated}")
+    print(f"[FC2 sample] tried={tried} updated={updated} rejected={rejected}")
 
 
 def run_thumbnail_backfill(items) -> None:
@@ -2624,7 +2913,7 @@ def run_thumbnail_backfill(items) -> None:
     candidates.sort(key=lambda item: sample_backfill_order(item, attempts.get(item["code"], 0)))
     batch = candidates[:max(0, THUMB_BACKFILL_LIMIT)]
 
-    tried = poster_updated = preview_updated = failed = 0
+    tried = poster_updated = preview_updated = failed = rejected = 0
     for item in batch:
         if run_deadline_reached("run_thumbnail_backfill", max(0, len(batch) - tried)):
             break
@@ -2645,6 +2934,9 @@ def run_thumbnail_backfill(items) -> None:
         old_poster = (item.get("thumb"), item.get("thumb_source"))
         apply_fc2_sample_result(item, meta, now)
         item["thumb_backfill_checked_at"] = now
+        if meta and meta.get("outcome") == "rejected":
+            rejected += 1
+            continue
         if not meta:
             failed += 1
             continue
@@ -2664,6 +2956,7 @@ def run_thumbnail_backfill(items) -> None:
         "cooldown_skipped": cooldown_skipped,
         "processed": tried,
         "poster_updated": poster_updated,
+        "rejected": rejected,
         "preview_updated": preview_updated,
         "failed": failed,
         "remaining_unconfirmed": remaining,
@@ -2688,18 +2981,21 @@ def enrich_fc2_market(items):
     print(f"[FC2 Market] stats={stats}")
 
 
-def scrape_supjav(pages=None):
+def scrape_supjav(pages=None, report=None):
+    href_rejected = 0
     items, seen = [], set()
     requested_pages = pages or list(range(1, PAGES + 1))
     for page_index, page in enumerate(requested_pages):
         if run_deadline_reached("scrape_supjav", len(requested_pages) - page_index):
             break
         url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="supjav")
         if info.get("error") == "run_deadline":
             break
         if not (info.get("ok") and info.get("status") == 200 and not info.get("cloudflare") and info.get("soup")):
-            print(f"Supjav {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')}")
+            if report is not None and info.get("error") in REJECTION_REASONS:
+                report.update(status="fetch_failed", reason=info["error"])
+            print(f"Supjav {page}ページスキップ: status={info.get('status')} cloudflare={info.get('cloudflare')} reason={info.get('error') if info.get('error') in REJECTION_REASONS else 'fetch_failed'}")
             break
         soup = info["soup"]
         before = len(seen)
@@ -2709,11 +3005,15 @@ def scrape_supjav(pages=None):
             if not match:
                 continue
             code_num = match.group(1)
-            href = a["href"]
+            href = a["href"].strip()
             if code_num in seen or href.startswith("#") or "/category/" in href or "/maker/" in href:
                 continue
-            seen.add(code_num)
             full_url = href if href.startswith("http") else urljoin("https://supjav.com", href)
+            if (any(c == "\\" or ord(c) < 32 or ord(c) == 127 or c.isspace() for c in href)
+                    or not url_allowed_for(full_url, PURPOSE_SUPJAV)):
+                href_rejected += 1
+                continue
+            seen.add(code_num)
             around = " ".join([text, a.parent.get_text(" ", strip=True) if a.parent else ""])
             views = supjav_work_views(soup, code_num)
             row = enrich(code_num, clean_title(a.get("title") or a.get_text(" ", strip=True), code_num), "Supjav", full_url, parse_duration(around), views)
@@ -2723,6 +3023,10 @@ def scrape_supjav(pages=None):
         print(f"Supjav {page}ページ: {len(seen) - before}件追加 / 合計{len(seen)}")
         if len(seen) == before:
             break
+    if href_rejected:
+        if report is not None:
+            report["href_rejected"] = href_rejected
+        print(f"[Href rejected] source=supjav count={href_rejected}")
     return items
 
 
@@ -2816,9 +3120,10 @@ def get_latest_videos():
         errors.append(f"JavDB: {e}")
         reports["javdb"].update(status="error", error=str(e))
     try:
-        items = scrape_supjav([1, 2, 3])
+        supjav_report = {}
+        items = scrape_supjav([1, 2, 3], report=supjav_report)
         found.append(items)
-        reports["supjav"] = {"items": len(items), "status": "access_limited" if SOURCE_RETRY_AT.get("supjav", 0) > now_ts() else "checked"}
+        reports["supjav"] = {"items": len(items), "status": "access_limited" if SOURCE_RETRY_AT.get("supjav", 0) > now_ts() else "checked", **supjav_report}
     except Exception as e:
         print(f"[get_latest_videos] source=supjav error={type(e).__name__} count=1")
         reports["supjav"] = {"status": "error", "error": str(e)}
@@ -2886,12 +3191,11 @@ def public_item(item):
     code_num = item.get("code_num") or str(item.get("code", "")).split("-")[-1]
     search_links = extra_sources(code_num)
     previews = preview_source_urls(item)
-    return {
+    public = {
         "code": item.get("code", ""),
         "code_num": str(code_num),
         "title": item.get("title") or item.get("code", ""),
         "url": item.get("url") or sources.get("MissAV") or search_links.get("MissAV") or "",
-        "thumb": item.get("thumb") or "",
         "preview": previews[0] if previews else "",
         "preview_fallbacks": previews[1:],
         "duration": item.get("duration") or "",
@@ -2921,6 +3225,10 @@ def public_item(item):
         "hwalker_checked_at": item.get("hwalker_checked_at") or 0,
         "fc2_market_checked_at": item.get("fc2_market_checked_at") or 0,
     }
+
+    if url_allowed_for(item.get("thumb"), PURPOSE_MEDIA):
+        public["thumb"] = item["thumb"]
+    return public
 
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -2979,9 +3287,18 @@ def catalog_payload(items, updated_at, update_status=None):
               "missav_rank_month", "missav_rank_total", "fc2_market_url", "fc2_rating",
               "fc2_review_count", "fc2_rating_source")
     rows = []
+    rejected = dict.fromkeys(("thumb", "preview", "preview_fallbacks"), 0)
     for item in items:
+        for field in rejected:
+            values = item.get(field) if field == "preview_fallbacks" else [item.get(field)]
+            for value in values if isinstance(values, list) else []:
+                if isinstance(value, str) and value and not url_allowed_for(value, PURPOSE_MEDIA):
+                    rejected[field] += 1
         public = public_item(item)
         rows.append({key: public[key] for key in fields if public.get(key) is not None and public.get(key) != "" and public.get(key) is not False and public.get(key) != []})
+    for field, count in rejected.items():
+        if count:
+            print(f"[Media host rejected] field={field} count={count}")
     return {"updated_at": updated_at, "items": rows, "search_templates": extra_sources("{code}"),
             "update_status": update_status or build_update_status(items)}
 
@@ -3392,13 +3709,14 @@ def audit_discovery() -> int:
         if run_deadline_reached("audit_discovery", len(requested_pages) - page_index):
             break
         url = base if page == 1 else f"{base}?page={page}"
-        info = fetch_page(url)
+        info = fetch_page(url, purpose="missav")
         if info.get("error") == "run_deadline":
             break
         soup = info.get("soup")
         if not info.get("ok") or soup is None:
             print(json.dumps({"pagination_audit": page, "status": info.get("status"),
-                              "challenge": info.get("cloudflare"), "size": info.get("size")}), flush=True)
+                              "challenge": info.get("cloudflare"), "size": info.get("size"),
+                              "reason": info.get("error") if info.get("error") in REJECTION_REASONS else "fetch_failed"}), flush=True)
             break
         codes = sorted(set(re.findall(r"/fc2-ppv-(\d{6,8})(?:\b|/)", str(soup), flags=re.I)))
         inputs = [{k: node.get(k) for k in ("type", "name", "value", "min", "max", "x-model")}

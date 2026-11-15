@@ -82,7 +82,7 @@ class UpdatePipelineTests(unittest.TestCase):
         self.assertEqual((status['count'], status['listed_count']), (1, 0))
 
     def test_parser_rejects_wrong_destination_and_does_not_use_search_or_text_only_links(self):
-        def source(url):
+        def source(url, purpose=None):
             html = '<nav><a href="/ja/search/fc2-ppv-8999999">FC2-PPV-8999999</a></nav>'
             html += '<a href="https://example.test/fc2-ppv-8999998">FC2-PPV-8999998</a>'
             html += '<a href="/advert">FC2-PPV-8999997</a><a href="/ja/fc2-ppv-8000001">テスト</a>'
@@ -104,7 +104,7 @@ class UpdatePipelineTests(unittest.TestCase):
         self.assertGreater(m.SOURCE_RETRY_AT['missav'], m.now_ts())
 
     def test_publisher_dynamic_route_is_accepted_only_when_locale_and_sort_match(self):
-        def source(url):
+        def source(url, purpose=None):
             return self.page('<a href="/dm597/ja/fc2-ppv-8000001">テスト</a>', url.replace('/ja/', '/dm597/ja/'))
         with patch.object(m, 'fetch_page', side_effect=source) as fetch:
             result = m.scrape_missav_rankings()
@@ -138,7 +138,7 @@ class UpdatePipelineTests(unittest.TestCase):
     def test_old_views_are_checked_in_bounded_batches_and_next_run_moves_on(self):
         items = [self.item(8000001), self.item(8000002), self.item(8000003)]
         calls = []
-        def source(url):
+        def source(url, purpose=None):
             calls.append(url)
             if '/category/' in url:
                 return self.page('<main>一覧に対象なし</main>', url)
@@ -165,7 +165,7 @@ class UpdatePipelineTests(unittest.TestCase):
 
     def test_views_denial_stops_batch_and_retains_good_value_and_last_success(self):
         item = dict(self.item(8000001), views=123, views_source='Supjav', last_views_fetch=100)
-        def source(url):
+        def source(url, purpose=None):
             if '/category/' in url:
                 return self.page('<main>一覧に対象なし</main>', url)
             return {'ok': False, 'status': 403, 'soup': None}
@@ -219,7 +219,7 @@ class UpdatePipelineTests(unittest.TestCase):
         m.save_json(m.DATA_FILE, {'updated_at': 'previous', 'items': items, 'custom': 'retain'})
         m.save_json(m.CRAWL_FILE, crawl)
         m.save_json(m.FETCH_STATE_FILE, {'title_fail': {'FC2-PPV-8000001': 123}})
-        def source(url):
+        def source(url, purpose=None):
             self.assertIn('/ja/fc2?sort=', url)
             return self.page('<a href="/ja/fc2-ppv-8000002">テスト</a>', url)
         with patch.object(m, 'fetch_page', side_effect=source) as fetch, patch.object(m, 'send_telegram') as notify:

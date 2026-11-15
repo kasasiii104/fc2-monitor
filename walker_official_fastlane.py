@@ -30,6 +30,8 @@ def due(checks, code, now):
     checked = int(rec.get("checked_at") or 0)
     status = rec.get("status") or ""
     delay = NOT_FOUND_RETRY_SEC if status == "not_found" else FAILED_RETRY_SEC
+    if status == "rejected":
+        delay = m.FAIL_SKIP_SEC
     return not checked or now - checked >= delay
 
 
@@ -108,7 +110,7 @@ def main():
         candidates.append((code, row))
 
     added = []
-    checked = success = not_found = failed = blocked = 0
+    checked = success = not_found = failed = blocked = rejected = 0
     stop = False
     with ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="fc2-official") as pool:
         for offset in range(0, len(candidates), WORKERS):
@@ -129,7 +131,7 @@ def main():
                 if meta.get("http_status") not in (403, 429):
                     checks[code] = {
                         "checked_at": now,
-                        "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "failed",
+                        "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "rejected" if outcome == "rejected" else "failed",
                         "reason": meta.get("reason") or meta.get("blocked") or "",
                     }
                 if outcome == "success":
@@ -146,6 +148,8 @@ def main():
                     success += 1
                 elif outcome == "not_found":
                     not_found += 1
+                elif outcome == "rejected":
+                    rejected += 1
                 elif outcome == "blocked":
                     blocked += 1
                     stop = True
@@ -174,6 +178,7 @@ def main():
         "success": success,
         "not_found": not_found,
         "failed": failed,
+        "rejected": rejected,
         "blocked": blocked,
         "added": len(added),
         "retry_waiting": retry_waiting,
@@ -208,6 +213,7 @@ def main():
     report["walker_official_fastlane_checked"] = checked
     report["walker_official_fastlane_success"] = success
     report["walker_official_fastlane_failed"] = failed
+    report["walker_official_fastlane_rejected"] = rejected
     report["walker_official_fastlane_not_found"] = not_found
     report["walker_official_fastlane_relinked"] = relinked
     report["total_after"] = len(items)

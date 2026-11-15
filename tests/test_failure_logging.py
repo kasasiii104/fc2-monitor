@@ -25,13 +25,13 @@ class FailureLoggingTests(unittest.TestCase):
 
     def test_fetch_page_failure_logs_without_changing_result(self):
         with patch.object(m.requests, 'get', side_effect=TimeoutError(SECRET)):
-            result = m.fetch_page('https://example.test/')
+            result = m.fetch_page('https://missav.ws/')
         self.assertFalse(result['ok'])
         self.assertEqual(result['error'], SECRET)
         self.assert_safe('fetch_page', 'TimeoutError', 1)
 
     def test_parse_failure_logs_and_keeps_page_fallback(self):
-        response = Mock(text='x' * 3000, status_code=200, url='https://example.test/', headers={})
+        response = Mock(text='x' * 3000, status_code=200, url='https://missav.ws/', headers={})
         with patch.object(m.requests, 'get', return_value=response), patch.object(m, 'BeautifulSoup', side_effect=ValueError(SECRET)):
             result = m.fetch_page(response.url)
         self.assertIsNone(result['soup'])

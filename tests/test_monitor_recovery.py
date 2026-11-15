@@ -42,30 +42,30 @@ class MonitorRecoveryTests(unittest.TestCase):
         for value in (None, 0, 1, -1, 1.5, True, {}, [], ['sample.mp4']):
             with self.subTest(value=value):
                 self.assertEqual(m._absolute_fc2_asset(value), '')
-        self.assertEqual(m._absolute_fc2_asset('//example.test/sample.mp4'), 'https://example.test/sample.mp4')
+        self.assertEqual(m._absolute_fc2_asset('//storage1.contents.fc2.com/sample.mp4'), 'https://storage1.contents.fc2.com/sample.mp4')
         self.assertEqual(m._absolute_fc2_asset('/sample.mp4'), 'https://adult.contents.fc2.com/sample.mp4')
         self.assertEqual(m._absolute_fc2_asset('javascript:alert(1)'), '')
         self.assertEqual(m._absolute_fc2_asset('https://['), '')
 
     def test_malformed_primary_field_does_not_hide_valid_fallback(self):
-        response = self.sample_response({'path': 1, 'sample_path': 'https://example.test/sample.mp4',
-                                         'poster_image_path': {}, 'poster': '//example.test/poster.jpg'})
+        response = self.sample_response({'path': 1, 'sample_path': 'https://storage1.contents.fc2.com/sample.mp4',
+                                         'poster_image_path': {}, 'poster': '//storage1.contents.fc2.com/poster.jpg'})
         with patch.object(m.requests, 'get', return_value=response):
             self.assertEqual(m.fetch_fc2_sample_assets('8000001'), {
-                'preview': 'https://example.test/sample.mp4', 'poster': 'https://example.test/poster.jpg',
+                'preview': 'https://storage1.contents.fc2.com/sample.mp4', 'poster': 'https://storage1.contents.fc2.com/poster.jpg',
             })
 
     def test_bad_sample_keeps_existing_assets_and_next_item_is_processed(self):
         items = [self.item('8000002'), self.item('8000001')]
         old = items[0].copy()
         responses = [self.sample_response({'path': 1, 'poster': 2}),
-                     self.sample_response({'path': 'https://example.test/valid.mp4',
-                                           'poster': 'https://example.test/valid.jpg'})]
+                     self.sample_response({'path': 'https://storage1.contents.fc2.com/valid.mp4',
+                                           'poster': 'https://storage1.contents.fc2.com/valid.jpg'})]
         with patch.object(m.requests, 'get', side_effect=responses):
             m.run_thumbnail_backfill(items)
         self.assertEqual(items[0]['preview'], old['preview'])
         self.assertEqual(items[0]['thumb'], old['thumb'])
-        self.assertEqual(items[1]['thumb'], 'https://example.test/valid.jpg')
+        self.assertEqual(items[1]['thumb'], 'https://storage1.contents.fc2.com/valid.jpg')
         stats = m.load_json(m.FETCH_STATE_FILE, {})[m.THUMB_BACKFILL_STATS_KEY]
         self.assertEqual((stats['processed'], stats['failed'], stats['poster_updated']), (2, 1, 1))
 
@@ -111,7 +111,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         javdb_good = BeautifulSoup('<a href="/v/abc">FC2-PPV-8000001 サンプル</a>', 'html.parser')
         empty = BeautifulSoup('<html><body>Unavailable</body></html>', 'html.parser')
 
-        def page(url):
+        def page(url, purpose=None):
             number = int(parse_qs(urlsplit(url).query).get('page', ['1'])[0])
             return {'ok': number != 2, 'status': 403 if number == 2 else 200,
                     'cloudflare': number == 2,
@@ -182,8 +182,8 @@ class MonitorRecoveryTests(unittest.TestCase):
         saved['fc2_sample_failures'] = 3
         saved['fc2_sample_retry_at'] = 999999
         saved['fc2_sample_last_success'] = 123000
-        saved['preview'] = 'https://example.test/current.mp4'
-        saved['preview_fallbacks'] = ['https://example.test/previous.mp4']
+        saved['preview'] = 'https://storage1.contents.fc2.com/current.mp4'
+        saved['preview_fallbacks'] = ['https://storage1.contents.fc2.com/previous.mp4']
         m.save_json(m.DATA_FILE, {'items': [saved]})
         m.save_json(m.HISTORY_FILE, {'ids': [saved['code']]})
         incoming = self.item()
@@ -199,7 +199,7 @@ class MonitorRecoveryTests(unittest.TestCase):
         self.assertEqual(result['fc2_sample_retry_at'], 999999)
         self.assertEqual(result['fc2_sample_last_success'], 123000)
         self.assertEqual(result['preview'], saved['preview'])
-        self.assertIn('https://example.test/previous.mp4', result['preview_fallbacks'])
+        self.assertIn('https://storage1.contents.fc2.com/previous.mp4', result['preview_fallbacks'])
         self.assertIn(incoming['preview'], result['preview_fallbacks'])
         self.notify.assert_not_called()
 

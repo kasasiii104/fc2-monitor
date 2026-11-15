@@ -103,6 +103,10 @@ def fetch_title(item, state=None):
     num = str(item.get("code_num") or str(item.get("code", "")).split("-")[-1])
     if state is None:
         state = m.load_json(m.FETCH_STATE_FILE, {})
+    rejections = state.setdefault(STATE_KEY, {}).setdefault("rejections", {})
+    code = item.get("code") or f"FC2-PPV-{num}"
+    if m.now_ts() < int((rejections.get(code) or {}).get("next_retry_at") or 0):
+        return "", ""
     urls = []
     for url in (
         item.get("url") or "",
@@ -119,7 +123,7 @@ def fetch_title(item, state=None):
             if m.run_deadline_reached("code-only request", 1):
                 return None, None
             try:
-                res = requests.get(url, headers=m.HEADERS, timeout=12, allow_redirects=True)
+                res = m.guarded_get(url, headers=m.HEADERS, timeout=12)
                 if urlsplit(url).hostname == m.FC2_MARKET_HOST and res.status_code in (403, 429):
                     m.record_fc2_host_stop(state, res.status_code, res.headers.get("Retry-After"), m.now_ts())
                     m.log_fc2_carryover(state, 1)
@@ -132,7 +136,12 @@ def fetch_title(item, state=None):
                     continue
                 title = candidate_from_html(text, item)
                 if title:
+                    rejections.pop(code, None)
                     return title, str(res.url or url)
+            except m.HostNotAllowed as exc:
+                rejections[code] = {"status": "rejected", "reason": exc.reason,
+                                    "next_retry_at": m.now_ts() + m.FAIL_SKIP_SEC}
+                continue
             except Exception as exc:
                 failures[("code-only title", type(exc).__name__)] += 1
                 continue
@@ -181,9 +190,12 @@ def main():
         0 if item.get("is_new") else 1,
         -(int(item.get("code_num") or str(item.get("code", "")).split("-")[-1] or 0)),
     ))
-    due = [item for item in pending if now - int(attempts.get(item.get("code") or "") or 0) >= RETRY_SEC]
+    rejections = repair_state.get("rejections") if isinstance(repair_state.get("rejections"), dict) else {}
+    due = [item for item in pending
+           if now >= int((rejections.get(item.get("code")) or {}).get("next_retry_at") or 0)
+           and now - int(attempts.get(item.get("code") or "") or 0) >= RETRY_SEC]
 
-    repaired = stored_repaired = walker_repaired = web_repaired = tried = 0
+    repaired = stored_repaired = walker_repaired = web_repaired = tried = rejected = 0
     examples = []
     for item in due[:LIMIT]:
         if m.run_deadline_reached("code-only repair", max(0, len(due) - tried)):
@@ -211,12 +223,14 @@ def main():
         tried += 1
         attempts[code] = now
         if not title:
+            if code in (state.get(STATE_KEY) or {}).get("rejections", {}):
+                rejected += 1
             continue
 
         old = item.get("title") or code
         item["title"] = title
         item["title_source"] = source
-        if source_url:
+        if source_url and (source != "MissAV" or m.url_allowed_for(source_url, m.PURPOSE_MISSAV)):
             item.setdefault("sources", {})[source] = source_url
         repaired += 1
         if len(examples) < 10:
@@ -239,6 +253,8 @@ def main():
         "pending_after": sum(is_code_only(item) for item in items),
         "examples": examples,
         "attempts": attempts,
+        "rejected": rejected,
+        "rejections": {code: rec for code, rec in (state.get(STATE_KEY) or {}).get("rejections", {}).items() if code in live},
     }
     state[STATE_KEY] = stats
     m.save_json(m.FETCH_STATE_FILE, state)

@@ -35,6 +35,8 @@ def official_due(checks, code, now):
     checked = int(rec.get("checked_at") or 0)
     status = rec.get("status") or ""
     delay = ARCHIVE_DEAD_RECHECK_SEC if status == "not_found" else OFFICIAL_RETRY_SEC
+    if status == "rejected":
+        delay = m.FAIL_SKIP_SEC
     return not checked or now - checked >= delay
 
 
@@ -59,7 +61,7 @@ def verify_official(row, num, checks, now, state=None):
         return "blocked", meta
     checks[row["code"]] = {
         "checked_at": now,
-        "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "failed",
+        "status": "alive" if outcome == "success" else "not_found" if outcome == "not_found" else "rejected" if outcome == "rejected" else "failed",
         "reason": meta.get("reason") or meta.get("blocked") or "",
     }
     if outcome == "success":
@@ -69,6 +71,8 @@ def verify_official(row, num, checks, now, state=None):
             row["url"] = m.missav_detail_urls(num)[0]
         row["source"] = "FC2公式"
         return "alive", meta
+    if outcome == "rejected":
+        return "rejected", meta
     if outcome == "not_found":
         return "dead", meta
     if outcome == "blocked":
@@ -120,6 +124,7 @@ def main():
     recent_added = archive_added = rejected_title = 0
     rejected_missav_404 = cached_dead_skipped = deferred_unverified = verified = 0
     official_checked = official_added = official_not_found = official_deferred = 0
+    official_rejected = 0
     official_blocked = False
     official_carried = 0
     budget_exhausted = False
@@ -187,6 +192,10 @@ def main():
             if official_status == "dead":
                 official_not_found += 1
                 rejected_missav_404 += 1
+                continue
+            if official_status == "rejected":
+                official_rejected += 1
+                deferred_unverified += 1
                 continue
             if official_status == "blocked":
                 official_blocked = True
@@ -264,6 +273,7 @@ def main():
         "official_not_found": official_not_found,
         "official_deferred": official_deferred,
         "official_blocked": official_blocked,
+        "official_rejected": official_rejected,
         "added": len(added),
         "recent_added": recent_added,
         "archive_added": archive_added,

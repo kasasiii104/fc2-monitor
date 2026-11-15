@@ -49,7 +49,7 @@ def _existence_request(url):
         return {"status": 0, "final_url": url, "access_limited": True, "error": "source_cooldown"}
     headers = {**m.HEADERS, "Range": "bytes=0-0", "Accept": "text/html,*/*;q=0.8"}
     try:
-        with requests.get(url, headers=headers, timeout=(4, 8), allow_redirects=True, stream=True) as res:
+        with m.guarded_get(url, "missav", headers=headers, timeout=(4, 8), stream=True) as res:
             status = int(res.status_code or 0)
             challenge = (res.headers.get("cf-mitigated") or "").lower() == "challenge"
             m.record_source_denial(url, status, challenge)
@@ -59,6 +59,9 @@ def _existence_request(url):
                 "access_limited": bool(status in (401, 403, 429) or challenge),
                 "error": None,
             }
+    except m.HostNotAllowed as exc:
+        return {"status": 0, "final_url": url, "access_limited": False,
+                "error": exc.reason, "rejected_host": exc.host}
     except requests.RequestException as exc:
         return {"status": 0, "final_url": url, "access_limited": False, "error": type(exc).__name__}
 
@@ -152,13 +155,14 @@ class Guard:
             return {"status": "unknown", "reason": "invalid_code", "checked_at": m.now_ts()}
         previous = self.checks.get(code) if isinstance(self.checks.get(code), dict) else {}
         age = m.now_ts() - int(previous.get("checked_at") or 0)
-        if previous and not force and age < self._ttl(previous.get("status")):
+        if previous and not force and age < (m.FAIL_SKIP_SEC if previous.get("reason") in m.REJECTION_REASONS else self._ttl(previous.get("status"))):
             return previous
 
         urls = m.missav_detail_urls(num)
         explicit_missing = 0
         attempts = 0
         result = None
+        rejection = None
         for url in urls:
             if m.run_deadline_reached("MissAV probe", 1):
                 return {"status": "unknown", "reason": "run_deadline"}
@@ -166,6 +170,11 @@ class Guard:
             if info.get("error") == "run_deadline":
                 return {"status": "unknown", "reason": "run_deadline"}
             attempts += 1
+            if info.get("error") in m.REJECTION_REASONS:
+                # A rejected mirror is not evidence about the work. Try the
+                # remaining mirrors; it can never contribute to a dead verdict.
+                rejection = info["error"]
+                continue
             status = int(info.get("status") or 0)
             final_url = str(info.get("final_url") or url)
             if info.get("access_limited"):
@@ -189,7 +198,9 @@ class Guard:
             # but classify as dead only if all configured hosts explicitly say 404/410.
 
         if result is None:
-            if attempts and explicit_missing == attempts == len(urls):
+            if rejection:
+                result = {"status": "unknown", "reason": rejection, "http_status": 0}
+            elif attempts and explicit_missing == attempts == len(urls):
                 result = {"status": "dead", "reason": "all_missav_hosts_404", "http_status": 404}
             else:
                 result = {"status": "unknown", "reason": "fetch_failed", "http_status": 0}
@@ -220,7 +231,7 @@ def _queue_retry(item, result, guard):
     if result.get("reason") == "run_deadline":
         guard.dirty = True
         return
-    row.update(last_tried_at=m.now_ts(), attempts=row["attempts"] + 1,
+    row.update(last_tried_at=m.now_ts(), attempts=row["attempts"] + (0 if result.get("reason") in m.REJECTION_REASONS else 1),
                last_reason=str(result.get("reason") or ""),
                last_status=str(result.get("status") or ""))
     guard.dirty = True

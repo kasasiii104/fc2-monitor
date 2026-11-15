@@ -145,7 +145,7 @@ class TitleSelectionTests(unittest.TestCase):
                 empty = BeautifulSoup('', 'html.parser')
                 real_fetch = m.fetch_soup
                 with patch.object(m.requests, 'get', return_value=response), patch.object(
-                        m, 'fetch_soup', side_effect=lambda url: real_fetch(url)
+                        m, 'fetch_soup', side_effect=lambda url, purpose=None: real_fetch(url, purpose=purpose)
                         if url.startswith('https://missav.ws/') else empty) as fetch:
                     m.refresh_japanese_titles([item])
                 self.assertEqual(item.get('title_source') == 'MissAV', accepted)
