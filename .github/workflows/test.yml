@@ -1,21 +1,21 @@
 name: Regression tests
 on:
   pull_request:
-    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "embed_catalog_bootstrap.py", "web/**", "tests/**", ".github/workflows/**", "requirements.txt"]
+    paths: ["*.py", "fc2_monitor.py", "optimize_public_catalog.py", "embed_catalog_bootstrap.py", "web/**", "tests/**", ".github/workflows/**", "requirements.txt"]
   push:
     branches: [main]
-    paths: ["fc2_monitor.py", "optimize_public_catalog.py", "embed_catalog_bootstrap.py", "web/**", "tests/**", ".github/workflows/test.yml", "requirements.txt"]
+    paths: ["*.py", "fc2_monitor.py", "optimize_public_catalog.py", "embed_catalog_bootstrap.py", "web/**", "tests/**", ".github/workflows/test.yml", "requirements.txt"]
 permissions:
   contents: read
 jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       - run: pip install -r requirements.txt
@@ -65,7 +65,7 @@ jobs:
       - run: node tests/browser.cjs
       - run: node tests/preview.cjs
       - run: PREVIEW_BROWSER=webkit node tests/preview.cjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: ui-regression-results
