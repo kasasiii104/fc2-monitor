@@ -1,0 +1,18 @@
+# GitHub Actions は SHA で固定している。更新は Dependabot の PR で受け取る。
+# 3リポジトリ（jp-metadata-library-／fc2-monitor／tokyomotion-catalog）で同じ内容にしておくこと。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
