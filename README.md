@@ -91,7 +91,7 @@ python -m http.server 8000 --directory docs
 
 ```sh
 python -m unittest discover -s tests -v
-npm install --no-save playwright@1.51.1
+npm install --no-save playwright@1.65.1
 npx playwright install chromium
 python tests/build_fixture.py test-results/fixture
 node tests/browser.cjs
