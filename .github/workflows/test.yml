@@ -48,7 +48,7 @@ jobs:
           assert 'window.__FC2_CATALOG_BOOTSTRAP__ = payload' in html
           assert 'bootstrap-card' in html
           PY
-      - run: npm install --no-save playwright@1.51.1
+      - run: npm install --no-save playwright@1.65.1
       - run: npx playwright install --with-deps chromium webkit
       - name: Verify navigation guard does not freeze rendering or input
         run: |
