@@ -1,0 +1,15 @@
+name: supjav-probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.65.1
+      - run: python -m playwright install --with-deps chromium
+      - run: python probe/supjav_probe.py
