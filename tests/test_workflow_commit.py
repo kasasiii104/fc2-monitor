@@ -7,10 +7,10 @@ STATE_FILES = ["docs/fetch_state.json", "docs/missav_guard_state.json",
                "docs/notified_ids.json", "docs/notify_queue.json"]
 
 
-def check_steps():
-    """Split the check job into step blocks keyed by name (no PyYAML dependency)."""
-    text = WORKFLOW.read_text(encoding="utf-8")
-    job = text.split("\n  check:\n", 1)[1].split("\n  pages:\n", 1)[0]
+def check_steps(workflow=WORKFLOW, job_name="check"):
+    """Split the named job into step blocks keyed by name (no PyYAML dependency)."""
+    text = workflow.read_text(encoding="utf-8")
+    job = text.split(f"\n  {job_name}:\n", 1)[1].split("\n  pages:\n", 1)[0]
     steps = {}
     for block in re.split(r"\n      - ", job)[1:]:
         match = re.search(r"(?m)^(?:      )?name: (.+)$", block)
@@ -64,6 +64,12 @@ class WorkflowCommitTests(unittest.TestCase):
 
     def test_pages_artifact_excludes_notify_queue(self):
         self.assertIn("pages-public/notify_queue.json", self.steps["Prepare lean Pages artifact"])
+
+    def test_pages_artifacts_exclude_data_shards(self):
+        for workflow, job_name in ((WORKFLOW, "check"), (WORKFLOW.with_name("compact-pages.yml"), "compact")):
+            with self.subTest(workflow=workflow.name):
+                block = check_steps(workflow, job_name)["Prepare lean Pages artifact"]
+                self.assertRegex(block, r"(?m)^          rm -rf pages-public/data-shards$")
 
 
 if __name__ == "__main__":

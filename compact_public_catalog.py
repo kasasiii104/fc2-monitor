@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
+from fc2_monitor import load_json
 from public_catalog_values import public_views
 
 DOCS = Path("docs")
@@ -36,7 +37,7 @@ def duration_seconds(text):
 
 
 def public_from_saved(item):
-    """Rebuild a public record from the authoritative full docs/data.json row."""
+    """Rebuild a public record from a saved work record."""
     sources = dict(item.get("sources") or {})
     num = code_num(item)
     row = {
@@ -277,12 +278,12 @@ def main():
     if not DATA.exists():
         raise RuntimeError("docs/data.json is required for an idempotent public build")
     manifest = json.loads(CATALOG.read_text(encoding="utf-8")) if CATALOG.exists() else {}
-    saved = json.loads(DATA.read_text(encoding="utf-8"))
+    saved = load_json(DATA, {})
     saved_items = saved.get("items") or []
 
     # Always rebuild from the authoritative full catalog. Never re-compact the
     # already chunked 800-item bootstrap, otherwise repeated runs would lose the
-    # archive chunks even though docs/data.json still contains them.
+    # archive items from the saved crawler state.
     payload = {
         key: value for key, value in manifest.items()
         if key not in {"items", "chunks", "item_count_total", "search_templates"}

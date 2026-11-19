@@ -111,6 +111,11 @@ HEADERS = {
     "Accept-Language": "ja,en;q=0.8",
 }
 DATA_FILE = Path(os.environ.get("DATA_FILE", "docs/data.json"))
+DATA_SHARD_ITEMS = int(os.environ.get("DATA_SHARD_ITEMS", "4000"))
+DATA_SHARD_MAX_BYTES = int(os.environ.get("DATA_SHARD_MAX_BYTES", "50000000"))
+DATA_SHARD_DIR = "data-shards"
+DATA_SHARD_FORMAT = "fc2-monitor-data-shards"
+DATA_SHARD_PATH_RE = re.compile(r"data-shards/data-([0-9]{3,})-([0-9a-f]{16})\.json")
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 NOTIFY_QUEUE_FILE = Path(os.environ.get("NOTIFY_QUEUE_FILE", "docs/notify_queue.json"))
 NOTIFY_QUEUE_MAX = int(os.environ.get("NOTIFY_QUEUE_MAX", "300"))
@@ -472,11 +477,66 @@ def validate_crawl_state(path: Path, state):
             print(f"::warning::{message}{suffix}", file=sys.stderr)
 
 
+def load_data_shards(path: Path, manifest: dict) -> dict:
+    version = manifest.get("version")
+    if type(version) is not int or version != 1:
+        raise StateStructureError(f"{path.name}: unsupported shard manifest version {version!r}")
+    meta = manifest.get("meta")
+    shards = manifest.get("shards")
+    if not isinstance(meta, dict) or "items" in meta or not isinstance(shards, list):
+        raise StateStructureError(f"{path.name}: invalid shard manifest meta or shards")
+
+    items = []
+    seen_paths = set()
+    for index, shard in enumerate(shards, 1):
+        if not isinstance(shard, dict) or not isinstance(shard.get("path"), str):
+            raise StateStructureError(f"{path.name}: invalid path for shard {index}")
+        relative_path = shard["path"]
+        match = DATA_SHARD_PATH_RE.fullmatch(relative_path)
+        if match is None:
+            raise StateStructureError(f"{path.name}: invalid path for shard {index}: {relative_path!r}")
+        if relative_path in seen_paths:
+            raise StateStructureError(f"{path.name}: duplicate shard path: {relative_path}")
+        if match[1].lstrip("0") != str(index):
+            raise StateStructureError(f"{path.name}: expected shard number {index}: {relative_path}")
+        seen_paths.add(relative_path)
+
+        shard_path = path.parent / relative_path
+        try:
+            raw = shard_path.read_bytes()
+        except OSError as exc:
+            raise StateStructureError(f"{path.name}: {shard_path.name}: {exc.strerror}") from exc
+        byte_count = shard.get("bytes")
+        if type(byte_count) is not int or byte_count < 0 or byte_count != len(raw):
+            raise StateStructureError(f"{path.name}: {shard_path.name}: bytes mismatch")
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != shard.get("sha256"):
+            raise StateStructureError(f"{path.name}: {shard_path.name}: sha256 mismatch")
+        if match[2] != digest[:16]:
+            raise StateStructureError(f"{path.name}: {shard_path.name}: filename hash mismatch")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except ValueError as exc:
+            raise StateStructureError(f"{path.name}: {shard_path.name}: invalid UTF-8 JSON") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise StateStructureError(f"{path.name}: {shard_path.name}: items must be a list")
+        count = shard.get("count")
+        if type(count) is not int or len(payload["items"]) != count:
+            raise StateStructureError(f"{path.name}: {shard_path.name}: count mismatch")
+        items.extend(payload["items"])
+    item_count = manifest.get("item_count")
+    if type(item_count) is not int or len(items) != item_count:
+        raise StateStructureError(f"{path.name}: item_count mismatch")
+    return {**meta, "items": items}
+
+
 def load_json(path: Path, default, *, allow_non_dict=False):
     if not path.exists():
         return default
     with path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
+    if isinstance(payload, dict) and payload.get("format") == DATA_SHARD_FORMAT:
+        payload = load_data_shards(path, payload)
     # Notification queue row validation/recovery remains owned by H1.
     is_queue = path == NOTIFY_QUEUE_FILE or path.name == "notify_queue.json"
     if isinstance(default, dict) and not is_queue and not allow_non_dict and type(payload) is not dict:
@@ -513,8 +573,62 @@ def atomic_write_text(path: Path, text: str) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def save_data_shards(path: Path, payload: dict) -> set:
+    items = payload["items"]
+    manifest = {
+        "format": DATA_SHARD_FORMAT,
+        "version": 1,
+        "meta": {key: value for key, value in payload.items() if key != "items"},
+        "item_count": len(items),
+        "shards": [],
+    }
+    writes = {}
+    for number, start in enumerate(range(0, len(items), DATA_SHARD_ITEMS), 1):
+        chunk = items[start:start + DATA_SHARD_ITEMS]
+        text = json.dumps({"items": chunk}, ensure_ascii=False, indent=2) + "\n"
+        raw = text.encode("utf-8")
+        if len(raw) > DATA_SHARD_MAX_BYTES:
+            raise ValueError(f"data shard {number:03d}: {len(raw)} bytes exceeds {DATA_SHARD_MAX_BYTES}")
+        digest = hashlib.sha256(raw).hexdigest()
+        relative_path = f"{DATA_SHARD_DIR}/data-{number:03d}-{digest[:16]}.json"
+        writes[path.parent / relative_path] = text
+        manifest["shards"].append({
+            "path": relative_path,
+            "count": len(chunk),
+            "bytes": len(raw),
+            "sha256": digest,
+        })
+
+    manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+    for shard_path, text in writes.items():
+        try:
+            existing = shard_path.read_bytes()
+        except FileNotFoundError:
+            existing = None
+        if existing != text.encode("utf-8"):
+            atomic_write_text(shard_path, text)
+    atomic_write_text(path, manifest_text)
+    return set(writes)
+
+
 def save_json(path: Path, payload) -> None:
-    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    if path == DATA_FILE:
+        for name, value in (
+            ("DATA_SHARD_ITEMS", DATA_SHARD_ITEMS),
+            ("DATA_SHARD_MAX_BYTES", DATA_SHARD_MAX_BYTES),
+        ):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer, got {value!r}")
+    items = payload.get("items") if isinstance(payload, dict) else None
+    active_shards = set()
+    if path == DATA_FILE and isinstance(items, list) and len(items) > DATA_SHARD_ITEMS:
+        active_shards = save_data_shards(path, payload)
+    else:
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    if path == DATA_FILE:
+        for old in (path.parent / DATA_SHARD_DIR).glob("data-*.json"):
+            if old not in active_shards:
+                old.unlink()
 
 
 def send_telegram(text: str, photo=None) -> None:

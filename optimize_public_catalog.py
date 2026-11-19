@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Make the public catalog fast to first paint without losing archive search.
 
-The crawler keeps docs/data.json as its canonical state. The browser only needs
-a small recent manifest for first paint plus bounded archive chunks. The generated
+The crawler keeps its canonical state in docs/data.json and any referenced shards.
+The browser uses a small recent manifest and bounded archive chunks. The generated
 site.js is patched for progressive hydration, then index.html is synchronized to
 the *actual generated JS bytes* so browsers never reuse a stale loader under an
 old cache key.
