@@ -350,6 +350,7 @@ jobs:
           rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
                 pages-public/views_history.json pages-public/notified_ids.json \
                 pages-public/notify_queue.json
+          rm -rf pages-public/data-shards
           du -sh pages-public
 
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
