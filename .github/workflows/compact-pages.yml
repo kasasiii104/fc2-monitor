@@ -128,6 +128,7 @@ jobs:
           cp -a docs/. pages-public/
           rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
                 pages-public/views_history.json pages-public/notified_ids.json
+          rm -rf pages-public/data-shards
 
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
