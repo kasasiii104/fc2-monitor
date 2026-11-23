@@ -116,6 +116,12 @@ DATA_SHARD_MAX_BYTES = int(os.environ.get("DATA_SHARD_MAX_BYTES", "50000000"))
 DATA_SHARD_DIR = "data-shards"
 DATA_SHARD_FORMAT = "fc2-monitor-data-shards"
 DATA_SHARD_PATH_RE = re.compile(r"data-shards/data-([0-9]{3,})-([0-9a-f]{16})\.json")
+FETCH_STATE_SHARD_MIN_ENTRIES = int(os.environ.get("FETCH_STATE_SHARD_MIN_ENTRIES", "2000"))
+FETCH_STATE_SHARD_TARGET = int(os.environ.get("FETCH_STATE_SHARD_TARGET", "1024"))
+FETCH_STATE_SHARD_MAX_ENTRIES = 8 * FETCH_STATE_SHARD_TARGET
+FETCH_STATE_SHARD_MAX_BYTES = int(os.environ.get("FETCH_STATE_SHARD_MAX_BYTES", "50000000"))
+FETCH_STATE_SHARD_FORMAT = "fc2-monitor-fetch-state-shards"
+FETCH_STATE_SHARD_SECTION_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 HISTORY_FILE = Path(os.environ.get("HISTORY_FILE", "docs/notified_ids.json"))
 NOTIFY_QUEUE_FILE = Path(os.environ.get("NOTIFY_QUEUE_FILE", "docs/notify_queue.json"))
 NOTIFY_QUEUE_MAX = int(os.environ.get("NOTIFY_QUEUE_MAX", "300"))
@@ -530,6 +536,77 @@ def load_data_shards(path: Path, manifest: dict) -> dict:
     return {**meta, "items": items}
 
 
+def load_fetch_state_shard(path: Path, name: str, shard: dict, seen_paths: set) -> dict:
+    relative_path = shard.get("path") if isinstance(shard, dict) else None
+    path_pattern = rf"^{re.escape(path.stem)}-shards/([a-z0-9_]{{1,64}})-([0-9a-f]{{16}})\.json$"
+    match = re.fullmatch(path_pattern, relative_path) if isinstance(relative_path, str) else None
+    if match is None or match[1] != name:
+        raise StateStructureError(f"{path.name}: {name}: invalid shard path {relative_path!r}")
+    if relative_path in seen_paths:
+        raise StateStructureError(f"{path.name}: duplicate shard path: {relative_path}")
+    seen_paths.add(relative_path)
+
+    shard_path = path.parent / relative_path
+    label = f"{path.name}: {shard_path.name}"
+    try:
+        raw = shard_path.read_bytes()
+    except OSError as exc:
+        raise StateStructureError(f"{label}: {exc.strerror}") from exc
+    byte_count = shard.get("bytes")
+    if type(byte_count) is not int or byte_count != len(raw):
+        raise StateStructureError(f"{label}: bytes mismatch")
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != shard.get("sha256"):
+        raise StateStructureError(f"{label}: sha256 mismatch")
+    if match[2] != digest[:16]:
+        raise StateStructureError(f"{label}: filename hash mismatch")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except ValueError as exc:
+        raise StateStructureError(f"{label}: invalid UTF-8 JSON") from exc
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if not isinstance(entries, dict):
+        raise StateStructureError(f"{label}: entries must be a dict")
+    count = shard.get("count")
+    if type(count) is not int or count != len(entries):
+        raise StateStructureError(f"{label}: count mismatch")
+    return entries
+
+
+def load_fetch_state_shards(path: Path, manifest: dict) -> dict:
+    version = manifest.get("version")
+    if type(version) is not int or version != 1:
+        raise StateStructureError(f"{path.name}: unsupported shard manifest version {version!r}")
+    key_order = manifest.get("key_order")
+    if (not isinstance(key_order, list) or any(not isinstance(key, str) for key in key_order)
+            or len(set(key_order)) != len(key_order)):
+        raise StateStructureError(f"{path.name}: invalid key_order")
+    inline = manifest.get("inline")
+    sections = manifest.get("sections")
+    if not isinstance(inline, dict) or not isinstance(sections, dict):
+        raise StateStructureError(f"{path.name}: inline and sections must be dicts")
+    if inline.keys() & sections.keys() or inline.keys() | sections.keys() != set(key_order):
+        raise StateStructureError(f"{path.name}: inline and sections do not match key_order")
+
+    restored = {}
+    seen_paths = set()
+    for name, section in sections.items():
+        shards = section.get("shards") if isinstance(section, dict) else None
+        if not isinstance(shards, list) or not shards:
+            raise StateStructureError(f"{path.name}: {name}: shards must be a nonempty list")
+        entries = {}
+        for shard in shards:
+            chunk = load_fetch_state_shard(path, name, shard, seen_paths)
+            if entries.keys() & chunk.keys():
+                raise StateStructureError(f"{path.name}: {name}: duplicate key across shards: {shard['path']}")
+            entries.update(chunk)
+        entry_count = section.get("entry_count")
+        if type(entry_count) is not int or entry_count != len(entries):
+            raise StateStructureError(f"{path.name}: {name}: entry_count mismatch")
+        restored[name] = entries
+    return {key: inline[key] if key in inline else restored[key] for key in key_order}
+
+
 def load_json(path: Path, default, *, allow_non_dict=False):
     if not path.exists():
         return default
@@ -537,6 +614,8 @@ def load_json(path: Path, default, *, allow_non_dict=False):
         payload = json.load(f)
     if isinstance(payload, dict) and payload.get("format") == DATA_SHARD_FORMAT:
         payload = load_data_shards(path, payload)
+    elif isinstance(payload, dict) and payload.get("format") == FETCH_STATE_SHARD_FORMAT:
+        payload = load_fetch_state_shards(path, payload)
     # Notification queue row validation/recovery remains owned by H1.
     is_queue = path == NOTIFY_QUEUE_FILE or path.name == "notify_queue.json"
     if isinstance(default, dict) and not is_queue and not allow_non_dict and type(payload) is not dict:
@@ -611,6 +690,79 @@ def save_data_shards(path: Path, payload: dict) -> set:
     return set(writes)
 
 
+def fetch_state_chunks(entries: dict):
+    chunk = {}
+    for key, value in entries.items():
+        chunk[key] = value
+        key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        if int(key_hash[:8], 16) % FETCH_STATE_SHARD_TARGET == 0 or len(chunk) >= FETCH_STATE_SHARD_MAX_ENTRIES:
+            yield chunk
+            chunk = {}
+    if chunk:
+        yield chunk
+
+
+def save_fetch_state(path: Path, payload) -> None:
+    for name, value in (
+        ("FETCH_STATE_SHARD_MIN_ENTRIES", FETCH_STATE_SHARD_MIN_ENTRIES),
+        ("FETCH_STATE_SHARD_TARGET", FETCH_STATE_SHARD_TARGET),
+        ("FETCH_STATE_SHARD_MAX_BYTES", FETCH_STATE_SHARD_MAX_BYTES),
+    ):
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a positive integer, got {value!r}")
+
+    shard_dir = f"{path.stem}-shards"
+    if path.suffix != ".json" or path.parent / shard_dir == DATA_FILE.parent / DATA_SHARD_DIR:
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        return
+
+    sections = {}
+    writes = {}
+    if isinstance(payload, dict):
+        for name, entries in payload.items():
+            if (name == "format" or not isinstance(entries, dict) or len(entries) < FETCH_STATE_SHARD_MIN_ENTRIES
+                    or not isinstance(name, str) or not FETCH_STATE_SHARD_SECTION_RE.fullmatch(name)):
+                continue
+            shards = []
+            for chunk in fetch_state_chunks(entries):
+                shard_text = json.dumps({"entries": chunk}, ensure_ascii=False, indent=2) + "\n"
+                raw = shard_text.encode("utf-8")
+                if len(raw) > FETCH_STATE_SHARD_MAX_BYTES:
+                    raise ValueError(f"fetch state section {name}: {len(raw)} bytes exceeds {FETCH_STATE_SHARD_MAX_BYTES}")
+                digest = hashlib.sha256(raw).hexdigest()
+                relative_path = f"{shard_dir}/{name}-{digest[:16]}.json"
+                writes[path.parent / relative_path] = shard_text
+                shards.append({"path": relative_path, "count": len(chunk), "bytes": len(raw), "sha256": digest})
+            sections[name] = {"entry_count": len(entries), "shards": shards}
+
+    output = payload
+    use_manifest = bool(sections) or (isinstance(payload, dict) and "format" in payload)
+    if use_manifest:
+        output = {
+            "format": FETCH_STATE_SHARD_FORMAT,
+            "version": 1,
+            "key_order": list(payload),
+            "inline": {key: value for key, value in payload.items() if key not in sections},
+            "sections": sections,
+        }
+    output_text = json.dumps(output, ensure_ascii=False, indent=2) + "\n"
+    if use_manifest:
+        byte_count = len(output_text.encode("utf-8"))
+        if byte_count > FETCH_STATE_SHARD_MAX_BYTES:
+            raise ValueError(f"{path.name} manifest: {byte_count} bytes exceeds {FETCH_STATE_SHARD_MAX_BYTES}")
+    for shard_path, shard_text in writes.items():
+        try:
+            existing = shard_path.read_bytes()
+        except FileNotFoundError:
+            existing = None
+        if existing != shard_text.encode("utf-8"):
+            atomic_write_text(shard_path, shard_text)
+    atomic_write_text(path, output_text)
+    for old in (path.parent / shard_dir).glob("*.json"):
+        if old not in writes and re.fullmatch(r"[a-z0-9_]{1,64}-[0-9a-f]{16}\.json", old.name):
+            old.unlink()
+
+
 def save_json(path: Path, payload) -> None:
     if path == DATA_FILE:
         for name, value in (
@@ -619,6 +771,9 @@ def save_json(path: Path, payload) -> None:
         ):
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer, got {value!r}")
+    if path == FETCH_STATE_FILE and path != DATA_FILE:
+        save_fetch_state(path, payload)
+        return
     items = payload.get("items") if isinstance(payload, dict) else None
     active_shards = set()
     if path == DATA_FILE and isinstance(items, list) and len(items) > DATA_SHARD_ITEMS:

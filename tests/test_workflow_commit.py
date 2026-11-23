@@ -1,4 +1,7 @@
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -43,7 +46,14 @@ class WorkflowCommitTests(unittest.TestCase):
         for excluded in ("crawl_state.json", "data.json", "index.html", "catalog"):
             self.assertNotIn(excluded, loop and " ".join(loop))
         adds = re.findall(r"git add\b[^\n]*", block)
-        self.assertEqual(adds, ['git add -- "$f"; fi'])
+        self.assertEqual(adds, ['git add -- "$f"; fi', 'git add -A -- docs/fetch_state-shards; fi'])
+        self.assertIn(
+            "          done\n"
+            "          if [ -d docs/fetch_state-shards ] || "
+            "git ls-files --error-unmatch -- docs/fetch_state-shards >/dev/null 2>&1; "
+            "then git add -A -- docs/fetch_state-shards; fi\n",
+            block,
+        )
         # Must re-base on the run's start commit, never overwrite a newer origin/main.
         self.assertIn('git reset -q "$START_SHA"', block)
         self.assertNotIn("reset -q origin/main", block)
@@ -53,6 +63,42 @@ class WorkflowCommitTests(unittest.TestCase):
         self.assertIn('"$GITHUB_ENV"', record)
         self.assertLess(list(self.steps).index("Record start commit"),
                         list(self.steps).index("Verify update and parser regressions"))
+
+    def test_preserve_step_stages_shard_additions_and_deletions(self):
+        if shutil.which("git") is None or shutil.which("bash") is None:
+            self.skipTest("git and bash are required")
+        block = self.steps["Preserve state files after failure"]
+        command = re.search(r"(?m)^ +(if .*git add -A -- docs/fetch_state-shards; fi)$", block).group(1)
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+        def run(*args):
+            return subprocess.check_output(args, cwd=root, text=True).strip()
+
+        run("git", "init", "-q")
+        shard_dir = root / "docs" / "fetch_state-shards"
+        shard_dir.mkdir(parents=True)
+        old = shard_dir / "old.json"
+        new = shard_dir / "new.json"
+        old.write_text("{}")
+        run("git", "add", "--", str(old))
+        baseline = run("git", "write-tree")
+
+        new.write_text("{}")
+        old.unlink()
+        run("bash", "-ec", command)
+        self.assertCountEqual(
+            run("git", "diff", "--cached", "--name-status", "--no-renames", baseline).splitlines(),
+            ["A\tdocs/fetch_state-shards/new.json", "D\tdocs/fetch_state-shards/old.json"],
+        )
+
+        baseline = run("git", "write-tree")
+        new.unlink()
+        shard_dir.rmdir()
+        run("bash", "-ec", command)
+        self.assertEqual(
+            run("git", "diff", "--cached", "--name-status", baseline),
+            "D\tdocs/fetch_state-shards/new.json",
+        )
 
     def test_failure_step_follows_site_commit_and_precedes_pages(self):
         names = list(self.steps)
@@ -65,11 +111,12 @@ class WorkflowCommitTests(unittest.TestCase):
     def test_pages_artifact_excludes_notify_queue(self):
         self.assertIn("pages-public/notify_queue.json", self.steps["Prepare lean Pages artifact"])
 
-    def test_pages_artifacts_exclude_data_shards(self):
+    def test_pages_artifacts_exclude_state_shards(self):
         for workflow, job_name in ((WORKFLOW, "check"), (WORKFLOW.with_name("compact-pages.yml"), "compact")):
             with self.subTest(workflow=workflow.name):
                 block = check_steps(workflow, job_name)["Prepare lean Pages artifact"]
                 self.assertRegex(block, r"(?m)^          rm -rf pages-public/data-shards$")
+                self.assertRegex(block, r"(?m)^          rm -rf pages-public/fetch_state-shards$")
 
 
 if __name__ == "__main__":
