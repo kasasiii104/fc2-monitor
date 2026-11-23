@@ -8,12 +8,12 @@
   "missav_cycle": 20,
   "missav_cycle_completed_at": "2026-11-23 12:55:46",
   "source_retry_at": {
-    "javdb": 1795449346,
-    "supjav": 1795449346
+    "javdb": 1795496061,
+    "supjav": 1795496061
   },
   "last_discovery": {
-    "checked_at": "2026-11-24 00:54:19",
-    "found_unique": 621,
+    "checked_at": "2026-11-24 01:54:21",
+    "found_unique": 744,
     "sources": {
       "missav": {
         "archive_from": 901,
@@ -27,7 +27,7 @@
             "page": 1,
             "current_page": 1,
             "items": 12,
-            "fingerprint": "9c08587b4f0fa783",
+            "fingerprint": "d88698ee0880b0e7",
             "added_to_batch": 12
           },
           {
@@ -48,7 +48,7 @@
             "page": 4,
             "current_page": 4,
             "items": 12,
-            "fingerprint": "fb7a001f3cc07dbd",
+            "fingerprint": "b8fd7079296ad74d",
             "added_to_batch": 12
           },
           {
@@ -125,22 +125,22 @@
             "page": 15,
             "current_page": 15,
             "items": 12,
-            "fingerprint": "bee9701c4be55ca6",
-            "added_to_batch": 12
+            "fingerprint": "27c09ada650e7bc2",
+            "added_to_batch": 1
           },
           {
             "page": 16,
             "current_page": 16,
             "items": 12,
             "fingerprint": "fe30a6d1be0343a6",
-            "added_to_batch": 1
+            "added_to_batch": 12
           },
           {
             "page": 17,
             "current_page": 17,
             "items": 12,
             "fingerprint": "1d058ad8b63b514e",
-            "added_to_batch": 3
+            "added_to_batch": 4
           },
           {
             "page": 18,
@@ -202,15 +202,15 @@
             "page": 26,
             "current_page": 26,
             "items": 12,
-            "fingerprint": "5a8817d4b9b024fc",
-            "added_to_batch": 12
+            "fingerprint": "5af39dbd2d039e7d",
+            "added_to_batch": 4
           },
           {
             "page": 27,
             "current_page": 27,
             "items": 12,
             "fingerprint": "1c319d63d04f786f",
-            "added_to_batch": 10
+            "added_to_batch": 12
           },
           {
             "page": 28,
@@ -363,8 +363,8 @@
         "status": "repeated_page",
         "max_page": 2000,
         "stopped_page": 49,
-        "search_items": 286,
-        "catalog_items": 490,
+        "search_items": 579,
+        "catalog_items": 485,
         "recent_page_limit": 60,
         "archive_page_limit": 180,
         "recent_pages": 48,
@@ -384,18 +384,18 @@
         "status": "access_limited"
       }
     },
-    "previous_total": 49349,
-    "new_to_catalog": 1,
-    "recent_added": 1,
+    "previous_total": 49350,
+    "new_to_catalog": 8,
+    "recent_added": 8,
     "archive_added": 0,
-    "total_after": 49350,
+    "total_after": 49358,
     "walker_recent_added": 0,
     "walker_archive_added": 0,
     "walker_discovery_added": 0,
     "walker_unseen_before": 17976,
-    "walker_missav_verified": 171,
-    "walker_rejected_missav_404": 1452,
-    "walker_cached_dead_skipped": 1281,
+    "walker_missav_verified": 182,
+    "walker_rejected_missav_404": 1568,
+    "walker_cached_dead_skipped": 1386,
     "walker_deferred_unverified": 0,
     "walker_official_checked": 0,
     "walker_official_added": 0,
@@ -403,7 +403,7 @@
     "walker_official_deferred": 0,
     "walker_budget_exhausted": true,
     "walker_budget_sec": 150,
-    "walker_elapsed_sec": 151.0,
+    "walker_elapsed_sec": 151.4,
     "primary_links_repaired": 0,
     "walker_official_fastlane_added": 0,
     "walker_official_fastlane_checked": 0,
