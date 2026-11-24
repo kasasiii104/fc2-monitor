@@ -75,6 +75,7 @@ jobs:
         run: node --check web/missav-only.js
 
       - name: Fast MissAV recent and archive discovery
+        id: fast_discovery
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '7,37 * * * *') ||
           (github.event_name == 'push' && contains(github.event.head_commit.message, '[discovery-now]')) ||
@@ -178,10 +179,11 @@ jobs:
 
       - name: Advance past confirmed duplicate archive page
         if: >-
-          github.event_name == 'schedule' ||
+          (github.event_name == 'schedule' ||
           (github.event_name == 'push' && (contains(github.event.head_commit.message, '[crawl-now]') || contains(github.event.head_commit.message, '[discovery-now]'))) ||
           (github.event_name == 'workflow_dispatch' && inputs.mode == 'discovery') ||
-          (github.event_name == 'workflow_dispatch' && inputs.mode == 'maintenance')
+          (github.event_name == 'workflow_dispatch' && inputs.mode == 'maintenance')) &&
+          steps.fast_discovery.outputs.all_sources_denied != 'true'
         run: python advance_archive_cursor.py
 
       - name: Repair rankings and refresh views without notifications
@@ -327,7 +329,7 @@ jobs:
           # silently overwritten; on conflict the step fails and nothing is pushed.
           git rebase --abort 2>/dev/null || true
           git reset -q "$START_SHA"
-          for f in docs/fetch_state.json docs/missav_guard_state.json docs/notified_ids.json docs/notify_queue.json; do
+          for f in docs/fetch_state.json docs/missav_guard_state.json docs/notified_ids.json docs/notify_queue.json docs/source_cooldowns.json; do
             if [ -f "$f" ]; then git add -- "$f"; fi
           done
           if [ -d docs/fetch_state-shards ] || git ls-files --error-unmatch -- docs/fetch_state-shards >/dev/null 2>&1; then git add -A -- docs/fetch_state-shards; fi
@@ -350,7 +352,7 @@ jobs:
           cp -a docs/. pages-public/
           rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
                 pages-public/views_history.json pages-public/notified_ids.json \
-                pages-public/notify_queue.json
+                pages-public/notify_queue.json pages-public/source_cooldowns.json
           rm -rf pages-public/data-shards
           rm -rf pages-public/fetch_state-shards
           du -sh pages-public
