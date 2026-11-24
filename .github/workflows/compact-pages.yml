@@ -127,7 +127,7 @@ jobs:
           mkdir -p pages-public
           cp -a docs/. pages-public/
           rm -f pages-public/data.json pages-public/fetch_state.json pages-public/crawl_state.json \
-                pages-public/views_history.json pages-public/notified_ids.json
+                pages-public/views_history.json pages-public/notified_ids.json pages-public/source_cooldowns.json
           rm -rf pages-public/data-shards
           rm -rf pages-public/fetch_state-shards
 
