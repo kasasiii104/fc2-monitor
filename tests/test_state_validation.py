@@ -19,7 +19,7 @@ class StateValidationTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        for name in ("CRAWL_FILE", "FETCH_STATE_FILE", "DATA_FILE", "HISTORY_FILE",
+        for name in ("CRAWL_FILE", "SOURCE_COOLDOWN_FILE", "FETCH_STATE_FILE", "DATA_FILE", "HISTORY_FILE",
                      "VIEWS_HISTORY_FILE", "NOTIFY_QUEUE_FILE"):
             self.enterContext(patch.object(m, name, self.root / getattr(m, name).name))
 

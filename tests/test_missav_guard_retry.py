@@ -21,6 +21,7 @@ class MissAVGuardRetryTests(unittest.TestCase):
                   patch.object(m, 'HISTORY_FILE', root / 'history.json'),
                   patch.object(m, 'NOTIFY_QUEUE_FILE', root / 'notify.json'),
                   patch.object(m, 'CRAWL_FILE', root / 'crawl.json'),
+                  patch.object(m, 'SOURCE_COOLDOWN_FILE', root / 'source_cooldowns.json'),
                   patch.object(m, 'now_ts', return_value=1_900_000_000),
                   patch.object(m, 'now_jst', return_value='2030-03-17 12:00:00')]:
             p.start()

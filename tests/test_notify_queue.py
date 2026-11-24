@@ -14,7 +14,7 @@ class NotifyQueueTests(unittest.TestCase):
         self.enterContext(patch.dict(m.os.environ, {"RUNNER_TEMP": "", "GITHUB_RUN_ID": "", "RUN_DEADLINE_SEC": "2700"}))
         self.enterContext(patch.object(m, "_RUN_STARTED", None))
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        for name in ('DATA_FILE', 'HISTORY_FILE', 'NOTIFY_QUEUE_FILE', 'CRAWL_FILE',
+        for name in ('DATA_FILE', 'HISTORY_FILE', 'NOTIFY_QUEUE_FILE', 'CRAWL_FILE', 'SOURCE_COOLDOWN_FILE',
                      'FETCH_STATE_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
             self.enterContext(patch.object(m, name, root / name))
         self.output = self.enterContext(contextlib.redirect_stdout(io.StringIO()))

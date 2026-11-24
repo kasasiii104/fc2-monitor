@@ -114,9 +114,23 @@ class RunDeadlineTests(unittest.TestCase):
 
     def test_refresh_metadata_propagates_rank_and_view_errors(self):
         for failing in ("scrape_missav_rankings", "fill_missing_views"):
-            with self.subTest(failing=failing), patch.object(m, "validate_state_files"), patch.object(m, "load_json", return_value={"items": [{"code": "FC2-PPV-1234567"}]}), patch.object(m, "scrape_missav_rankings", return_value={}), patch.object(m, "apply_missav_ranks"), patch.object(m, "fill_missing_views"), patch.object(m, "write_site"), patch.object(m.requests, "get", side_effect=AssertionError("network forbidden")), patch.object(m, failing, side_effect=RuntimeError("source failure")), patch.object(m, "run_deadline_reached", return_value=False), patch.object(m, "save_json") as save:
+            with (
+                self.subTest(failing=failing),
+                patch.object(m, "validate_state_files"),
+                patch.object(m, "load_json", return_value={"items": [{"code": "FC2-PPV-1234567"}]}),
+                patch.object(m, "scrape_missav_rankings", return_value={}),
+                patch.object(m, "apply_missav_ranks"),
+                patch.object(m, "fill_missing_views"),
+                patch.object(m, "write_site"),
+                patch.object(m.requests, "get", side_effect=AssertionError("network forbidden")),
+                patch.object(m, failing, side_effect=RuntimeError("source failure")),
+                patch.object(m, "run_deadline_reached", return_value=False),
+                patch.object(m, "save_json") as save,
+                patch.object(m, "save_source_cooldown_file") as save_cooldowns,
+            ):
                 with self.assertRaisesRegex(RuntimeError, "source failure"):
                     m.refresh_update_metadata()
+                save_cooldowns.assert_called_once_with()
                 save.assert_not_called()
 
     def test_rank_deadline_preserves_unattempted_snapshots(self):
@@ -231,7 +245,8 @@ class RunDeadlineTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
 
     def test_main_saves_partial_discoveries_and_notification_queue(self):
-        for key in ("DATA_FILE", "HISTORY_FILE", "CRAWL_FILE", "FETCH_STATE_FILE", "NOTIFY_QUEUE_FILE", "VIEWS_HISTORY_FILE"):
+        for key in ("DATA_FILE", "HISTORY_FILE", "CRAWL_FILE", "SOURCE_COOLDOWN_FILE",
+                    "FETCH_STATE_FILE", "NOTIFY_QUEUE_FILE", "VIEWS_HISTORY_FILE"):
             p = patch.object(m, key, self.root / (key + '.json'))
             p.start()
             self.addCleanup(p.stop)

@@ -18,7 +18,8 @@ class UpdatePipelineTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         for key, name in {'DATA_FILE': 'data.json', 'FETCH_STATE_FILE': 'fetch.json',
-                          'CRAWL_FILE': 'crawl.json', 'HTML_FILE': 'index.html',
+                          'CRAWL_FILE': 'crawl.json', 'SOURCE_COOLDOWN_FILE': 'source_cooldowns.json',
+                          'HTML_FILE': 'index.html',
                           'VIEWS_HISTORY_FILE': 'views.json', 'HISTORY_FILE': 'history.json'}.items():
             self.enterContext(patch.object(m, key, root / name))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))

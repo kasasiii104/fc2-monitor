@@ -20,7 +20,8 @@ class MonitorRecoveryTests(unittest.TestCase):
         root = Path(self.temp.name)
         for name, filename in {
             'DATA_FILE': 'data.json', 'HISTORY_FILE': 'notified.json', 'NOTIFY_QUEUE_FILE': 'queue.json',
-            'CRAWL_FILE': 'crawl.json', 'FETCH_STATE_FILE': 'fetch.json',
+            'CRAWL_FILE': 'crawl.json', 'SOURCE_COOLDOWN_FILE': 'source_cooldowns.json',
+            'FETCH_STATE_FILE': 'fetch.json',
             'VIEWS_HISTORY_FILE': 'views.json', 'HTML_FILE': 'index.html',
         }.items():
             self.enterContext(patch.object(m, name, root / filename))

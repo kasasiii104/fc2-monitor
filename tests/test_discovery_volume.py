@@ -14,7 +14,7 @@ class DiscoveryVolumeTests(unittest.TestCase):
     def setUp(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         for name in ('DATA_FILE', 'HISTORY_FILE', 'NOTIFY_QUEUE_FILE', 'CRAWL_FILE', 'FETCH_STATE_FILE',
-                     'VIEWS_HISTORY_FILE', 'HTML_FILE'):
+                     'SOURCE_COOLDOWN_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
             self.enterContext(patch.object(m, name, root / name))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
         self.enterContext(patch.object(m, 'PAGES', 16))

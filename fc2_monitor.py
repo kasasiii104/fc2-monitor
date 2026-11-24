@@ -128,6 +128,7 @@ NOTIFY_QUEUE_MAX = int(os.environ.get("NOTIFY_QUEUE_MAX", "300"))
 NOTIFY_QUEUE_TTL_SEC = int(os.environ.get("NOTIFY_QUEUE_TTL_SEC", str(7 * 86400)))
 HTML_FILE = Path(os.environ.get("HTML_FILE", "docs/index.html"))
 CRAWL_FILE = Path(os.environ.get("CRAWL_FILE", "docs/crawl_state.json"))
+SOURCE_COOLDOWN_FILE = Path(os.environ.get("SOURCE_COOLDOWN_FILE", "docs/source_cooldowns.json"))
 VIEWS_HISTORY_FILE = Path(os.environ.get("VIEWS_HISTORY_FILE", "docs/views_history.json"))
 FETCH_STATE_FILE = Path(os.environ.get("FETCH_STATE_FILE", "docs/fetch_state.json"))
 MAX_ITEMS = int(os.environ.get("MAX_ITEMS", "80"))
@@ -138,6 +139,7 @@ PAGES = int(os.environ.get("PAGES", "16"))
 BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "48"))
 DISCOVERY_RETRY_SEC = 12 * 3600
 SOURCE_RETRY_AT = {}
+DISCOVERY_FETCH_OUTCOMES = Counter()
 JAVDB_URL = os.environ.get("JAVDB_URL", "https://javdb.com/search?q=FC2&f=all")
 JAVDB_BACKFILL_PAGES = int(os.environ.get("JAVDB_BACKFILL_PAGES", "6"))
 FC2_MARKET_FETCH_LIMIT = int(os.environ.get("FC2_MARKET_FETCH_LIMIT", "24"))
@@ -819,8 +821,72 @@ def record_source_denial(url, status, challenge=False):
         SOURCE_RETRY_AT[source] = now_ts() + DISCOVERY_RETRY_SEC
 
 
+def load_discovery_cooldowns(crawl_state, pending=None):
+    """Merge active deadlines from persisted state and, for status, the current run."""
+    retries = {}
+    try:
+        payload = json.loads(SOURCE_COOLDOWN_FILE.read_text(encoding="utf-8"))
+        saved = payload.get("source_retry_at") if isinstance(payload, dict) else None
+        if not isinstance(saved, dict):
+            raise ValueError("expected a source_retry_at object")
+        if any(type(value) is not int for value in saved.values()):
+            print(f"[source cooldowns] warning: {SOURCE_COOLDOWN_FILE}: ignoring non-integer deadlines")
+    except (OSError, ValueError, RecursionError) as exc:
+        print(f"[source cooldowns] warning: {SOURCE_COOLDOWN_FILE}: {str(exc).splitlines()[0]}")
+        saved = {}
+    now = now_ts()
+    legacy = crawl_state.get("source_retry_at") or {}
+    for deadlines in (legacy, saved, pending or {}):
+        for source, deadline in deadlines.items():
+            if deadlines is legacy:
+                try:
+                    deadline = int(deadline)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            if type(deadline) is int and deadline > now:
+                retries[source] = max(retries.get(source, deadline), deadline)
+    return retries
+
+
+def save_source_cooldown_file():
+    now = now_ts()
+    try:
+        saved = json.loads(SOURCE_COOLDOWN_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        saved = None
+    saved_deadlines = saved.get("source_retry_at") if isinstance(saved, dict) else None
+    deadlines = {}
+    for retries in (saved_deadlines, SOURCE_RETRY_AT):
+        if isinstance(retries, dict):
+            for source, deadline in retries.items():
+                if type(deadline) is int and deadline > now:
+                    deadlines[source] = max(deadlines.get(source, deadline), deadline)
+    payload = {"source_retry_at": deadlines}
+    if (saved != payload
+            or any(type(deadline) is not int for deadline in saved["source_retry_at"].values())):
+        save_json(SOURCE_COOLDOWN_FILE, payload)
+
+
+@contextmanager
+def persist_source_cooldowns():
+    failed = False
+    try:
+        yield
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        try:
+            save_source_cooldown_file()
+        except Exception as exc:
+            if not failed:
+                raise
+            print(f"[source cooldowns] warning: save failed: {exc}", file=sys.stderr)
+
+
 def save_discovery_cooldowns():
     """Persist denials even when collection fails, without advancing cursors."""
+    save_source_cooldown_file()
     state = load_json(CRAWL_FILE, {})
     if (state.get("source_retry_at") or {}) != SOURCE_RETRY_AT:
         state["source_retry_at"] = dict(SOURCE_RETRY_AT)
@@ -843,54 +909,64 @@ def fetch_soup(url: str, purpose=None):
 
 
 def fetch_page(url: str, purpose=None) -> dict:
-    if run_deadline_reached("fetch_page"):
-        return {"ok": False, "status": 0, "final_url": url, "soup": None,
-                "size": 0, "title": "", "cloudflare": False, "error": "run_deadline"}
-    if source_in_cooldown(url):
-        return {"ok": False, "status": 0, "final_url": url, "soup": None,
-                "size": 0, "title": "", "cloudflare": False, "error": "source_cooldown"}
+    outcome = "other"
+    is_discovery_source = purpose in (PURPOSE_MISSAV, PURPOSE_JAVDB, PURPOSE_SUPJAV) or discovery_source(url)
     try:
-        res = guarded_get(url, purpose, headers=HEADERS, timeout=30)
-        text = res.text or ""
+        if run_deadline_reached("fetch_page"):
+            return {"ok": False, "status": 0, "final_url": url, "soup": None,
+                    "size": 0, "title": "", "cloudflare": False, "error": "run_deadline"}
+        if source_in_cooldown(url):
+            outcome = "cooldown_skip"
+            return {"ok": False, "status": 0, "final_url": url, "soup": None,
+                    "size": 0, "title": "", "cloudflare": False, "error": "source_cooldown"}
         try:
-            soup = BeautifulSoup(text, "html.parser")
-            title = soup.title.get_text(" ", strip=True) if soup.title else ""
-        except Exception as exc:
-            print(f"[fetch_page] error={type(exc).__name__} count=1")
-            soup = None
-            title = ""
-        low = text.lower()
-        title_l = (title or "").lower()
-        real_title = bool(title) and "just a moment" not in title_l
-        challenge = (
-            title_l.startswith("just a moment")
-            or "<title>just a moment" in low[:4000]
-        )
-        if res.status_code == 200 and real_title and len(text) > 20000:
-            challenge = False
-        record_source_denial(url, res.status_code, challenge)
-        return {
-            "ok": res.status_code == 200 and not challenge and len(text) > 2000,
-            "status": res.status_code,
-            "retry_after": res.headers.get("Retry-After"),
-            "final_url": str(res.url),
-            "text": text,
-            "soup": soup,
-            "size": len(text),
-            "title": title,
-            "cloudflare": challenge,
-            "error": None,
-        }
-    except HostNotAllowed as exc:
-        return {"ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
-                "size": 0, "title": "", "cloudflare": False, "error": exc.reason,
-                "rejected_host": exc.host}
-    except Exception as e:
-        print(f"[fetch_page] error={type(e).__name__} count=1")
-        return {
-            "ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
-            "size": 0, "title": "", "cloudflare": False, "error": str(e),
-        }
+            res = guarded_get(url, purpose, headers=HEADERS, timeout=30)
+            text = res.text or ""
+            try:
+                soup = BeautifulSoup(text, "html.parser")
+                title = soup.title.get_text(" ", strip=True) if soup.title else ""
+            except Exception as exc:
+                print(f"[fetch_page] error={type(exc).__name__} count=1")
+                soup = None
+                title = ""
+            low = text.lower()
+            title_l = (title or "").lower()
+            real_title = bool(title) and "just a moment" not in title_l
+            challenge = (
+                title_l.startswith("just a moment")
+                or "<title>just a moment" in low[:4000]
+            )
+            if res.status_code == 200 and real_title and len(text) > 20000:
+                challenge = False
+            record_source_denial(url, res.status_code, challenge)
+            page = {
+                "ok": res.status_code == 200 and not challenge and len(text) > 2000,
+                "status": res.status_code,
+                "retry_after": res.headers.get("Retry-After"),
+                "final_url": str(res.url),
+                "text": text,
+                "soup": soup,
+                "size": len(text),
+                "title": title,
+                "cloudflare": challenge,
+                "error": None,
+            }
+            if res.status_code in (401, 403, 429) or challenge:
+                outcome = "denied"
+            return page
+        except HostNotAllowed as exc:
+            return {"ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
+                    "size": 0, "title": "", "cloudflare": False, "error": exc.reason,
+                    "rejected_host": exc.host}
+        except Exception as e:
+            print(f"[fetch_page] error={type(e).__name__} count=1")
+            return {
+                "ok": False, "status": 0, "final_url": url, "text": "", "soup": None,
+                "size": 0, "title": "", "cloudflare": False, "error": str(e),
+            }
+    finally:
+        if is_discovery_source:
+            DISCOVERY_FETCH_OUTCOMES[outcome] += 1
 
 
 def title_without_site_suffix(text: str) -> str:
@@ -3330,10 +3406,10 @@ def merge_videos(groups):
 
 def get_latest_videos():
     """Propose validated discovery progress; commit it only with the catalog."""
+    DISCOVERY_FETCH_OUTCOMES.clear()
     state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3, "javdb_page": 3})
     SOURCE_RETRY_AT.clear()
-    SOURCE_RETRY_AT.update({key: int(value) for key, value in (state.get("source_retry_at") or {}).items()
-                           if int(value or 0) > now_ts()})
+    SOURCE_RETRY_AT.update(load_discovery_cooldowns(state))
     recent_count = max(2, PAGES)
     mp = max(recent_count + 1, int(state.get("missav_page", recent_count + 1)))
     jp = int(state.get("javdb_page", 3))
@@ -3508,15 +3584,15 @@ def build_update_status(items, crawl=None, state=None):
     crawl = load_json(CRAWL_FILE, {}) if crawl is None else crawl
     state = load_json(FETCH_STATE_FILE, {}) if state is None else state
     discovery = crawl.get("last_discovery") or {}
-    retries = {**(crawl.get("source_retry_at") or {}), **SOURCE_RETRY_AT}
+    retries = load_discovery_cooldowns(crawl, SOURCE_RETRY_AT)
     sources = {}
     for name in ("missav", "javdb", "supjav"):
         report = (discovery.get("sources") or {}).get(name) or {}
-        retry = int(retries.get(name) or 0)
+        retry = retries.get(name, 0)
         status = report.get("status") or "unknown"
-        if retry > now_ts():
+        if retry:
             status = "access_limited"
-        elif retry and status == "access_limited":
+        elif status == "access_limited":
             status = "retry_due"
         sources[name] = {"status": status, "next_retry_at": retry,
                          "checked_at": discovery.get("checked_at") or ""}
@@ -3622,17 +3698,17 @@ def refresh_update_metadata():
         raise RuntimeError("No saved catalog to refresh")
     crawl = load_json(CRAWL_FILE, {})
     SOURCE_RETRY_AT.clear()
-    SOURCE_RETRY_AT.update({name: int(value) for name, value in (crawl.get("source_retry_at") or {}).items()
-                           if int(value or 0) > now_ts()})
-    apply_missav_ranks(items, scrape_missav_rankings(), now_jst())
-    fill_missing_views(items)
-    update_views_history(items)
-    save_discovery_cooldowns()
-    stamp = now_jst()
-    save_json(DATA_FILE, {**payload, "updated_at": stamp, "items": items})
-    write_site(items, stamp, sum(bool(x.get("is_new")) for x in items))
-    print("[Update repair] " + json.dumps(build_update_status(items), ensure_ascii=False))
-    return 0
+    SOURCE_RETRY_AT.update(load_discovery_cooldowns(crawl))
+    with persist_source_cooldowns():
+        apply_missav_ranks(items, scrape_missav_rankings(), now_jst())
+        fill_missing_views(items)
+        update_views_history(items)
+        save_discovery_cooldowns()
+        stamp = now_jst()
+        save_json(DATA_FILE, {**payload, "updated_at": stamp, "items": items})
+        write_site(items, stamp, sum(bool(x.get("is_new")) for x in items))
+        print("[Update repair] " + json.dumps(build_update_status(items), ensure_ascii=False))
+        return 0
 
 
 def repair_saved_titles():
@@ -3765,6 +3841,17 @@ def release_notification(code, item=None):
     save_notify_queue(pending)
 
 
+def all_discovery_sources_access_limited(crawl_state):
+    outcomes = DISCOVERY_FETCH_OUTCOMES
+    if outcomes["other"] or outcomes["denied"] + outcomes["cooldown_skip"] == 0:
+        return False
+    sources = (crawl_state.get("last_discovery") or {}).get("sources") or {}
+    now = now_ts()
+    return all((sources.get(source) or {}).get("status") == "access_limited"
+               and SOURCE_RETRY_AT.get(source, 0) > now
+               for source in ("missav", "javdb", "supjav"))
+
+
 def main(discovery_only=False) -> int:
     initialize_run_deadline()
     print(f"[{now_jst()}] チェック開始")
@@ -3773,6 +3860,11 @@ def main(discovery_only=False) -> int:
     except (StateStructureError, json.JSONDecodeError) as exc:
         print(f"状態読込失敗: {exc}", file=sys.stderr)
         return 1
+    with persist_source_cooldowns():
+        return run_monitor(discovery_only, state_inputs)
+
+
+def run_monitor(discovery_only, state_inputs):
     try:
         latest, crawl_state = get_latest_videos()
     except StateStructureError as exc:
@@ -3784,8 +3876,22 @@ def main(discovery_only=False) -> int:
         if not discovery_only:
             run_optional_step("Error notification", send_telegram, "監視エラー: ページ取得に失敗しました", needs_network=False)
         return 1
+    empty_discovery = not latest and not run_deadline_reached("discovery")
+    if empty_discovery and discovery_only and all_discovery_sources_access_limited(crawl_state):
+        save_source_cooldown_file()
+        if output_path := os.environ.get("GITHUB_OUTPUT"):
+            try:
+                with open(output_path, "a", encoding="utf-8") as output:
+                    output.write("all_sources_denied=true\n")
+            except OSError as exc:
+                print(f"::error::[main discovery] could not write GITHUB_OUTPUT: {exc}", file=sys.stderr)
+                return 1
+        warning = "[main discovery] all sources access_limited; no items fetched (exit 0)"
+        print(warning)
+        print(f"::warning::{warning}")
+        return 0
     save_discovery_cooldowns()
-    if not latest and not run_deadline_reached("discovery"):
+    if empty_discovery:
         if not discovery_only:
             run_optional_step("Error notification", send_telegram, "監視エラー: 動画リストを抽出できませんでした。", needs_network=False)
         return 1
@@ -3909,6 +4015,7 @@ def main(discovery_only=False) -> int:
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     write_site(merged, stamp, len(new_videos), build_update_status(merged, crawl_state))
     # Commit the discovery position only after both data and public output exist.
+    save_source_cooldown_file()
     save_json(CRAWL_FILE, crawl_state)
     print(f"[Catalog saved] items={len(merged)} new={len(new_videos)} updated_at={stamp}")
     if "last_discovery" in crawl_state:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "monitor.yml"
 STATE_FILES = ["docs/fetch_state.json", "docs/missav_guard_state.json",
-               "docs/notified_ids.json", "docs/notify_queue.json"]
+               "docs/notified_ids.json", "docs/notify_queue.json", "docs/source_cooldowns.json"]
 
 
 def check_steps(workflow=WORKFLOW, job_name="check"):
@@ -30,6 +30,16 @@ def condition(block):
 class WorkflowCommitTests(unittest.TestCase):
     def setUp(self):
         self.steps = check_steps()
+
+    def test_archive_advance_skips_all_sources_denied_run(self):
+        discovery = self.steps["Fast MissAV recent and archive discovery"]
+        self.assertRegex(discovery, r"(?m)^        id: fast_discovery$")
+        advance = self.steps["Advance past confirmed duplicate archive page"]
+        self.assertRegex(
+            advance,
+            r"(?m)^        if: >-\n          \(.*(?:\n          .*?)*\) &&\n"
+            r"          steps\.fast_discovery\.outputs\.all_sources_denied != 'true'$",
+        )
 
     def test_site_commit_runs_only_on_success(self):
         block = self.steps["Commit site data"]
@@ -117,6 +127,14 @@ class WorkflowCommitTests(unittest.TestCase):
                 block = check_steps(workflow, job_name)["Prepare lean Pages artifact"]
                 self.assertRegex(block, r"(?m)^          rm -rf pages-public/data-shards$")
                 self.assertRegex(block, r"(?m)^          rm -rf pages-public/fetch_state-shards$")
+
+    def test_pages_artifacts_exclude_source_cooldowns(self):
+        for workflow, job_name in ((WORKFLOW, "check"), (WORKFLOW.with_name("compact-pages.yml"), "compact")):
+            with self.subTest(workflow=workflow.name):
+                block = check_steps(workflow, job_name)["Prepare lean Pages artifact"]
+                shell = block.replace("\\\n", "")
+                remove_files = re.search(r"(?m)^ +rm -f (.+)$", shell).group(1).split()
+                self.assertIn("pages-public/source_cooldowns.json", remove_files)
 
 
 if __name__ == "__main__":
