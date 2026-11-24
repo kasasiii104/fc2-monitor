@@ -35,8 +35,7 @@
     "walker_canonical_title_repair",
     "walker_official_discovery_checks",
     "walker_official_fastlane_stats",
-    "code_only_title_repair_v1",
-    "fc2_market_ekyc_blocked_at"
+    "code_only_title_repair_v1"
   ],
   "inline": {
     "title_fail": {
@@ -2176,45 +2175,45 @@
       "last_success_at": null
     },
     "walker_canonical_title_repair": {
-      "last_run": 1795492551,
-      "items": 49792,
-      "pending_before": 470,
+      "last_run": 1795539612,
+      "items": 50000,
+      "pending_before": 471,
       "cache_matches": 0,
       "repaired": 0,
       "rejected_walker_title": 0,
-      "pending_after": 470,
+      "pending_after": 471,
       "chinese_before": 0,
-      "code_only_before": 382,
+      "code_only_before": 383,
       "examples": []
     },
     "walker_official_fastlane_stats": {
-      "last_run": 1795496668,
+      "last_run": 1795539558,
       "cache_records": 20000,
-      "unseen_before": 17482,
+      "unseen_before": 17465,
       "candidates": 360,
-      "checked": 0,
-      "success": 0,
-      "not_found": 0,
+      "checked": 360,
+      "success": 181,
+      "not_found": 20,
       "failed": 0,
-      "rejected": 0,
+      "rejected": 159,
       "blocked": 0,
-      "added": 0,
-      "retry_waiting": 203,
-      "rejected_unresolved_title": 4,
+      "added": 181,
+      "retry_waiting": 25,
+      "rejected_unresolved_title": 1,
       "workers": 6,
-      "elapsed_sec": 1.3
+      "elapsed_sec": 42.0
     },
     "code_only_title_repair_v1": {
-      "last_run": 1795492553,
+      "last_run": 1795539614,
       "rolled_back_generic_or_ambiguous": 0,
-      "pending_before": 391,
-      "due": 231,
+      "pending_before": 392,
+      "due": 392,
       "tried": 40,
       "repaired": 0,
       "stored_repaired": 0,
       "walker_repaired": 0,
       "web_repaired": 0,
-      "pending_after": 391,
+      "pending_after": 392,
       "examples": [],
       "attempts": {
         "FC2-PPV-4994286": 1793911888,
@@ -2222,21 +2221,21 @@
         "FC2-PPV-4993187": 1793911888,
         "FC2-PPV-4991147": 1793911888,
         "FC2-PPV-4990511": 1794691768,
-        "FC2-PPV-4990430": 1795485503,
-        "FC2-PPV-4989948": 1795485503,
-        "FC2-PPV-4989588": 1795485503,
-        "FC2-PPV-4986734": 1795485503,
+        "FC2-PPV-4990430": 1795539614,
+        "FC2-PPV-4989948": 1795539614,
+        "FC2-PPV-4989588": 1795539614,
+        "FC2-PPV-4986734": 1795539614,
         "FC2-PPV-4984078": 1794602026,
         "FC2-PPV-4981668": 1793214591,
         "FC2-PPV-4981561": 1793290609,
         "FC2-PPV-4979809": 1794602026,
         "FC2-PPV-4979379": 1794602026,
-        "FC2-PPV-4978784": 1795485503,
+        "FC2-PPV-4978784": 1795539614,
         "FC2-PPV-4976255": 1794602026,
         "FC2-PPV-4975798": 1793258171,
         "FC2-PPV-4975620": 1794602026,
-        "FC2-PPV-4975541": 1795485503,
-        "FC2-PPV-4974654": 1795485503,
+        "FC2-PPV-4975541": 1795539614,
+        "FC2-PPV-4974654": 1795539614,
         "FC2-PPV-4972817": 1793958831,
         "FC2-PPV-4971620": 1793478125,
         "FC2-PPV-4971471": 1794602026,
@@ -2337,39 +2336,39 @@
         "FC2-PPV-4908423": 1793824599,
         "FC2-PPV-4908416": 1793375655,
         "FC2-PPV-4908412": 1793824599,
-        "FC2-PPV-4907806": 1795485503,
+        "FC2-PPV-4907806": 1795539614,
         "FC2-PPV-4906732": 1793885176,
-        "FC2-PPV-4906444": 1795485503,
+        "FC2-PPV-4906444": 1795539614,
         "FC2-PPV-4904881": 1793824599,
         "FC2-PPV-4903955": 1792970689,
         "FC2-PPV-4903657": 1794381074,
         "FC2-PPV-4903051": 1792970689,
-        "FC2-PPV-4902139": 1795485503,
-        "FC2-PPV-4902092": 1795485503,
-        "FC2-PPV-4901921": 1795485503,
+        "FC2-PPV-4902139": 1795539614,
+        "FC2-PPV-4902092": 1795539614,
+        "FC2-PPV-4901921": 1795539614,
         "FC2-PPV-4901451": 1792970689,
-        "FC2-PPV-4901173": 1795485503,
+        "FC2-PPV-4901173": 1795539614,
         "FC2-PPV-4900904": 1793737559,
-        "FC2-PPV-4900512": 1795485503,
+        "FC2-PPV-4900512": 1795539614,
         "FC2-PPV-4899209": 1792970689,
         "FC2-PPV-4897534": 1794210483,
         "FC2-PPV-4897343": 1792970689,
-        "FC2-PPV-4896534": 1795485503,
+        "FC2-PPV-4896534": 1795539614,
         "FC2-PPV-4896108": 1793798129,
-        "FC2-PPV-4895224": 1795485503,
-        "FC2-PPV-4895221": 1795485503,
+        "FC2-PPV-4895224": 1795539614,
+        "FC2-PPV-4895221": 1795539614,
         "FC2-PPV-4894033": 1793798129,
         "FC2-PPV-4892594": 1792970689,
         "FC2-PPV-4887454": 1793798129,
         "FC2-PPV-4887442": 1793798129,
         "FC2-PPV-4886353": 1792970689,
-        "FC2-PPV-4886338": 1795485503,
+        "FC2-PPV-4886338": 1795539614,
         "FC2-PPV-4884922": 1792970689,
         "FC2-PPV-4884736": 1793798129,
         "FC2-PPV-4884522": 1792970689,
         "FC2-PPV-4884223": 1793798129,
         "FC2-PPV-4884146": 1793798129,
-        "FC2-PPV-4883599": 1795485503,
+        "FC2-PPV-4883599": 1795539614,
         "FC2-PPV-4883517": 1792970689,
         "FC2-PPV-4882946": 1792970689,
         "FC2-PPV-4882917": 1792970689,
@@ -2380,23 +2379,23 @@
         "FC2-PPV-4996870": 1793911888,
         "FC2-PPV-4874536": 1793567671,
         "FC2-PPV-4874178": 1794484336,
-        "FC2-PPV-4872975": 1795485503,
-        "FC2-PPV-4870718": 1795485503,
-        "FC2-PPV-4870640": 1795485503,
-        "FC2-PPV-4870555": 1795485503,
-        "FC2-PPV-4869293": 1795485503,
+        "FC2-PPV-4872975": 1795539614,
+        "FC2-PPV-4870718": 1795539614,
+        "FC2-PPV-4870640": 1795539614,
+        "FC2-PPV-4870555": 1795539614,
+        "FC2-PPV-4869293": 1795539614,
         "FC2-PPV-4868037": 1794317856,
         "FC2-PPV-4867765": 1794317856,
         "FC2-PPV-4867764": 1794317856,
         "FC2-PPV-4867745": 1794317856,
         "FC2-PPV-4867610": 1793916149,
         "FC2-PPV-4866542": 1794317856,
-        "FC2-PPV-4866435": 1795485503,
+        "FC2-PPV-4866435": 1795539614,
         "FC2-PPV-4865706": 1794317856,
         "FC2-PPV-4865386": 1794317856,
         "FC2-PPV-4864507": 1794317856,
         "FC2-PPV-4864483": 1794317856,
-        "FC2-PPV-4863991": 1795485503,
+        "FC2-PPV-4863991": 1795539614,
         "FC2-PPV-4862181": 1794085742,
         "FC2-PPV-4859848": 1794085742,
         "FC2-PPV-4859160": 1794085742,
@@ -2410,25 +2409,25 @@
         "FC2-PPV-4853854": 1794085742,
         "FC2-PPV-4853837": 1794085742,
         "FC2-PPV-4852711": 1794085742,
-        "FC2-PPV-4852092": 1795485503,
-        "FC2-PPV-4852091": 1795485503,
+        "FC2-PPV-4852092": 1795539614,
+        "FC2-PPV-4852091": 1795539614,
         "FC2-PPV-4850729": 1793762184,
-        "FC2-PPV-4849379": 1795485503,
-        "FC2-PPV-4848439": 1795485503,
+        "FC2-PPV-4849379": 1795539614,
+        "FC2-PPV-4848439": 1795539614,
         "FC2-PPV-4846863": 1794853747,
         "FC2-PPV-4845263": 1794085742,
         "FC2-PPV-4844853": 1794853747,
-        "FC2-PPV-4844791": 1795485503,
+        "FC2-PPV-4844791": 1795539614,
         "FC2-PPV-4843615": 1794853747,
         "FC2-PPV-4841695": 1794816038,
         "FC2-PPV-4839440": 1793762184,
         "FC2-PPV-4839349": 1794816038,
         "FC2-PPV-4838935": 1793762184,
-        "FC2-PPV-4837550": 1795485503,
+        "FC2-PPV-4837550": 1795539614,
         "FC2-PPV-4835119": 1793762184,
-        "FC2-PPV-4832393": 1795481872,
+        "FC2-PPV-4832393": 1795539614,
         "FC2-PPV-4832072": 1794586785,
-        "FC2-PPV-4831162": 1795481872,
+        "FC2-PPV-4831162": 1795539614,
         "FC2-PPV-4829452": 1794703541,
         "FC2-PPV-4829176": 1795481872,
         "FC2-PPV-4828994": 1795409991,
@@ -2466,7 +2465,7 @@
         "FC2-PPV-5001885": 1793911888,
         "FC2-PPV-5001646": 1793818631,
         "FC2-PPV-5001004": 1793911888,
-        "FC2-PPV-4979498": 1795485503,
+        "FC2-PPV-4979498": 1795539614,
         "FC2-PPV-4474582": 1795475083,
         "FC2-PPV-4465686": 1795475083,
         "FC2-PPV-4458008": 1795475083,
@@ -2498,11 +2497,11 @@
         "FC2-PPV-4790112": 1795481872,
         "FC2-PPV-4789315": 1795481872,
         "FC2-PPV-4789202": 1795481872,
-        "FC2-PPV-5004146": 1795485503,
-        "FC2-PPV-5002293": 1795485503,
+        "FC2-PPV-5004146": 1795539614,
+        "FC2-PPV-5002293": 1795539614,
         "FC2-PPV-4996024": 1794339892,
         "FC2-PPV-4987708": 1794339892,
-        "FC2-PPV-5005642": 1795485503,
+        "FC2-PPV-5005642": 1795539614,
         "FC2-PPV-4788272": 1795481872,
         "FC2-PPV-4787322": 1795481872,
         "FC2-PPV-4787237": 1795481872,
@@ -2538,7 +2537,7 @@
         "FC2-PPV-4737890": 1795489146,
         "FC2-PPV-4736945": 1795489146,
         "FC2-PPV-4736776": 1794790916,
-        "FC2-PPV-4985069": 1795485503,
+        "FC2-PPV-4985069": 1795539614,
         "FC2-PPV-4736334": 1795323554,
         "FC2-PPV-4731301": 1795489146,
         "FC2-PPV-5007485": 1794853747,
@@ -2700,16 +2699,16 @@
         "FC2-PPV-4041601": 1795478335,
         "FC2-PPV-4007051": 1795478335,
         "FC2-PPV-3913455": 1795478335,
-        "FC2-PPV-3904439": 1795481872
+        "FC2-PPV-3904439": 1795481872,
+        "FC2-PPV-5009459": 1795539614
       },
       "rejected": 0,
       "rejections": {}
-    },
-    "fc2_market_ekyc_blocked_at": 1795474669
+    }
   },
   "sections": {
     "fc2_market_checked": {
-      "entry_count": 27473,
+      "entry_count": 27671,
       "shards": [
         {
           "path": "fetch_state-shards/fc2_market_checked-943ef2f763d4e177.json",
@@ -2850,10 +2849,10 @@
           "sha256": "b4a67ba044b96647ab6fc1bdf2ba33f22cb545b4cbdde0fc859e3dec2043068f"
         },
         {
-          "path": "fetch_state-shards/fc2_market_checked-1aced6130d45978a.json",
-          "count": 750,
-          "bytes": 26232,
-          "sha256": "1aced6130d45978a8dd5e9d56eb959970fe4732aec6b6b816ffa24af953283bb"
+          "path": "fetch_state-shards/fc2_market_checked-a00aecb6c40c1344.json",
+          "count": 948,
+          "bytes": 33162,
+          "sha256": "a00aecb6c40c134479ee74115f8e34cfb0e3d9d219200c04d6a9546ba8087df3"
         }
       ]
     },
@@ -3049,7 +3048,7 @@
       ]
     },
     "metadata_backfill_v3_attempts": {
-      "entry_count": 49587,
+      "entry_count": 49785,
       "shards": [
         {
           "path": "fetch_state-shards/metadata_backfill_v3_attempts-a66630e9629594b8.json",
@@ -3322,10 +3321,10 @@
           "sha256": "096eb0ce599a959dc3b8c2351b0d3ebfb8fbb9e24535a7449951cf4e58583ef2"
         },
         {
-          "path": "fetch_state-shards/metadata_backfill_v3_attempts-2d661aa844161ef4.json",
-          "count": 729,
-          "bytes": 456455,
-          "sha256": "2d661aa844161ef49e07418cb8ec0628e3c8d9b2536269e57962c2d9a24a0d30"
+          "path": "fetch_state-shards/metadata_backfill_v3_attempts-7ea81467961d0f0b.json",
+          "count": 927,
+          "bytes": 577914,
+          "sha256": "7ea81467961d0f0b734fe7d2201e00de469124742c545a1faaadcb76c3ba680c"
         }
       ]
     },
@@ -3479,43 +3478,13 @@
       ]
     },
     "walker_official_discovery_checks": {
-      "entry_count": 46572,
+      "entry_count": 44917,
       "shards": [
         {
-          "path": "fetch_state-shards/walker_official_discovery_checks-c683088051da64dd.json",
-          "count": 398,
-          "bytes": 45495,
-          "sha256": "c683088051da64dd2e4f6a55f988512d32728830ffe4a196626f4c177f256626"
-        },
-        {
-          "path": "fetch_state-shards/walker_official_discovery_checks-57289b3eee883e70.json",
-          "count": 42,
-          "bytes": 4718,
-          "sha256": "57289b3eee883e706439d254263b6f030fda94ce26c2f5397b65e320e57ec693"
-        },
-        {
-          "path": "fetch_state-shards/walker_official_discovery_checks-47370d4a342d377f.json",
-          "count": 1017,
-          "bytes": 117857,
-          "sha256": "47370d4a342d377f8dbed5575ca1dfaa507532fd09e82d8db7ba7854a7006535"
-        },
-        {
-          "path": "fetch_state-shards/walker_official_discovery_checks-956a6192d4a3fefa.json",
-          "count": 404,
-          "bytes": 46586,
-          "sha256": "956a6192d4a3fefa994356f4ffa19b461584184918ede5c8266893bc127784ba"
-        },
-        {
-          "path": "fetch_state-shards/walker_official_discovery_checks-63076ab188de42f9.json",
-          "count": 184,
-          "bytes": 22774,
-          "sha256": "63076ab188de42f9ecede22153775f5b3c67b5657701685fe45e8fe096ef3702"
-        },
-        {
-          "path": "fetch_state-shards/walker_official_discovery_checks-b7b156f0ef3a3d17.json",
-          "count": 847,
-          "bytes": 97694,
-          "sha256": "b7b156f0ef3a3d17874adfefc3e2f8478a0a48b4635998b8249e17f156fc6a21"
+          "path": "fetch_state-shards/walker_official_discovery_checks-b4b619e3a0fb6d7f.json",
+          "count": 1038,
+          "bytes": 120726,
+          "sha256": "b4b619e3a0fb6d7fe5980afd81a7914f073aaea19f085920b0a83a15830ee366"
         },
         {
           "path": "fetch_state-shards/walker_official_discovery_checks-51e0f42f234b742f.json",
@@ -3530,10 +3499,10 @@
           "sha256": "8c6f66251e79dace1743acf40fcf981a07a9a6fe97fb2625d1029dbce1dca401"
         },
         {
-          "path": "fetch_state-shards/walker_official_discovery_checks-58187dfb52586d8e.json",
+          "path": "fetch_state-shards/walker_official_discovery_checks-bda236568d9c33f0.json",
           "count": 1515,
-          "bytes": 173534,
-          "sha256": "58187dfb52586d8eee287e5ef112c94877bfa8eb12ac8cf2c33d6db8a16899ea"
+          "bytes": 173382,
+          "sha256": "bda236568d9c33f0700ece5d68385a4ce53b59f410f7cbb0d7d1e2c986b59886"
         },
         {
           "path": "fetch_state-shards/walker_official_discovery_checks-1efe8884e2546ef2.json",
@@ -3788,10 +3757,10 @@
           "sha256": "dd0cb8c3324673df0220f43f0c06560d375621521cc3d1691e959e482041309b"
         },
         {
-          "path": "fetch_state-shards/walker_official_discovery_checks-334a1968bac64a45.json",
-          "count": 524,
-          "bytes": 61627,
-          "sha256": "334a1968bac64a4541c2aa66b533651c8ea18afc3a73fbdd7192438a6f810b55"
+          "path": "fetch_state-shards/walker_official_discovery_checks-682c1ed944357e6e.json",
+          "count": 723,
+          "bytes": 83062,
+          "sha256": "682c1ed944357e6ed8fea3c3bb0ab713921fc2fc44ae24397b8ca3b3d18606b9"
         }
       ]
     }
