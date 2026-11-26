@@ -1,5 +1,5 @@
 {
-  "missav_page": 1441,
+  "missav_page": 1621,
   "supjav_page": 765,
   "javdb_page": 129,
   "recovery_until": {
@@ -8,31 +8,1711 @@
   "missav_cycle": 22,
   "missav_cycle_completed_at": "2026-11-25 22:55:04",
   "source_retry_at": {
-    "javdb": 1795672541,
-    "supjav": 1795672541,
-    "missav": 1795686854
+    "javdb": 1795719255,
+    "supjav": 1795719255
   },
   "last_discovery": {
-    "checked_at": "2026-11-26 06:54:14",
-    "found_unique": 633,
+    "checked_at": "2026-11-26 19:56:16",
+    "found_unique": 2994,
     "sources": {
       "missav": {
         "archive_from": 1441,
         "last_archive": {
-          "page": 1440,
-          "fingerprint": "c7029a62b63c33ce",
+          "page": 1620,
+          "fingerprint": "e54ec4b4650d721a",
           "head_fingerprint": "7fb0afdf7dffe94a"
         },
-        "pages": [],
-        "status": "access_limited",
-        "stopped_page": 1,
-        "search_items": 633,
-        "catalog_items": 0,
+        "pages": [
+          {
+            "page": 1,
+            "current_page": 1,
+            "items": 12,
+            "fingerprint": "7fb0afdf7dffe94a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 2,
+            "current_page": 2,
+            "items": 12,
+            "fingerprint": "8a13e6ccfb5263a3",
+            "added_to_batch": 12
+          },
+          {
+            "page": 3,
+            "current_page": 3,
+            "items": 12,
+            "fingerprint": "aed0c99f9c3ef466",
+            "added_to_batch": 12
+          },
+          {
+            "page": 4,
+            "current_page": 4,
+            "items": 12,
+            "fingerprint": "02eb914e0d7aa4e8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 5,
+            "current_page": 5,
+            "items": 12,
+            "fingerprint": "cd121a0b601e7ac7",
+            "added_to_batch": 12
+          },
+          {
+            "page": 6,
+            "current_page": 6,
+            "items": 12,
+            "fingerprint": "8478c8fb1e2ab931",
+            "added_to_batch": 12
+          },
+          {
+            "page": 7,
+            "current_page": 7,
+            "items": 12,
+            "fingerprint": "85220bf2cdb95440",
+            "added_to_batch": 12
+          },
+          {
+            "page": 8,
+            "current_page": 8,
+            "items": 12,
+            "fingerprint": "7dfc61e8d501c8b1",
+            "added_to_batch": 12
+          },
+          {
+            "page": 9,
+            "current_page": 9,
+            "items": 12,
+            "fingerprint": "9e818e9aa03db507",
+            "added_to_batch": 12
+          },
+          {
+            "page": 10,
+            "current_page": 10,
+            "items": 12,
+            "fingerprint": "46dcbf98f594c34f",
+            "added_to_batch": 12
+          },
+          {
+            "page": 11,
+            "current_page": 11,
+            "items": 12,
+            "fingerprint": "db7d53d222ce15d1",
+            "added_to_batch": 12
+          },
+          {
+            "page": 12,
+            "current_page": 12,
+            "items": 12,
+            "fingerprint": "485a72eab02e1c99",
+            "added_to_batch": 12
+          },
+          {
+            "page": 13,
+            "current_page": 13,
+            "items": 12,
+            "fingerprint": "25360a880e7dd129",
+            "added_to_batch": 12
+          },
+          {
+            "page": 14,
+            "current_page": 14,
+            "items": 12,
+            "fingerprint": "9b7bcc0c11725a73",
+            "added_to_batch": 12
+          },
+          {
+            "page": 15,
+            "current_page": 15,
+            "items": 12,
+            "fingerprint": "291d66f3f1ca47e9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 16,
+            "current_page": 16,
+            "items": 12,
+            "fingerprint": "03b23fb332c42be6",
+            "added_to_batch": 12
+          },
+          {
+            "page": 17,
+            "current_page": 17,
+            "items": 12,
+            "fingerprint": "a6ae2f8d0db8d586",
+            "added_to_batch": 12
+          },
+          {
+            "page": 18,
+            "current_page": 18,
+            "items": 12,
+            "fingerprint": "b95035a0f8f0dfc2",
+            "added_to_batch": 10
+          },
+          {
+            "page": 19,
+            "current_page": 19,
+            "items": 12,
+            "fingerprint": "491cb353224cb392",
+            "added_to_batch": 12
+          },
+          {
+            "page": 20,
+            "current_page": 20,
+            "items": 12,
+            "fingerprint": "223d37718844ed1c",
+            "added_to_batch": 10
+          },
+          {
+            "page": 21,
+            "current_page": 21,
+            "items": 12,
+            "fingerprint": "bdabd928a1eb48c9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 22,
+            "current_page": 22,
+            "items": 12,
+            "fingerprint": "f812bd78c1736f1b",
+            "added_to_batch": 8
+          },
+          {
+            "page": 23,
+            "current_page": 23,
+            "items": 12,
+            "fingerprint": "686d415d4cdb5368",
+            "added_to_batch": 12
+          },
+          {
+            "page": 24,
+            "current_page": 24,
+            "items": 12,
+            "fingerprint": "eb1cfcf222c4bc23",
+            "added_to_batch": 12
+          },
+          {
+            "page": 25,
+            "current_page": 25,
+            "items": 12,
+            "fingerprint": "eb460e30e7250639",
+            "added_to_batch": 10
+          },
+          {
+            "page": 26,
+            "current_page": 26,
+            "items": 12,
+            "fingerprint": "f690d0fba7bf1ae7",
+            "added_to_batch": 8
+          },
+          {
+            "page": 27,
+            "current_page": 27,
+            "items": 12,
+            "fingerprint": "ee2c813706144dfc",
+            "added_to_batch": 10
+          },
+          {
+            "page": 28,
+            "current_page": 28,
+            "items": 12,
+            "fingerprint": "e5d17a68d7875b60",
+            "added_to_batch": 12
+          },
+          {
+            "page": 29,
+            "current_page": 29,
+            "items": 12,
+            "fingerprint": "5c7d474627bd5090",
+            "added_to_batch": 10
+          },
+          {
+            "page": 30,
+            "current_page": 30,
+            "items": 12,
+            "fingerprint": "d94815add9720b70",
+            "added_to_batch": 12
+          },
+          {
+            "page": 31,
+            "current_page": 31,
+            "items": 12,
+            "fingerprint": "505fa5f6ebec998a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 32,
+            "current_page": 32,
+            "items": 12,
+            "fingerprint": "746a4fb0b9e4475d",
+            "added_to_batch": 10
+          },
+          {
+            "page": 33,
+            "current_page": 33,
+            "items": 12,
+            "fingerprint": "42e7f9c82aaaaacd",
+            "added_to_batch": 12
+          },
+          {
+            "page": 34,
+            "current_page": 34,
+            "items": 12,
+            "fingerprint": "549e69f389cc9ce3",
+            "added_to_batch": 8
+          },
+          {
+            "page": 35,
+            "current_page": 35,
+            "items": 12,
+            "fingerprint": "95fa83f7d4af391b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 36,
+            "current_page": 36,
+            "items": 12,
+            "fingerprint": "325b15cf4a039b92",
+            "added_to_batch": 12
+          },
+          {
+            "page": 37,
+            "current_page": 37,
+            "items": 12,
+            "fingerprint": "5f7d5c563b5b46af",
+            "added_to_batch": 10
+          },
+          {
+            "page": 38,
+            "current_page": 38,
+            "items": 12,
+            "fingerprint": "3f76a5097c42b093",
+            "added_to_batch": 12
+          },
+          {
+            "page": 39,
+            "current_page": 39,
+            "items": 12,
+            "fingerprint": "2b7f5ffd5b5d8d54",
+            "added_to_batch": 12
+          },
+          {
+            "page": 40,
+            "current_page": 40,
+            "items": 12,
+            "fingerprint": "6fa29c1a60f9f9df",
+            "added_to_batch": 12
+          },
+          {
+            "page": 41,
+            "current_page": 41,
+            "items": 12,
+            "fingerprint": "99068dad6a820c7d",
+            "added_to_batch": 9
+          },
+          {
+            "page": 42,
+            "current_page": 42,
+            "items": 12,
+            "fingerprint": "fe9eeb96100e913d",
+            "added_to_batch": 9
+          },
+          {
+            "page": 43,
+            "current_page": 43,
+            "items": 12,
+            "fingerprint": "3d4d485685881253",
+            "added_to_batch": 12
+          },
+          {
+            "page": 44,
+            "current_page": 44,
+            "items": 12,
+            "fingerprint": "56e56541554747e1",
+            "added_to_batch": 12
+          },
+          {
+            "page": 45,
+            "current_page": 45,
+            "items": 12,
+            "fingerprint": "8aacb9f482ec26d5",
+            "added_to_batch": 10
+          },
+          {
+            "page": 46,
+            "current_page": 46,
+            "items": 12,
+            "fingerprint": "8450fa21e600ca04",
+            "added_to_batch": 12
+          },
+          {
+            "page": 47,
+            "current_page": 47,
+            "items": 12,
+            "fingerprint": "926ec51a5321ff33",
+            "added_to_batch": 10
+          },
+          {
+            "page": 48,
+            "current_page": 48,
+            "items": 12,
+            "fingerprint": "2ba8560ff6d16c2c",
+            "added_to_batch": 12
+          },
+          {
+            "page": 49,
+            "current_page": 49,
+            "items": 12,
+            "fingerprint": "b03fa072903aeb70",
+            "added_to_batch": 8
+          },
+          {
+            "page": 50,
+            "current_page": 50,
+            "items": 12,
+            "fingerprint": "4bca2b1f08372be2",
+            "added_to_batch": 9
+          },
+          {
+            "page": 51,
+            "current_page": 51,
+            "items": 12,
+            "fingerprint": "438e641a1774b990",
+            "added_to_batch": 12
+          },
+          {
+            "page": 52,
+            "current_page": 52,
+            "items": 12,
+            "fingerprint": "b293baadbe519f59",
+            "added_to_batch": 12
+          },
+          {
+            "page": 53,
+            "current_page": 53,
+            "items": 12,
+            "fingerprint": "72a537a2f202b181",
+            "added_to_batch": 12
+          },
+          {
+            "page": 54,
+            "current_page": 54,
+            "items": 12,
+            "fingerprint": "007a416a9d916dfd",
+            "added_to_batch": 8
+          },
+          {
+            "page": 55,
+            "current_page": 55,
+            "items": 12,
+            "fingerprint": "9416ac07f45f06fb",
+            "added_to_batch": 12
+          },
+          {
+            "page": 56,
+            "current_page": 56,
+            "items": 12,
+            "fingerprint": "20d5049c21e35abe",
+            "added_to_batch": 12
+          },
+          {
+            "page": 57,
+            "current_page": 57,
+            "items": 12,
+            "fingerprint": "d8356455e7052e95",
+            "added_to_batch": 12
+          },
+          {
+            "page": 58,
+            "current_page": 58,
+            "items": 12,
+            "fingerprint": "2aa2af74c3624f7c",
+            "added_to_batch": 10
+          },
+          {
+            "page": 59,
+            "current_page": 59,
+            "items": 12,
+            "fingerprint": "7baa992609d1b41b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 60,
+            "current_page": 60,
+            "items": 12,
+            "fingerprint": "dc47be30f89cadb2",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1441,
+            "current_page": 1441,
+            "items": 12,
+            "fingerprint": "b1bed4e4376f97a8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1442,
+            "current_page": 1442,
+            "items": 12,
+            "fingerprint": "6b17eda38c595830",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1443,
+            "current_page": 1443,
+            "items": 12,
+            "fingerprint": "d63de54097c843b5",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1444,
+            "current_page": 1444,
+            "items": 12,
+            "fingerprint": "9782f0a9b9b3f476",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1445,
+            "current_page": 1445,
+            "items": 12,
+            "fingerprint": "58a9dc6987d6bd4a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1446,
+            "current_page": 1446,
+            "items": 12,
+            "fingerprint": "30ff9588c9324c16",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1447,
+            "current_page": 1447,
+            "items": 12,
+            "fingerprint": "7c55a3b38a64c227",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1448,
+            "current_page": 1448,
+            "items": 12,
+            "fingerprint": "c16fffa52b0de460",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1449,
+            "current_page": 1449,
+            "items": 12,
+            "fingerprint": "b68495007251e5ba",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1450,
+            "current_page": 1450,
+            "items": 12,
+            "fingerprint": "eaca69c9032c6f3d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1451,
+            "current_page": 1451,
+            "items": 12,
+            "fingerprint": "9a4097a8cd801924",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1452,
+            "current_page": 1452,
+            "items": 12,
+            "fingerprint": "3451c6b7397ae97e",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1453,
+            "current_page": 1453,
+            "items": 12,
+            "fingerprint": "0e1e3a4bf0b136dd",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1454,
+            "current_page": 1454,
+            "items": 12,
+            "fingerprint": "82147bf7c55685a8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1455,
+            "current_page": 1455,
+            "items": 12,
+            "fingerprint": "7be5ff840ef3e1ac",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1456,
+            "current_page": 1456,
+            "items": 12,
+            "fingerprint": "d58a98bb7fa28c35",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1457,
+            "current_page": 1457,
+            "items": 12,
+            "fingerprint": "2e3b4778d7ff02c7",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1458,
+            "current_page": 1458,
+            "items": 12,
+            "fingerprint": "700cf697660c265d",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1459,
+            "current_page": 1459,
+            "items": 12,
+            "fingerprint": "32f1337ea046e42d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1460,
+            "current_page": 1460,
+            "items": 12,
+            "fingerprint": "8e1fa0b0c96bc763",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1461,
+            "current_page": 1461,
+            "items": 12,
+            "fingerprint": "a34176d676017377",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1462,
+            "current_page": 1462,
+            "items": 12,
+            "fingerprint": "3603361085c8340a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1463,
+            "current_page": 1463,
+            "items": 12,
+            "fingerprint": "5b953fcb557d9e8d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1464,
+            "current_page": 1464,
+            "items": 12,
+            "fingerprint": "71727ea1cd180a88",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1465,
+            "current_page": 1465,
+            "items": 12,
+            "fingerprint": "70a0c4a24c4f5f05",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1466,
+            "current_page": 1466,
+            "items": 12,
+            "fingerprint": "d8ebd2b52660509e",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1467,
+            "current_page": 1467,
+            "items": 12,
+            "fingerprint": "999d0409022e3128",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1468,
+            "current_page": 1468,
+            "items": 12,
+            "fingerprint": "e0317d3b7c176582",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1469,
+            "current_page": 1469,
+            "items": 12,
+            "fingerprint": "3c69dd3d9e41efb4",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1470,
+            "current_page": 1470,
+            "items": 12,
+            "fingerprint": "71ef97bbfb715846",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1471,
+            "current_page": 1471,
+            "items": 12,
+            "fingerprint": "4184df12e6ab0597",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1472,
+            "current_page": 1472,
+            "items": 12,
+            "fingerprint": "d003e18fc7b55bdf",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1473,
+            "current_page": 1473,
+            "items": 12,
+            "fingerprint": "b9056b0c0b5463bd",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1474,
+            "current_page": 1474,
+            "items": 12,
+            "fingerprint": "7848b8d414a07600",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1475,
+            "current_page": 1475,
+            "items": 12,
+            "fingerprint": "2ce35493857534b6",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1476,
+            "current_page": 1476,
+            "items": 12,
+            "fingerprint": "72974da2a3a90aa8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1477,
+            "current_page": 1477,
+            "items": 12,
+            "fingerprint": "e7de1ee0827f984b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1478,
+            "current_page": 1478,
+            "items": 12,
+            "fingerprint": "5c64f8d9c9283bf4",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1479,
+            "current_page": 1479,
+            "items": 12,
+            "fingerprint": "5242133d519eb82a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1480,
+            "current_page": 1480,
+            "items": 12,
+            "fingerprint": "f132a9dbb5f6676d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1481,
+            "current_page": 1481,
+            "items": 12,
+            "fingerprint": "1e869acba8f6aee0",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1482,
+            "current_page": 1482,
+            "items": 12,
+            "fingerprint": "aa8227749a9f7e2f",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1483,
+            "current_page": 1483,
+            "items": 12,
+            "fingerprint": "8d80deb7643e961d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1484,
+            "current_page": 1484,
+            "items": 12,
+            "fingerprint": "00df62310b60eba0",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1485,
+            "current_page": 1485,
+            "items": 12,
+            "fingerprint": "db94b79fb87cc3a0",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1486,
+            "current_page": 1486,
+            "items": 12,
+            "fingerprint": "e742809997c430ee",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1487,
+            "current_page": 1487,
+            "items": 12,
+            "fingerprint": "c680bde4c1f5e29b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1488,
+            "current_page": 1488,
+            "items": 12,
+            "fingerprint": "ee13ca5d6891b33b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1489,
+            "current_page": 1489,
+            "items": 12,
+            "fingerprint": "b936e85f1c9a2f1b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1490,
+            "current_page": 1490,
+            "items": 12,
+            "fingerprint": "9b812620d35bbfcf",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1491,
+            "current_page": 1491,
+            "items": 12,
+            "fingerprint": "4c0a3cf602422f06",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1492,
+            "current_page": 1492,
+            "items": 12,
+            "fingerprint": "5a4bcb4e0ec34547",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1493,
+            "current_page": 1493,
+            "items": 12,
+            "fingerprint": "22b00fa5bcf473f4",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1494,
+            "current_page": 1494,
+            "items": 12,
+            "fingerprint": "4f14f5171104966d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1495,
+            "current_page": 1495,
+            "items": 12,
+            "fingerprint": "8cc6bea2290cb4e5",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1496,
+            "current_page": 1496,
+            "items": 12,
+            "fingerprint": "6c1ff483c9a5ed6a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1497,
+            "current_page": 1497,
+            "items": 12,
+            "fingerprint": "4056180df20f6daa",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1498,
+            "current_page": 1498,
+            "items": 12,
+            "fingerprint": "3ac9346801299d2f",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1499,
+            "current_page": 1499,
+            "items": 12,
+            "fingerprint": "2ce8bf19090bfc6b",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1500,
+            "current_page": 1500,
+            "items": 12,
+            "fingerprint": "9d1888d723b28b6a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1501,
+            "current_page": 1501,
+            "items": 12,
+            "fingerprint": "232dacb39058f0ca",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1502,
+            "current_page": 1502,
+            "items": 12,
+            "fingerprint": "4f79e6f802f60cb9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1503,
+            "current_page": 1503,
+            "items": 12,
+            "fingerprint": "0e8b768080e979c9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1504,
+            "current_page": 1504,
+            "items": 12,
+            "fingerprint": "d8556d6fcdb06ad2",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1505,
+            "current_page": 1505,
+            "items": 12,
+            "fingerprint": "48e546ac767d86af",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1506,
+            "current_page": 1506,
+            "items": 12,
+            "fingerprint": "587b3da7594a12c4",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1507,
+            "current_page": 1507,
+            "items": 12,
+            "fingerprint": "a57c74b082299c05",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1508,
+            "current_page": 1508,
+            "items": 12,
+            "fingerprint": "90fe31ef82bed708",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1509,
+            "current_page": 1509,
+            "items": 12,
+            "fingerprint": "bf32c10d5cb877af",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1510,
+            "current_page": 1510,
+            "items": 12,
+            "fingerprint": "2d9be41bea088e33",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1511,
+            "current_page": 1511,
+            "items": 12,
+            "fingerprint": "7290bd65a296e944",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1512,
+            "current_page": 1512,
+            "items": 12,
+            "fingerprint": "c336278fbf5a9b44",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1513,
+            "current_page": 1513,
+            "items": 12,
+            "fingerprint": "08a50deade1e3562",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1514,
+            "current_page": 1514,
+            "items": 12,
+            "fingerprint": "b8ff79ddbe06a7f5",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1515,
+            "current_page": 1515,
+            "items": 12,
+            "fingerprint": "567f017ae6f20e7d",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1516,
+            "current_page": 1516,
+            "items": 12,
+            "fingerprint": "9bb89703f70154ee",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1517,
+            "current_page": 1517,
+            "items": 12,
+            "fingerprint": "f7be0d214a46143a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1518,
+            "current_page": 1518,
+            "items": 12,
+            "fingerprint": "cb3f390f6dc42ea4",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1519,
+            "current_page": 1519,
+            "items": 12,
+            "fingerprint": "7cc2e3d720111baf",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1520,
+            "current_page": 1520,
+            "items": 12,
+            "fingerprint": "44d68f48abe213ca",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1521,
+            "current_page": 1521,
+            "items": 12,
+            "fingerprint": "9b4ba2286b9e087f",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1522,
+            "current_page": 1522,
+            "items": 12,
+            "fingerprint": "634d4ac422f03cff",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1523,
+            "current_page": 1523,
+            "items": 12,
+            "fingerprint": "2a5037951eecd918",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1524,
+            "current_page": 1524,
+            "items": 12,
+            "fingerprint": "9e67aa16237617e4",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1525,
+            "current_page": 1525,
+            "items": 12,
+            "fingerprint": "f6f33800a74acf80",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1526,
+            "current_page": 1526,
+            "items": 12,
+            "fingerprint": "629376474b924ca7",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1527,
+            "current_page": 1527,
+            "items": 12,
+            "fingerprint": "e816c444e0f9f003",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1528,
+            "current_page": 1528,
+            "items": 12,
+            "fingerprint": "2df382d157795b14",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1529,
+            "current_page": 1529,
+            "items": 12,
+            "fingerprint": "74941af54674b988",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1530,
+            "current_page": 1530,
+            "items": 12,
+            "fingerprint": "9293bb0f8e004c22",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1531,
+            "current_page": 1531,
+            "items": 12,
+            "fingerprint": "e82bb3f793328d33",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1532,
+            "current_page": 1532,
+            "items": 12,
+            "fingerprint": "25f08965d788f1ab",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1533,
+            "current_page": 1533,
+            "items": 12,
+            "fingerprint": "5f1400d4c4ab69f8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1534,
+            "current_page": 1534,
+            "items": 12,
+            "fingerprint": "2d615869070d9783",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1535,
+            "current_page": 1535,
+            "items": 12,
+            "fingerprint": "695d537a9eb1d51c",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1536,
+            "current_page": 1536,
+            "items": 12,
+            "fingerprint": "5b87ef98dad5569f",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1537,
+            "current_page": 1537,
+            "items": 12,
+            "fingerprint": "4237511872866a48",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1538,
+            "current_page": 1538,
+            "items": 12,
+            "fingerprint": "8d3fd59b8bc21549",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1539,
+            "current_page": 1539,
+            "items": 12,
+            "fingerprint": "6eddfc264c9e6b8a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1540,
+            "current_page": 1540,
+            "items": 12,
+            "fingerprint": "1fd04320c6cdc2f9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1541,
+            "current_page": 1541,
+            "items": 12,
+            "fingerprint": "5de3db7d4921b924",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1542,
+            "current_page": 1542,
+            "items": 12,
+            "fingerprint": "caf706cdcd23b262",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1543,
+            "current_page": 1543,
+            "items": 12,
+            "fingerprint": "fe62b8a5ed919061",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1544,
+            "current_page": 1544,
+            "items": 12,
+            "fingerprint": "8fb6ce46e6395e86",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1545,
+            "current_page": 1545,
+            "items": 12,
+            "fingerprint": "874b50b944acfd78",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1546,
+            "current_page": 1546,
+            "items": 12,
+            "fingerprint": "5e63f72b5d9325e9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1547,
+            "current_page": 1547,
+            "items": 12,
+            "fingerprint": "6b6a706d1cfd7085",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1548,
+            "current_page": 1548,
+            "items": 12,
+            "fingerprint": "e9441be0b1c908bd",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1549,
+            "current_page": 1549,
+            "items": 12,
+            "fingerprint": "da3932a434547512",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1550,
+            "current_page": 1550,
+            "items": 12,
+            "fingerprint": "4dc8f6aa57a3ff47",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1551,
+            "current_page": 1551,
+            "items": 12,
+            "fingerprint": "669849f2eee20b9a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1552,
+            "current_page": 1552,
+            "items": 12,
+            "fingerprint": "1d030a05b27a79bc",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1553,
+            "current_page": 1553,
+            "items": 12,
+            "fingerprint": "9d96cb08b4f1f47e",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1554,
+            "current_page": 1554,
+            "items": 12,
+            "fingerprint": "0e2d04744199153a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1555,
+            "current_page": 1555,
+            "items": 12,
+            "fingerprint": "fcddfa78f7e15623",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1556,
+            "current_page": 1556,
+            "items": 12,
+            "fingerprint": "bedafccb002a1bb8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1557,
+            "current_page": 1557,
+            "items": 12,
+            "fingerprint": "1f08e6e691a84002",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1558,
+            "current_page": 1558,
+            "items": 12,
+            "fingerprint": "db1446c9d311c45e",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1559,
+            "current_page": 1559,
+            "items": 12,
+            "fingerprint": "e0daf6343df20b32",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1560,
+            "current_page": 1560,
+            "items": 12,
+            "fingerprint": "afca56d4f4d277f1",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1561,
+            "current_page": 1561,
+            "items": 12,
+            "fingerprint": "632d1e24ce6c8230",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1562,
+            "current_page": 1562,
+            "items": 12,
+            "fingerprint": "84bb80c6bcc0dabb",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1563,
+            "current_page": 1563,
+            "items": 12,
+            "fingerprint": "c9e8b74405deb2fa",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1564,
+            "current_page": 1564,
+            "items": 12,
+            "fingerprint": "b4aa0e47e5f94b1a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1565,
+            "current_page": 1565,
+            "items": 12,
+            "fingerprint": "897d4e532e2d71d3",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1566,
+            "current_page": 1566,
+            "items": 12,
+            "fingerprint": "0bf7f1f848253a17",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1567,
+            "current_page": 1567,
+            "items": 12,
+            "fingerprint": "a00e713449ecc530",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1568,
+            "current_page": 1568,
+            "items": 12,
+            "fingerprint": "2b303b72c3ded925",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1569,
+            "current_page": 1569,
+            "items": 12,
+            "fingerprint": "6e17013471b6a1c2",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1570,
+            "current_page": 1570,
+            "items": 12,
+            "fingerprint": "61b31bf29feb664b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1571,
+            "current_page": 1571,
+            "items": 12,
+            "fingerprint": "d3d4d0dee621091e",
+            "added_to_batch": 10
+          },
+          {
+            "page": 1572,
+            "current_page": 1572,
+            "items": 12,
+            "fingerprint": "168e36a6f36a8f71",
+            "added_to_batch": 10
+          },
+          {
+            "page": 1573,
+            "current_page": 1573,
+            "items": 12,
+            "fingerprint": "ae4caa92c5a6cd27",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1574,
+            "current_page": 1574,
+            "items": 12,
+            "fingerprint": "692957922a59a214",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1575,
+            "current_page": 1575,
+            "items": 12,
+            "fingerprint": "2eb24d547e38f4a5",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1576,
+            "current_page": 1576,
+            "items": 12,
+            "fingerprint": "b1aba501f2c5a71b",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1577,
+            "current_page": 1577,
+            "items": 12,
+            "fingerprint": "d1a84a0735594252",
+            "added_to_batch": 10
+          },
+          {
+            "page": 1578,
+            "current_page": 1578,
+            "items": 12,
+            "fingerprint": "6710781afe9feb53",
+            "added_to_batch": 10
+          },
+          {
+            "page": 1579,
+            "current_page": 1579,
+            "items": 12,
+            "fingerprint": "f8b7d0262a61cdcc",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1580,
+            "current_page": 1580,
+            "items": 12,
+            "fingerprint": "13c797ee7e6960f8",
+            "added_to_batch": 10
+          },
+          {
+            "page": 1581,
+            "current_page": 1581,
+            "items": 12,
+            "fingerprint": "93588bf6dca727bd",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1582,
+            "current_page": 1582,
+            "items": 12,
+            "fingerprint": "ea994871ea43b114",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1583,
+            "current_page": 1583,
+            "items": 12,
+            "fingerprint": "499913d3a2474db9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1584,
+            "current_page": 1584,
+            "items": 12,
+            "fingerprint": "9e9c60a7a5198096",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1585,
+            "current_page": 1585,
+            "items": 12,
+            "fingerprint": "fe2a11beeb3e4368",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1586,
+            "current_page": 1586,
+            "items": 12,
+            "fingerprint": "cb16da65e3e66738",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1587,
+            "current_page": 1587,
+            "items": 12,
+            "fingerprint": "d39e90bd4718f6fc",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1588,
+            "current_page": 1588,
+            "items": 12,
+            "fingerprint": "cd2783cbcb36b54c",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1589,
+            "current_page": 1589,
+            "items": 12,
+            "fingerprint": "4f0a38fb6f52f4bc",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1590,
+            "current_page": 1590,
+            "items": 12,
+            "fingerprint": "7d7234d2a6cedae8",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1591,
+            "current_page": 1591,
+            "items": 12,
+            "fingerprint": "4ea37bc11496a4b7",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1592,
+            "current_page": 1592,
+            "items": 12,
+            "fingerprint": "33650dc40a84034e",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1593,
+            "current_page": 1593,
+            "items": 12,
+            "fingerprint": "85061c4d7e73b3d9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1594,
+            "current_page": 1594,
+            "items": 12,
+            "fingerprint": "86534e78356afe35",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1595,
+            "current_page": 1595,
+            "items": 12,
+            "fingerprint": "adeb5e4553388b66",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1596,
+            "current_page": 1596,
+            "items": 12,
+            "fingerprint": "77777dd0febfe552",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1597,
+            "current_page": 1597,
+            "items": 12,
+            "fingerprint": "7f7133f648c8bebd",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1598,
+            "current_page": 1598,
+            "items": 12,
+            "fingerprint": "2d2da270ed2681fa",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1599,
+            "current_page": 1599,
+            "items": 12,
+            "fingerprint": "dad6d8d478a26a99",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1600,
+            "current_page": 1600,
+            "items": 12,
+            "fingerprint": "9febc4a874ea64fa",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1601,
+            "current_page": 1601,
+            "items": 12,
+            "fingerprint": "d2f040cc0740dfca",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1602,
+            "current_page": 1602,
+            "items": 12,
+            "fingerprint": "4bc1e5d23ba2f57c",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1603,
+            "current_page": 1603,
+            "items": 12,
+            "fingerprint": "c1778820c37937ed",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1604,
+            "current_page": 1604,
+            "items": 12,
+            "fingerprint": "92c2b829fd662dba",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1605,
+            "current_page": 1605,
+            "items": 12,
+            "fingerprint": "bd8b11805fa309d2",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1606,
+            "current_page": 1606,
+            "items": 12,
+            "fingerprint": "593b2029293e8b4e",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1607,
+            "current_page": 1607,
+            "items": 12,
+            "fingerprint": "e44777958ac002c2",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1608,
+            "current_page": 1608,
+            "items": 12,
+            "fingerprint": "789efc4c204c84f9",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1609,
+            "current_page": 1609,
+            "items": 12,
+            "fingerprint": "b3a00c9a1411d117",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1610,
+            "current_page": 1610,
+            "items": 12,
+            "fingerprint": "374cc202462e5177",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1611,
+            "current_page": 1611,
+            "items": 12,
+            "fingerprint": "dc912040e2838037",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1612,
+            "current_page": 1612,
+            "items": 12,
+            "fingerprint": "9904f819e3d9771a",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1613,
+            "current_page": 1613,
+            "items": 12,
+            "fingerprint": "51b62f87fee9c8d1",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1614,
+            "current_page": 1614,
+            "items": 12,
+            "fingerprint": "c81ffda892d6eefc",
+            "added_to_batch": 8
+          },
+          {
+            "page": 1615,
+            "current_page": 1615,
+            "items": 12,
+            "fingerprint": "30bf5f4e968d31b3",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1616,
+            "current_page": 1616,
+            "items": 12,
+            "fingerprint": "3427cc4c022ddc02",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1617,
+            "current_page": 1617,
+            "items": 12,
+            "fingerprint": "6e52d28b10817a5d",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1618,
+            "current_page": 1618,
+            "items": 12,
+            "fingerprint": "8e57a4783998f523",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1619,
+            "current_page": 1619,
+            "items": 12,
+            "fingerprint": "f0682cfeb2b606df",
+            "added_to_batch": 12
+          },
+          {
+            "page": 1620,
+            "current_page": 1620,
+            "items": 12,
+            "fingerprint": "e54ec4b4650d721a",
+            "added_to_batch": 12
+          }
+        ],
+        "status": "ok",
+        "max_page": 2000,
+        "search_items": 634,
+        "catalog_items": 2753,
         "recent_page_limit": 60,
         "archive_page_limit": 180,
-        "recent_pages": 0,
-        "archive_pages": 0,
-        "next_page": 1441
+        "recent_pages": 60,
+        "archive_pages": 180,
+        "next_page": 1621
       },
       "javdb": {
         "archive_from": 129,
@@ -47,26 +1727,26 @@
         "status": "access_limited"
       }
     },
-    "previous_total": 50741,
-    "new_to_catalog": 0,
-    "recent_added": 0,
+    "previous_total": 50742,
+    "new_to_catalog": 1,
+    "recent_added": 1,
     "archive_added": 0,
-    "total_after": 50742,
+    "total_after": 50743,
     "walker_recent_added": 0,
     "walker_archive_added": 0,
     "walker_discovery_added": 0,
     "walker_unseen_before": 16673,
-    "walker_missav_verified": 67,
-    "walker_rejected_missav_404": 11527,
+    "walker_missav_verified": 248,
+    "walker_rejected_missav_404": 11709,
     "walker_cached_dead_skipped": 11461,
-    "walker_deferred_unverified": 1,
+    "walker_deferred_unverified": 0,
     "walker_official_checked": 0,
     "walker_official_added": 0,
     "walker_official_not_found": 0,
     "walker_official_deferred": 0,
-    "walker_budget_exhausted": false,
+    "walker_budget_exhausted": true,
     "walker_budget_sec": 150,
-    "walker_elapsed_sec": 19.8,
+    "walker_elapsed_sec": 151.0,
     "primary_links_repaired": 0,
     "walker_official_fastlane_added": 0,
     "walker_official_fastlane_checked": 0,
