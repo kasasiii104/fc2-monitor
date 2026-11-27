@@ -9,8 +9,8 @@
   "missav_cycle_completed_at": "2026-11-25 22:55:04",
   "source_retry_at": {},
   "last_discovery": {
-    "checked_at": "2026-11-28 05:54:19",
-    "found_unique": 641,
+    "checked_at": "2026-11-28 06:43:09",
+    "found_unique": 513,
     "sources": {
       "missav": {
         "archive_from": 1801,
@@ -22,10 +22,10 @@
         "pages": [],
         "status": "access_limited",
         "stopped_page": 1,
-        "search_items": 641,
+        "search_items": 513,
         "catalog_items": 0,
-        "recent_page_limit": 60,
-        "archive_page_limit": 180,
+        "recent_page_limit": 48,
+        "archive_page_limit": 120,
         "recent_pages": 0,
         "archive_pages": 0,
         "next_page": 1801
@@ -47,30 +47,7 @@
     "new_to_catalog": 0,
     "recent_added": 0,
     "archive_added": 0,
-    "total_after": 51915,
-    "walker_recent_added": 0,
-    "walker_archive_added": 0,
-    "walker_discovery_added": 0,
-    "walker_unseen_before": 15521,
-    "walker_missav_verified": 66,
-    "walker_rejected_missav_404": 15143,
-    "walker_cached_dead_skipped": 15077,
-    "walker_deferred_unverified": 0,
-    "walker_official_checked": 0,
-    "walker_official_added": 0,
-    "walker_official_not_found": 0,
-    "walker_official_deferred": 0,
-    "walker_budget_exhausted": false,
-    "walker_budget_sec": 150,
-    "walker_elapsed_sec": 23.6,
-    "primary_links_repaired": 0,
-    "walker_official_fastlane_added": 0,
-    "walker_official_fastlane_checked": 0,
-    "walker_official_fastlane_success": 0,
-    "walker_official_fastlane_failed": 0,
-    "walker_official_fastlane_rejected": 0,
-    "walker_official_fastlane_not_found": 0,
-    "walker_official_fastlane_relinked": 0
+    "total_after": 51915
   },
   "missav_repeated_pages": [
     {
@@ -162,7 +139,8 @@
       "search": 1795856059
     },
     "supjav": {
-      "category": 1795856059
+      "category": 1795856059,
+      "search": 1795859710
     }
   }
 }
