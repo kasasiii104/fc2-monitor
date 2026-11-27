@@ -28,6 +28,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
             "GITHUB_OUTPUT": str(self.github_output),
         }))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
+        self.enterContext(patch.dict(m.CHANNEL_RETRY_AT, {}, clear=True))
         self.enterContext(patch.object(m, "now_ts", return_value=self.now))
         self.enterContext(patch.object(m, "initialize_run_deadline"))
         self.enterContext(patch.object(m, "run_deadline_reached", return_value=False))
@@ -42,9 +43,14 @@ class DiscoveryFix12Tests(unittest.TestCase):
             return SimpleNamespace(status_code=statuses[purpose], text="", url=url, headers={})
         self.http.side_effect = response
 
-    def assert_saved_deadlines(self, deadlines):
+    def assert_saved_deadlines(self, sources=None, *, channels=None):
         self.assertEqual(json.loads(m.SOURCE_COOLDOWN_FILE.read_text()),
-                         {"source_retry_at": deadlines})
+                         {"source_retry_at": sources or {}, "channel_retry_at": channels or {}})
+
+    def denied_channels(self, *sources):
+        deadline = self.now + m.DISCOVERY_RETRY_SEC
+        routes = {"missav": ("search", "catalog"), "javdb": ("search",), "supjav": ("category",)}
+        return {source: dict.fromkeys(routes[source], deadline) for source in sources}
 
     def test_all_denied_returns_zero_without_writing_crawl(self):
         self.reply(dict.fromkeys(self.sources, 403))
@@ -52,11 +58,11 @@ class DiscoveryFix12Tests(unittest.TestCase):
         self.assertEqual(m.main(discovery_only=True), 0)
         self.assertEqual(self.github_output.read_text(), "all_sources_denied=true\n")
         self.assertEqual(m.CRAWL_FILE.read_bytes(), before)
-        self.assert_saved_deadlines(dict.fromkeys(self.sources, self.now + m.DISCOVERY_RETRY_SEC))
+        self.assert_saved_deadlines(channels=self.denied_channels(*self.sources))
         self.assertIn("[main discovery] all sources access_limited; no items fetched (exit 0)",
                       self.stdout.getvalue().splitlines())
         self.assertTrue(any(line.startswith("::warning::") for line in self.stdout.getvalue().splitlines()))
-        self.assertEqual(m.DISCOVERY_FETCH_OUTCOMES["denied"], 3)
+        self.assertEqual(m.DISCOVERY_FETCH_OUTCOMES["denied"], 4)
         self.http.reset_mock()
         self.assertEqual(m.main(discovery_only=True), 0)
         self.http.assert_not_called()
@@ -67,14 +73,17 @@ class DiscoveryFix12Tests(unittest.TestCase):
         before = m.CRAWL_FILE.read_bytes()
         self.assertEqual(m.main(discovery_only=True), 1)
         self.assertEqual(self.github_output.read_bytes(), b"")
-        deadlines = dict.fromkeys(("missav", "javdb"), self.now + m.DISCOVERY_RETRY_SEC)
-        self.assert_saved_deadlines(deadlines)
-        self.assertEqual(m.load_json(m.CRAWL_FILE, {}), {**self.cursors, "source_retry_at": deadlines})
+        deadlines = self.denied_channels("missav", "javdb")
+        self.assert_saved_deadlines(channels=deadlines)
+        self.assertEqual(m.load_json(m.CRAWL_FILE, {}), {
+            **self.cursors, "source_retry_at": {}, "channel_retry_at": deadlines,
+        })
         self.assertNotIn("::warning::", self.stdout.getvalue())
 
         # Preserve publishes the cooldown file while crawl state reverts to the run's start.
         m.CRAWL_FILE.write_bytes(before)
         m.SOURCE_RETRY_AT.clear()
+        m.CHANNEL_RETRY_AT.clear()
         self.http.reset_mock()
         _, crawl = m.get_latest_videos()
         self.assertEqual({call.args[1] for call in self.http.call_args_list}, {"supjav"})
@@ -90,7 +99,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
             self.assertEqual(m.main(discovery_only=True), 1)
         self.assertIn("::error::[main discovery] could not write GITHUB_OUTPUT", self.stderr.getvalue())
         self.assertEqual(m.CRAWL_FILE.read_bytes(), before)
-        self.assert_saved_deadlines(dict.fromkeys(self.sources, self.now + m.DISCOVERY_RETRY_SEC))
+        self.assert_saved_deadlines(channels=self.denied_channels(*self.sources))
 
     def test_all_denied_without_github_output_returns_zero(self):
         self.reply(dict.fromkeys(self.sources, 403))
@@ -117,9 +126,12 @@ class DiscoveryFix12Tests(unittest.TestCase):
                     m.save_json(m.CRAWL_FILE, self.cursors)
                     self.http.side_effect = response
                     self.assertEqual(m.main(discovery_only=True), 1)
-                    self.assert_saved_deadlines(dict.fromkeys(self.sources, self.now + m.DISCOVERY_RETRY_SEC))
+                    channels = self.denied_channels(*self.sources)
+                    if source == "missav":
+                        del channels["missav"]["search"]
+                    self.assert_saved_deadlines(channels=channels)
                     self.assertEqual(m.DISCOVERY_FETCH_OUTCOMES["other"], 1)
-                    self.assertEqual(m.DISCOVERY_FETCH_OUTCOMES["denied"], 3)
+                    self.assertEqual(m.DISCOVERY_FETCH_OUTCOMES["denied"], 3 if source == "missav" else 4)
                     self.assertEqual(self.github_output.read_bytes(), b"")
 
     def test_error_report_returns_one_even_with_three_deadlines(self):
@@ -131,7 +143,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
 
         with patch.object(m, "scrape_supjav", side_effect=fail_after_denial):
             self.assertEqual(m.main(discovery_only=True), 1)
-        self.assert_saved_deadlines(dict.fromkeys(self.sources, self.now + m.DISCOVERY_RETRY_SEC))
+        self.assert_saved_deadlines(channels=self.denied_channels(*self.sources))
         self.assertIn('"status": "error"', self.stdout.getvalue())
         self.assertNotIn("::warning::", self.stdout.getvalue())
 
@@ -145,6 +157,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
         self.assert_saved_deadlines({"missav": self.now + 60})
         crawl = m.load_json(m.CRAWL_FILE, {})
         crawl.pop("source_retry_at")
+        self.assertEqual(crawl.pop("channel_retry_at"), {})
         self.assertEqual(crawl, self.cursors)
 
     def test_empty_discovery_saves_empty_deadlines_and_returns_one(self):
@@ -177,7 +190,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
             with self.assertRaises(PermissionError) as caught:
                 m.save_source_cooldown_file()
         self.assertIs(caught.exception, error)
-        save.assert_called_once_with(m.SOURCE_COOLDOWN_FILE, {"source_retry_at": {}})
+        save.assert_called_once_with(m.SOURCE_COOLDOWN_FILE, {"source_retry_at": {}, "channel_retry_at": {}})
 
     def test_state_validation_failure_returns_one_before_discovery(self):
         m.CRAWL_FILE.write_text("[]", encoding="utf-8")
@@ -202,7 +215,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
     def test_full_mode_all_denied_returns_one(self):
         self.reply(dict.fromkeys(self.sources, 403))
         self.assertEqual(m.main(discovery_only=False), 1)
-        self.assert_saved_deadlines(dict.fromkeys(self.sources, self.now + m.DISCOVERY_RETRY_SEC))
+        self.assert_saved_deadlines(channels=self.denied_channels(*self.sources))
         self.assertNotIn("::warning::", self.stdout.getvalue())
 
     def test_file_only_deadlines_skip_requests_and_expired_deadlines_do_not(self):
@@ -250,9 +263,9 @@ class DiscoveryFix12Tests(unittest.TestCase):
              patch.object(m, "run_optional_step", side_effect=optional_step), \
              patch.object(m, "write_site"):
             self.assertEqual(m.main(), 0)
-        deadlines = {"missav": self.now + m.DISCOVERY_RETRY_SEC}
-        self.assert_saved_deadlines(deadlines)
-        self.assertEqual(m.load_json(m.CRAWL_FILE, {})["source_retry_at"], deadlines)
+        deadlines = {"missav": {"search": self.now + m.DISCOVERY_RETRY_SEC}}
+        self.assert_saved_deadlines(channels=deadlines)
+        self.assertEqual(m.load_json(m.CRAWL_FILE, {})["channel_retry_at"], deadlines)
 
     def test_refresh_saves_denial_when_fill_missing_views_raises(self):
         item = m.enrich("8000001", "title", "JavDB", "https://javdb.com/v/test", None, None)
@@ -263,7 +276,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as caught:
                 m.refresh_update_metadata()
         self.assertIs(caught.exception, error)
-        self.assert_saved_deadlines({"missav": self.now + m.DISCOVERY_RETRY_SEC})
+        self.assert_saved_deadlines(channels={"missav": {"ranking": self.now + m.DISCOVERY_RETRY_SEC}})
 
     def test_main_saves_post_discovery_denial_when_write_site_raises(self):
         def response(url, purpose, **kwargs):
@@ -286,7 +299,7 @@ class DiscoveryFix12Tests(unittest.TestCase):
                 m.main()
         self.assertIs(caught.exception, error)
         self.assertEqual([item["code"] for item in write_site.call_args.args[0]], ["FC2-PPV-8000001"])
-        self.assert_saved_deadlines({"missav": self.now + m.DISCOVERY_RETRY_SEC})
+        self.assert_saved_deadlines(channels={"missav": {"ranking": self.now + m.DISCOVERY_RETRY_SEC}})
 
     def test_final_save_failure_preserves_in_flight_exception(self):
         for error in (None, RuntimeError("processing failed")):

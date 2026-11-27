@@ -139,6 +139,8 @@ PAGES = int(os.environ.get("PAGES", "16"))
 BACKFILL_PAGES = int(os.environ.get("BACKFILL_PAGES", "48"))
 DISCOVERY_RETRY_SEC = 12 * 3600
 SOURCE_RETRY_AT = {}
+CHANNEL_RETRY_AT = {}
+DISCOVERY_CHANNELS = {"missav": ("search", "catalog"), "javdb": ("search",), "supjav": ("category",)}
 DISCOVERY_FETCH_OUTCOMES = Counter()
 JAVDB_URL = os.environ.get("JAVDB_URL", "https://javdb.com/search?q=FC2&f=all")
 JAVDB_BACKFILL_PAGES = int(os.environ.get("JAVDB_BACKFILL_PAGES", "6"))
@@ -442,11 +444,15 @@ def validate_crawl_state(path: Path, state):
 
     root_schema = dict.fromkeys(("missav_page", "supjav_page", "javdb_page", "missav_cycle"), int)
     root_schema.update(missav_cycle_completed_at=str, recovery_until=dict,
-                       source_retry_at=dict, last_discovery=dict, missav_repeated_pages=list)
+                       source_retry_at=dict, channel_retry_at=dict, last_discovery=dict, missav_repeated_pages=list)
     fields(state, root_schema, "$")
     for key in ("source_retry_at", "recovery_until"):
         for name, value in state.get(key, {}).items():
             check(value, int, f"$.{key}.{name}")
+    for source, channels in state.get("channel_retry_at", {}).items():
+        check(channels, dict, f"$.channel_retry_at.{source}", fatal=True)
+        for channel, deadline in channels.items():
+            check(deadline, int, f"$.channel_retry_at.{source}.{channel}")
     typed_rows(state.get("missav_repeated_pages", []),
                dict(page=int, at=str, reason=str), "$.missav_repeated_pages")
     metric_names = (
@@ -811,60 +817,119 @@ def discovery_source(url):
     return ""
 
 
+def discovery_channel(url):
+    source = discovery_source(url)
+    if not source:
+        return "", ""
+    parsed = urlsplit(url)
+    path = parsed.path.rstrip("/")
+    if source == "missav":
+        path = missav_route_path(path)
+        if "/search/" in parsed.path:
+            return source, "search"
+        if path == "/ja/fc2":
+            return source, "ranking" if "sort" in parse_qs(parsed.query, keep_blank_values=True) else "catalog"
+    elif source == "javdb" and path == "/search":
+        return source, "search"
+    elif source == "supjav":
+        if "/category/" in parsed.path:
+            return source, "category"
+        if "s" in parse_qs(parsed.query, keep_blank_values=True):
+            return source, "search"
+    return source, "detail"
+
+
+def channel_retry_at(source, channel, retries):
+    return max(retries["source_retry_at"].get(source, 0),
+               retries["channel_retry_at"].get(source, {}).get(channel, 0))
+
+
+def url_retry_at(url):
+    return channel_retry_at(*discovery_channel(url), pending_discovery_cooldowns())
+
+
+def discovery_retry_at(source, retries, now):
+    # Discovery can resume when the first of its routes becomes available.
+    deadline = min(channel_retry_at(source, channel, retries) for channel in DISCOVERY_CHANNELS[source])
+    return deadline if deadline > now else 0
+
+
 def source_in_cooldown(url):
-    return int(SOURCE_RETRY_AT.get(discovery_source(url)) or 0) > now_ts()
+    return url_retry_at(url) > now_ts()
 
 
 def record_source_denial(url, status, challenge=False):
-    source = discovery_source(url)
+    source, channel = discovery_channel(url)
     if source and (status in (401, 403, 429) or challenge):
-        SOURCE_RETRY_AT[source] = now_ts() + DISCOVERY_RETRY_SEC
+        deadlines = CHANNEL_RETRY_AT.setdefault(source, {})
+        deadlines[channel] = max(deadlines.get(channel, 0), now_ts() + DISCOVERY_RETRY_SEC)
+
+
+def merge_retry_deadlines(target, deadlines, now, *, coerce=False):
+    if not isinstance(deadlines, dict):
+        return
+    for key, deadline in deadlines.items():
+        if coerce:
+            try:
+                deadline = int(deadline)
+            except (TypeError, ValueError, OverflowError):
+                continue
+        if type(deadline) is int and deadline > now:
+            target[key] = max(target.get(key, 0), deadline)
+
+
+def merge_discovery_cooldowns(*states, legacy=None):
+    now = now_ts()
+    sources, channels = {}, {}
+    if legacy is not None:
+        merge_retry_deadlines(sources, legacy.get("source_retry_at"), now, coerce=True)
+        states = (legacy, *states)
+    for state in states:
+        merge_retry_deadlines(sources, state.get("source_retry_at"), now)
+        by_source = state.get("channel_retry_at")
+        if isinstance(by_source, dict):
+            for source, deadlines in by_source.items():
+                merge_retry_deadlines(channels.setdefault(source, {}), deadlines, now)
+    return {"source_retry_at": sources,
+            "channel_retry_at": {source: deadlines for source, deadlines in channels.items() if deadlines}}
+
+
+def pending_discovery_cooldowns():
+    return {"source_retry_at": SOURCE_RETRY_AT, "channel_retry_at": CHANNEL_RETRY_AT}
 
 
 def load_discovery_cooldowns(crawl_state, pending=None):
     """Merge active deadlines from persisted state and, for status, the current run."""
-    retries = {}
     try:
-        payload = json.loads(SOURCE_COOLDOWN_FILE.read_text(encoding="utf-8"))
-        saved = payload.get("source_retry_at") if isinstance(payload, dict) else None
-        if not isinstance(saved, dict):
+        saved = json.loads(SOURCE_COOLDOWN_FILE.read_text(encoding="utf-8"))
+        if not isinstance(saved, dict) or not isinstance(saved.get("source_retry_at"), dict):
             raise ValueError("expected a source_retry_at object")
-        if any(type(value) is not int for value in saved.values()):
+        if any(type(value) is not int for value in saved["source_retry_at"].values()):
             print(f"[source cooldowns] warning: {SOURCE_COOLDOWN_FILE}: ignoring non-integer deadlines")
     except (OSError, ValueError, RecursionError) as exc:
         print(f"[source cooldowns] warning: {SOURCE_COOLDOWN_FILE}: {str(exc).splitlines()[0]}")
         saved = {}
-    now = now_ts()
-    legacy = crawl_state.get("source_retry_at") or {}
-    for deadlines in (legacy, saved, pending or {}):
-        for source, deadline in deadlines.items():
-            if deadlines is legacy:
-                try:
-                    deadline = int(deadline)
-                except (TypeError, ValueError, OverflowError):
-                    continue
-            if type(deadline) is int and deadline > now:
-                retries[source] = max(retries.get(source, deadline), deadline)
-    return retries
+    return merge_discovery_cooldowns(saved, pending or {}, legacy=crawl_state)
+
+
+def initialize_discovery_cooldowns(crawl_state):
+    retries = load_discovery_cooldowns(crawl_state)
+    for key, target in pending_discovery_cooldowns().items():
+        target.clear()
+        target.update(retries[key])
 
 
 def save_source_cooldown_file():
-    now = now_ts()
     try:
         saved = json.loads(SOURCE_COOLDOWN_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
         saved = None
-    saved_deadlines = saved.get("source_retry_at") if isinstance(saved, dict) else None
-    deadlines = {}
-    for retries in (saved_deadlines, SOURCE_RETRY_AT):
-        if isinstance(retries, dict):
-            for source, deadline in retries.items():
-                if type(deadline) is int and deadline > now:
-                    deadlines[source] = max(deadlines.get(source, deadline), deadline)
-    payload = {"source_retry_at": deadlines}
-    if (saved != payload
-            or any(type(deadline) is not int for deadline in saved["source_retry_at"].values())):
+    payload = merge_discovery_cooldowns(saved if isinstance(saved, dict) else {},
+                                       pending_discovery_cooldowns())
+    # JSON distinguishes integer deadlines from equal-valued floats and booleans.
+    if saved != payload or json.dumps(saved, sort_keys=True) != json.dumps(payload, sort_keys=True):
         save_json(SOURCE_COOLDOWN_FILE, payload)
+    return payload
 
 
 @contextmanager
@@ -886,10 +951,11 @@ def persist_source_cooldowns():
 
 def save_discovery_cooldowns():
     """Persist denials even when collection fails, without advancing cursors."""
-    save_source_cooldown_file()
+    saved = save_source_cooldown_file()
     state = load_json(CRAWL_FILE, {})
-    if (state.get("source_retry_at") or {}) != SOURCE_RETRY_AT:
-        state["source_retry_at"] = dict(SOURCE_RETRY_AT)
+    retries = merge_discovery_cooldowns(saved, legacy=state)
+    if any(state.get(key, {}) != deadlines for key, deadlines in retries.items()):
+        state.update(retries)
         save_json(CRAWL_FILE, state)
 
 
@@ -1359,7 +1425,7 @@ def scrape_missav_fc2_rankings() -> dict:
         if deferred:
             break
         if outcome["status"] == "access_limited":
-            outcome["next_retry_at"] = int(SOURCE_RETRY_AT.get("missav") or 0)
+            outcome["next_retry_at"] = url_retry_at(url)
         periods[period] = outcome
         print(f"[MissAV FC2 rank {period}] status={outcome['status']} count={len(outcome.get('codes', []))}")
     if href_rejected:
@@ -1489,13 +1555,21 @@ def fill_missing_views(items) -> None:
         item["views_updated"] = False
 
     rejection = None
+    limited_channels = {}
+
+    def mark_limited(url):
+        limited_channels[discovery_channel(url)] = url_retry_at(url)
+        stats["status"] = "access_limited"
+
+    def cooldown_skip(url):
+        if discovery_channel(url) in limited_channels or source_in_cooldown(url):
+            mark_limited(url)
+            return True
+        return False
 
     def request(url):
         nonlocal rejection
         rejection = None
-        if source_in_cooldown(url):
-            stats["status"] = "access_limited"
-            return None
         stats["requests"] += 1
         info = fetch_page(url, purpose="supjav")
         if info.get("error") == "run_deadline":
@@ -1508,7 +1582,7 @@ def fill_missing_views(items) -> None:
             return None
         if page_access_limited(info):
             record_source_denial(url, info.get("status"), info.get("cloudflare", False))
-            stats["status"] = "access_limited"
+            mark_limited(url)
             return None
         try:
             final_source = discovery_source(info.get("final_url") or url)
@@ -1528,62 +1602,63 @@ def fill_missing_views(items) -> None:
                           "next_retry_at": now + VIEW_REFRESH_SEC}
         updated.add(code)
 
-    if source_in_cooldown(SUPJAV_URL):
-        stats["status"] = "access_limited"
-    else:
-        by_code = {x["code"]: x for x in items}
-        for page_index, page in enumerate(range(1, 4)):
-            if run_deadline_reached("fill_missing_views", 3 - page_index):
-                break
-            url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
-            soup = request(url)
-            if soup is not None:
-                codes = set(CODE_RE.findall(soup.get_text(" ", strip=True)))
-                for num in codes:
-                    item = by_code.get("FC2-PPV-" + num)
-                    value = supjav_work_views(soup, num) if item else None
-                    if value is not None:
-                        record_success(item, value)
-            if stats["status"] == "access_limited":
-                break
-        # Do not inherit last_views_attempt: older code incorrectly set it on every
-        # catalog entry even when it had not requested that work.
-        queue = sorted((x for x in items if x["code"] not in updated
-                        and now >= int((attempts.get(x["code"]) or {}).get("next_retry_at") or 0)),
-                       key=lambda x: (int((attempts.get(x["code"]) or {}).get("last_attempt") or 0),
-                                      not bool(x.get("is_new")), x.get("first_seen") or "", x["code"]))
-        for item_index, item in enumerate(queue):
-            if run_deadline_reached("fill_missing_views", len(queue) - item_index):
-                break
-            if stats["status"] == "access_limited" or stats["tried"] >= VIEW_FETCH_LIMIT or stats["failed"] >= 3:
-                break
-            url = supjav_detail_url(item)
-            if not url:
-                continue
-            rec = attempts.get(item["code"]) or {}
-            soup = request(url)
-            if stats["status"] == "run_deadline":
-                break
-            item["last_views_attempt"] = now
-            stats["tried"] += 1
-            value = supjav_work_views(soup, item.get("code_num") or item["code"].split("-")[-1])
-            if value is not None:
-                record_success(item, value)
-            elif rejection:
-                attempts[item["code"]] = {**rec, "last_attempt": now, "status": "rejected",
-                                         "reason": rejection, "next_retry_at": now + FAIL_SKIP_SEC}
-            else:
-                failures = int(rec.get("failures") or 0) + 1
-                delay = DISCOVERY_RETRY_SEC if stats["status"] == "access_limited" else min(3 * 86400, FAIL_SKIP_SEC * 2 ** min(failures - 1, 3))
-                attempts[item["code"]] = {**rec, "last_attempt": now, "failures": failures,
-                                         "next_retry_at": now + delay}
+    by_code = {x["code"]: x for x in items}
+    for page_index, page in enumerate(range(1, 4)):
+        if run_deadline_reached("fill_missing_views", 3 - page_index):
+            break
+        url = SUPJAV_URL if page == 1 else f"{SUPJAV_URL.rstrip('/')}/page/{page}"
+        if cooldown_skip(url):
+            break
+        soup = request(url)
+        if stats["status"] == "run_deadline":
+            break
+        if soup is not None:
+            codes = set(CODE_RE.findall(soup.get_text(" ", strip=True)))
+            for num in codes:
+                item = by_code.get("FC2-PPV-" + num)
+                value = supjav_work_views(soup, num) if item else None
+                if value is not None:
+                    record_success(item, value)
+        if discovery_channel(url) in limited_channels:
+            break
+    # Do not inherit last_views_attempt: older code incorrectly set it on every
+    # catalog entry even when it had not requested that work.
+    queue = sorted((x for x in items if x["code"] not in updated
+                    and now >= int((attempts.get(x["code"]) or {}).get("next_retry_at") or 0)),
+                   key=lambda x: (int((attempts.get(x["code"]) or {}).get("last_attempt") or 0),
+                                  not bool(x.get("is_new")), x.get("first_seen") or "", x["code"]))
+    for item_index, item in enumerate(queue):
+        if run_deadline_reached("fill_missing_views", len(queue) - item_index):
+            break
+        if stats["tried"] >= VIEW_FETCH_LIMIT or stats["failed"] >= 3:
+            break
+        url = supjav_detail_url(item)
+        if not url or cooldown_skip(url):
+            continue
+        rec = attempts.get(item["code"]) or {}
+        soup = request(url)
+        if stats["status"] == "run_deadline":
+            break
+        item["last_views_attempt"] = now
+        stats["tried"] += 1
+        value = supjav_work_views(soup, item.get("code_num") or item["code"].split("-")[-1])
+        if value is not None:
+            record_success(item, value)
+        elif rejection:
+            attempts[item["code"]] = {**rec, "last_attempt": now, "status": "rejected",
+                                     "reason": rejection, "next_retry_at": now + FAIL_SKIP_SEC}
+        else:
+            failures = int(rec.get("failures") or 0) + 1
+            delay = DISCOVERY_RETRY_SEC if discovery_channel(url) in limited_channels else min(3 * 86400, FAIL_SKIP_SEC * 2 ** min(failures - 1, 3))
+            attempts[item["code"]] = {**rec, "last_attempt": now, "failures": failures,
+                                     "next_retry_at": now + delay}
     stats["updated"] = len(updated)
     stats["known_views"] = sum(isinstance(x.get("views"), int) and x.get("views_source") == "Supjav" for x in items)
     stats["pending"] = sum(now >= int((attempts.get(x["code"]) or {}).get("next_retry_at") or 0) for x in items)
     stats["never_checked"] = sum(x["code"] not in attempts for x in items)
     stats["last_success_at"] = now_jst() if updated else (state.get(VIEW_STATS_KEY) or {}).get("last_success_at")
     if stats["status"] == "access_limited":
-        stats["next_retry_at"] = int(SOURCE_RETRY_AT.get("supjav") or 0)
+        stats["next_retry_at"] = min(limited_channels.values())
     elif stats["failed"]:
         stats["status"] = "partial" if updated else "fetch_failed"
     elif not updated:
@@ -3408,8 +3483,7 @@ def get_latest_videos():
     """Propose validated discovery progress; commit it only with the catalog."""
     DISCOVERY_FETCH_OUTCOMES.clear()
     state = load_json(CRAWL_FILE, {"missav_page": 3, "supjav_page": 3, "javdb_page": 3})
-    SOURCE_RETRY_AT.clear()
-    SOURCE_RETRY_AT.update(load_discovery_cooldowns(state))
+    initialize_discovery_cooldowns(state)
     recent_count = max(2, PAGES)
     mp = max(recent_count + 1, int(state.get("missav_page", recent_count + 1)))
     jp = int(state.get("javdb_page", 3))
@@ -3468,7 +3542,8 @@ def get_latest_videos():
         supjav_report = {}
         items = scrape_supjav([1, 2, 3], report=supjav_report)
         found.append(items)
-        reports["supjav"] = {"items": len(items), "status": "access_limited" if SOURCE_RETRY_AT.get("supjav", 0) > now_ts() else "checked", **supjav_report}
+        retry = discovery_retry_at("supjav", pending_discovery_cooldowns(), now_ts())
+        reports["supjav"] = {"items": len(items), "status": "access_limited" if retry else "checked", **supjav_report}
     except Exception as e:
         print(f"[get_latest_videos] source=supjav error={type(e).__name__} count=1")
         reports["supjav"] = {"status": "error", "error": str(e)}
@@ -3479,7 +3554,7 @@ def get_latest_videos():
         state["recovery_until"] = recovery
     else:
         state.pop("recovery_until", None)
-    state["source_retry_at"] = dict(SOURCE_RETRY_AT)
+    state.update(merge_discovery_cooldowns(pending_discovery_cooldowns()))
     videos = merge_videos(found)
     state["last_discovery"] = {"checked_at": now_jst(), "found_unique": len(videos), "sources": reports}
     print("[Discovery] " + json.dumps(state["last_discovery"], ensure_ascii=False))
@@ -3584,11 +3659,12 @@ def build_update_status(items, crawl=None, state=None):
     crawl = load_json(CRAWL_FILE, {}) if crawl is None else crawl
     state = load_json(FETCH_STATE_FILE, {}) if state is None else state
     discovery = crawl.get("last_discovery") or {}
-    retries = load_discovery_cooldowns(crawl, SOURCE_RETRY_AT)
+    retries = load_discovery_cooldowns(crawl, pending_discovery_cooldowns())
+    now = now_ts()
     sources = {}
-    for name in ("missav", "javdb", "supjav"):
+    for name in DISCOVERY_CHANNELS:
         report = (discovery.get("sources") or {}).get(name) or {}
-        retry = retries.get(name, 0)
+        retry = discovery_retry_at(name, retries, now)
         status = report.get("status") or "unknown"
         if retry:
             status = "access_limited"
@@ -3697,8 +3773,7 @@ def refresh_update_metadata():
     if not items:
         raise RuntimeError("No saved catalog to refresh")
     crawl = load_json(CRAWL_FILE, {})
-    SOURCE_RETRY_AT.clear()
-    SOURCE_RETRY_AT.update(load_discovery_cooldowns(crawl))
+    initialize_discovery_cooldowns(crawl)
     with persist_source_cooldowns():
         apply_missav_ranks(items, scrape_missav_rankings(), now_jst())
         fill_missing_views(items)
@@ -3847,9 +3922,10 @@ def all_discovery_sources_access_limited(crawl_state):
         return False
     sources = (crawl_state.get("last_discovery") or {}).get("sources") or {}
     now = now_ts()
+    retries = pending_discovery_cooldowns()
     return all((sources.get(source) or {}).get("status") == "access_limited"
-               and SOURCE_RETRY_AT.get(source, 0) > now
-               for source in ("missav", "javdb", "supjav"))
+               and discovery_retry_at(source, retries, now)
+               for source in DISCOVERY_CHANNELS)
 
 
 def main(discovery_only=False) -> int:
@@ -4006,8 +4082,6 @@ def run_monitor(discovery_only, state_inputs):
         crawl_state["last_discovery"].update(previous_total=len(existing_map), new_to_catalog=len(additions),
             recent_added=sum(item.get("discovery_kind") != "archive" for item in additions),
             archive_added=sum(item.get("discovery_kind") == "archive" for item in additions), total_after=len(merged))
-    if SOURCE_RETRY_AT:
-        crawl_state["source_retry_at"] = dict(SOURCE_RETRY_AT)
     save_json(DATA_FILE, {"updated_at": stamp, "items": merged})
     pending.extend(reversed(queued_new))
     pending = normalize_notify_queue({"pending": pending})
@@ -4015,7 +4089,9 @@ def run_monitor(discovery_only, state_inputs):
     save_json(HISTORY_FILE, {"updated_at": stamp, "ids": sorted(known)})
     write_site(merged, stamp, len(new_videos), build_update_status(merged, crawl_state))
     # Commit the discovery position only after both data and public output exist.
-    save_source_cooldown_file()
+    saved = save_source_cooldown_file()
+    retries = merge_discovery_cooldowns(saved, legacy=crawl_state)
+    crawl_state.update({key: value for key, value in retries.items() if value or key in crawl_state})
     save_json(CRAWL_FILE, crawl_state)
     print(f"[Catalog saved] items={len(merged)} new={len(new_videos)} updated_at={stamp}")
     if "last_discovery" in crawl_state:

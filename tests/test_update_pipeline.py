@@ -23,6 +23,7 @@ class UpdatePipelineTests(unittest.TestCase):
                           'VIEWS_HISTORY_FILE': 'views.json', 'HISTORY_FILE': 'history.json'}.items():
             self.enterContext(patch.object(m, key, root / name))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
+        self.enterContext(patch.dict(m.CHANNEL_RETRY_AT, {}, clear=True))
         self.enterContext(patch.object(m, 'now_ts', return_value=1800000000))
         self.enterContext(patch.object(m.requests, 'get', side_effect=AssertionError('Network must be mocked')))
         self.enterContext(patch.object(m.requests, 'post', side_effect=AssertionError('No notifications')))
@@ -102,7 +103,7 @@ class UpdatePipelineTests(unittest.TestCase):
             result = m.scrape_missav_rankings()
         self.assertEqual(fetch.call_count, 1)
         self.assertTrue(all(x['status'] == 'access_limited' for x in result['periods'].values()))
-        self.assertGreater(m.SOURCE_RETRY_AT['missav'], m.now_ts())
+        self.assertGreater(m.CHANNEL_RETRY_AT['missav']['ranking'], m.now_ts())
 
     def test_publisher_dynamic_route_is_accepted_only_when_locale_and_sort_match(self):
         def source(url, purpose=None):

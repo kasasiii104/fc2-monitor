@@ -17,6 +17,7 @@ class DiscoveryVolumeTests(unittest.TestCase):
                      'SOURCE_COOLDOWN_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
             self.enterContext(patch.object(m, name, root / name))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
+        self.enterContext(patch.dict(m.CHANNEL_RETRY_AT, {}, clear=True))
         self.enterContext(patch.object(m, 'PAGES', 16))
         self.enterContext(patch.object(m, 'BACKFILL_PAGES', 48))
         self.enterContext(patch.object(m.requests, 'get', side_effect=AssertionError('No external requests')))

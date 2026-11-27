@@ -18,6 +18,7 @@ class ArchiveDiscoveryTests(unittest.TestCase):
                      'SOURCE_COOLDOWN_FILE', 'FETCH_STATE_FILE', 'VIEWS_HISTORY_FILE', 'HTML_FILE'):
             self.enterContext(patch.object(m, name, Path(root) / (name + ('.html' if name == 'HTML_FILE' else '.json'))))
         self.enterContext(patch.dict(m.SOURCE_RETRY_AT, {}, clear=True))
+        self.enterContext(patch.dict(m.CHANNEL_RETRY_AT, {}, clear=True))
         # These legacy cursor fixtures put the archive boundary at page 9.
         self.enterContext(patch.object(m, 'PAGES', 8))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
@@ -113,15 +114,15 @@ class ArchiveDiscoveryTests(unittest.TestCase):
                 self.assertFalse(completed)
                 self.assertEqual(report['status'], 'access_limited')
 
-    def test_denial_cooldown_is_shared_across_a_sources_domains_and_paths(self):
+    def test_denial_cooldown_is_shared_across_domains_for_the_same_channel(self):
         response = Mock(status_code=403, text='<title>Just a moment...</title>', url='https://missav.ws/ja/fc2')
         with patch.object(m.requests, 'get', return_value=response) as request, patch.object(m, 'now_ts', return_value=1000):
             m.fetch_page('https://missav.ws/ja/fc2')
-            self.assertEqual(m.fetch_page('https://missav.live/ja/search/fc2-ppv')['error'], 'source_cooldown')
+            self.assertEqual(m.fetch_page('https://missav.live/ja/fc2?page=2')['error'], 'source_cooldown')
             with self.assertRaises(m.requests.HTTPError):
-                m.fetch_soup('https://missav.ai/ja/fc2-ppv-8000001')
+                m.fetch_soup('https://missav.ai/dm597/ja/fc2')
             self.assertEqual(request.call_count, 1)
-        self.assertEqual(m.SOURCE_RETRY_AT['missav'], 1000 + m.DISCOVERY_RETRY_SEC)
+        self.assertEqual(m.CHANNEL_RETRY_AT['missav']['catalog'], 1000 + m.DISCOVERY_RETRY_SEC)
 
     def test_generic_503_is_not_mislabelled_as_a_bot_challenge(self):
         response = Mock(status_code=503, text='<title>Service unavailable</title>', url='https://missav.ws/ja/fc2')
@@ -154,13 +155,15 @@ class ArchiveDiscoveryTests(unittest.TestCase):
     def test_all_sources_failing_still_saves_denial_without_cursor_progress(self):
         old = {'missav_page': 123, 'javdb_page': 129}
         m.save_json(m.CRAWL_FILE, old)
+        deadline = m.now_ts() + m.DISCOVERY_RETRY_SEC
+
         def empty():
-            m.SOURCE_RETRY_AT['missav'] = 50000
+            m.CHANNEL_RETRY_AT['missav'] = {'catalog': deadline}
             return [], {**old, 'missav_page': 999}
         with patch.object(m, 'get_latest_videos', side_effect=empty):
             self.assertEqual(m.main(discovery_only=True), 1)
         state = m.load_json(m.CRAWL_FILE, {})
-        self.assertEqual(state['source_retry_at']['missav'], 50000)
+        self.assertEqual(state['channel_retry_at']['missav']['catalog'], deadline)
         self.assertEqual(state['missav_page'], 123)
 
     def test_archive_only_run_saves_old_and_new_without_notifications_or_enrichment(self):
