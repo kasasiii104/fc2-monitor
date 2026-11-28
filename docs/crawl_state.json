@@ -9,7 +9,7 @@
   "missav_cycle_completed_at": "2026-11-28 11:54:42",
   "source_retry_at": {},
   "last_discovery": {
-    "checked_at": "2026-11-28 18:54:15",
+    "checked_at": "2026-11-28 19:54:12",
     "found_unique": 667,
     "sources": {
       "missav": {
@@ -52,9 +52,9 @@
     "walker_archive_added": 0,
     "walker_discovery_added": 0,
     "walker_unseen_before": 15663,
-    "walker_missav_verified": 239,
-    "walker_rejected_missav_404": 239,
-    "walker_cached_dead_skipped": 0,
+    "walker_missav_verified": 243,
+    "walker_rejected_missav_404": 416,
+    "walker_cached_dead_skipped": 173,
     "walker_deferred_unverified": 0,
     "walker_official_checked": 0,
     "walker_official_added": 0,
@@ -62,7 +62,7 @@
     "walker_official_deferred": 0,
     "walker_budget_exhausted": true,
     "walker_budget_sec": 150,
-    "walker_elapsed_sec": 151.4,
+    "walker_elapsed_sec": 151.1,
     "primary_links_repaired": 0,
     "walker_official_fastlane_added": 0,
     "walker_official_fastlane_checked": 0,
@@ -156,7 +156,6 @@
   ],
   "channel_retry_at": {
     "supjav": {
-      "search": 1795859710,
       "category": 1795902855
     },
     "missav": {
