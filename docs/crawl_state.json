@@ -9,8 +9,8 @@
   "missav_cycle_completed_at": "2026-11-28 11:54:42",
   "source_retry_at": {},
   "last_discovery": {
-    "checked_at": "2026-11-28 17:54:11",
-    "found_unique": 659,
+    "checked_at": "2026-11-28 18:54:15",
+    "found_unique": 667,
     "sources": {
       "missav": {
         "archive_from": 1261,
@@ -22,7 +22,7 @@
         "pages": [],
         "status": "access_limited",
         "stopped_page": 1,
-        "search_items": 659,
+        "search_items": 667,
         "catalog_items": 0,
         "recent_page_limit": 60,
         "archive_page_limit": 180,
@@ -52,17 +52,17 @@
     "walker_archive_added": 0,
     "walker_discovery_added": 0,
     "walker_unseen_before": 15663,
-    "walker_missav_verified": 67,
-    "walker_rejected_missav_404": 66,
+    "walker_missav_verified": 239,
+    "walker_rejected_missav_404": 239,
     "walker_cached_dead_skipped": 0,
-    "walker_deferred_unverified": 1,
+    "walker_deferred_unverified": 0,
     "walker_official_checked": 0,
     "walker_official_added": 0,
     "walker_official_not_found": 0,
     "walker_official_deferred": 0,
-    "walker_budget_exhausted": false,
+    "walker_budget_exhausted": true,
     "walker_budget_sec": 150,
-    "walker_elapsed_sec": 24.4,
+    "walker_elapsed_sec": 151.4,
     "primary_links_repaired": 0,
     "walker_official_fastlane_added": 0,
     "walker_official_fastlane_checked": 0,
@@ -155,15 +155,15 @@
     }
   ],
   "channel_retry_at": {
-    "javdb": {
-      "search": 1795856059
-    },
     "supjav": {
-      "category": 1795856059,
-      "search": 1795859710
+      "search": 1795859710,
+      "category": 1795902855
     },
     "missav": {
       "catalog": 1795899251
+    },
+    "javdb": {
+      "search": 1795902855
     }
   }
 }
